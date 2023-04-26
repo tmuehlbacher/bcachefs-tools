@@ -13,4 +13,4 @@
 #include <linux/six.h>
 
 #define CREATE_TRACE_POINTS
-#include <trace/events/bcachefs.h>
+#include "trace.h"

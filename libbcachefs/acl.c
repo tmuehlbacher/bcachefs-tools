@@ -212,7 +212,7 @@ bch2_acl_to_xattr(struct btree_trans *trans,
 	return xattr;
 }
 
-struct posix_acl *bch2_get_acl(struct user_namespace *mnt_userns,
+struct posix_acl *bch2_get_acl(struct mnt_idmap *idmap,
 			       struct dentry *dentry, int type)
 {
 	struct bch_inode_info *inode = to_bch_ei(dentry->d_inode);
@@ -290,7 +290,7 @@ int bch2_set_acl_trans(struct btree_trans *trans, subvol_inum inum,
 	return ret == -ENOENT ? 0 : ret;
 }
 
-int bch2_set_acl(struct user_namespace *mnt_userns,
+int bch2_set_acl(struct mnt_idmap *idmap,
 		 struct dentry *dentry,
 		 struct posix_acl *_acl, int type)
 {
@@ -317,7 +317,7 @@ retry:
 	mode = inode_u.bi_mode;
 
 	if (type == ACL_TYPE_ACCESS) {
-		ret = posix_acl_update_mode(mnt_userns, &inode->v, &mode, &acl);
+		ret = posix_acl_update_mode(idmap, &inode->v, &mode, &acl);
 		if (ret)
 			goto btree_err;
 	}

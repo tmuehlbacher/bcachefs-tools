@@ -16,15 +16,14 @@
 #include "inode.h"
 #include "io.h"
 #include "journal_reclaim.h"
+#include "keylist.h"
 #include "move.h"
 #include "replicas.h"
 #include "super-io.h"
-#include "keylist.h"
+#include "trace.h"
 
 #include <linux/ioprio.h>
 #include <linux/kthread.h>
-
-#include <trace/events/bcachefs.h>
 
 static void trace_move_extent2(struct bch_fs *c, struct bkey_s_c k)
 {
@@ -252,7 +251,7 @@ static int bch2_extent_drop_ptrs(struct btree_trans *trans,
 	struct bkey_i *n;
 	int ret;
 
-	n = bch2_bkey_make_mut(trans, k);
+	n = bch2_bkey_make_mut_noupdate(trans, k);
 	ret = PTR_ERR_OR_ZERO(n);
 	if (ret)
 		return ret;
@@ -676,7 +675,7 @@ int __bch2_evacuate_bucket(struct btree_trans *trans,
 	struct bpos bp_pos = POS_MIN;
 	int ret = 0;
 
-	trace_bucket_evacuate(c, bucket);
+	trace_bucket_evacuate(c, &bucket);
 
 	bch2_bkey_buf_init(&sk);
 

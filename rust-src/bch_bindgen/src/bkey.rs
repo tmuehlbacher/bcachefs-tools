@@ -46,6 +46,7 @@ pub enum BkeyValC<'a> {
     backpointer(&'a c::bch_backpointer),
     inode_v3(&'a c::bch_inode_v3),
     bucket_gens(&'a c::bch_bucket_gens),
+    snapshot_tree(&'a c::bch_snapshot_tree),
 }
 
 impl<'a, 'b> BkeySC<'a> {
@@ -94,6 +95,7 @@ impl<'a, 'b> BkeySC<'a> {
             KEY_TYPE_backpointer            => backpointer(unsafe { transmute(self.v) }),
             KEY_TYPE_inode_v3               => inode_v3(unsafe { transmute(self.v) }),
             KEY_TYPE_bucket_gens            => bucket_gens(unsafe { transmute(self.v) }),
+            KEY_TYPE_snapshot_tree          => snapshot_tree(unsafe { transmute(self.v) }),
             KEY_TYPE_MAX                    => unreachable!(),
         }
     }

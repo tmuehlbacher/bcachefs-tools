@@ -4,8 +4,14 @@
 
 #include "bset.h"
 #include "btree_types.h"
+#include "trace.h"
 
-#include <trace/events/bcachefs.h>
+static inline int __bkey_err(const struct bkey *k)
+{
+	return PTR_ERR_OR_ZERO(k);
+}
+
+#define bkey_err(_k)	__bkey_err((_k).k)
 
 static inline void __btree_path_get(struct btree_path *path, bool intent)
 {
@@ -477,48 +483,61 @@ static inline void *bch2_trans_kmalloc_nomemzero(struct btree_trans *trans, size
 	}
 }
 
-static inline struct bkey_i *bch2_bkey_make_mut(struct btree_trans *trans, struct bkey_s_c k)
+static inline struct bkey_s_c __bch2_bkey_get_iter(struct btree_trans *trans,
+				struct btree_iter *iter,
+				unsigned btree_id, struct bpos pos,
+				unsigned flags, unsigned type)
 {
-	struct bkey_i *mut = bch2_trans_kmalloc_nomemzero(trans, bkey_bytes(k.k));
+	struct bkey_s_c k;
 
-	if (!IS_ERR(mut))
-		bkey_reassemble(mut, k);
-	return mut;
+	bch2_trans_iter_init(trans, iter, btree_id, pos, flags);
+	k = bch2_btree_iter_peek_slot(iter);
+
+	if (!bkey_err(k) && type && k.k->type != type)
+		k = bkey_s_c_err(-ENOENT);
+	if (unlikely(bkey_err(k)))
+		bch2_trans_iter_exit(trans, iter);
+	return k;
 }
 
-static inline struct bkey_i *bch2_bkey_get_mut(struct btree_trans *trans,
-					       struct btree_iter *iter)
+static inline struct bkey_s_c bch2_bkey_get_iter(struct btree_trans *trans,
+				struct btree_iter *iter,
+				unsigned btree_id, struct bpos pos,
+				unsigned flags)
 {
-	struct bkey_s_c k = bch2_btree_iter_peek_slot(iter);
-
-	return unlikely(IS_ERR(k.k))
-		? ERR_CAST(k.k)
-		: bch2_bkey_make_mut(trans, k);
+	return __bch2_bkey_get_iter(trans, iter, btree_id, pos, flags, 0);
 }
 
-#define bch2_bkey_get_mut_typed(_trans, _iter, _type)			\
-({									\
-	struct bkey_i *_k = bch2_bkey_get_mut(_trans, _iter);		\
-	struct bkey_i_##_type *_ret;					\
-									\
-	if (IS_ERR(_k))							\
-		_ret = ERR_CAST(_k);					\
-	else if (unlikely(_k->k.type != KEY_TYPE_##_type))		\
-		_ret = ERR_PTR(-ENOENT);				\
-	else								\
-		_ret = bkey_i_to_##_type(_k);				\
-	_ret;								\
-})
+#define bch2_bkey_get_iter_typed(_trans, _iter, _btree_id, _pos, _flags, _type)\
+	bkey_s_c_to_##_type(__bch2_bkey_get_iter(_trans, _iter,			\
+				       _btree_id, _pos, _flags, KEY_TYPE_##_type))
 
-#define bch2_bkey_alloc(_trans, _iter, _type)				\
-({									\
-	struct bkey_i_##_type *_k = bch2_trans_kmalloc_nomemzero(_trans, sizeof(*_k));\
-	if (!IS_ERR(_k)) {						\
-		bkey_##_type##_init(&_k->k_i);				\
-		_k->k.p	= (_iter)->pos;					\
-	}								\
-	_k;								\
-})
+static inline int __bch2_bkey_get_val_typed(struct btree_trans *trans,
+				unsigned btree_id, struct bpos pos,
+				unsigned flags, unsigned type,
+				unsigned val_size, void *val)
+{
+	struct btree_iter iter;
+	struct bkey_s_c k;
+	int ret;
+
+	k = __bch2_bkey_get_iter(trans, &iter, btree_id, pos, flags, type);
+	ret = bkey_err(k);
+	if (!ret) {
+		unsigned b = min_t(unsigned, bkey_val_bytes(k.k), val_size);
+
+		memcpy(val, k.v, b);
+		if (unlikely(b < sizeof(*val)))
+			memset((void *) val + b, 0, sizeof(*val) - b);
+		bch2_trans_iter_exit(trans, &iter);
+	}
+
+	return ret;
+}
+
+#define bch2_bkey_get_val_typed(_trans, _btree_id, _pos, _flags, _type, _val)\
+	__bch2_bkey_get_val_typed(_trans, _btree_id, _pos, _flags,	\
+				  KEY_TYPE_##_type, sizeof(*_val), _val)
 
 u32 bch2_trans_begin(struct btree_trans *);
 
@@ -539,11 +558,6 @@ u32 bch2_trans_begin(struct btree_trans *);
 			    _flags, _b, _ret)				\
 	__for_each_btree_node(_trans, _iter, _btree_id, _start,		\
 			      0, 0, _flags, _b, _ret)
-
-static inline int bkey_err(struct bkey_s_c k)
-{
-	return PTR_ERR_OR_ZERO(k.k);
-}
 
 static inline struct bkey_s_c bch2_btree_iter_peek_prev_type(struct btree_iter *iter,
 							     unsigned flags)

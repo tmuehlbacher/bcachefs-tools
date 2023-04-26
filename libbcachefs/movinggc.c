@@ -24,8 +24,8 @@
 #include "move.h"
 #include "movinggc.h"
 #include "super-io.h"
+#include "trace.h"
 
-#include <trace/events/bcachefs.h>
 #include <linux/bsearch.h>
 #include <linux/freezer.h>
 #include <linux/kthread.h>
@@ -91,12 +91,9 @@ static int bch2_bucket_is_movable(struct btree_trans *trans,
 				b->k.bucket.offset))
 		return 0;
 
-	bch2_trans_iter_init(trans, &iter, BTREE_ID_alloc,
-			     b->k.bucket, BTREE_ITER_CACHED);
-	k = bch2_btree_iter_peek_slot(&iter);
+	k = bch2_bkey_get_iter(trans, &iter, BTREE_ID_alloc,
+			       b->k.bucket, BTREE_ITER_CACHED);
 	ret = bkey_err(k);
-	bch2_trans_iter_exit(trans, &iter);
-
 	if (ret)
 		return ret;
 
@@ -108,14 +105,7 @@ static int bch2_bucket_is_movable(struct btree_trans *trans,
 		a->fragmentation_lru &&
 		a->fragmentation_lru <= time;
 
-	if (!ret) {
-		struct printbuf buf = PRINTBUF;
-
-		bch2_bkey_val_to_text(&buf, trans->c, k);
-		pr_debug("%s", buf.buf);
-		printbuf_exit(&buf);
-	}
-
+	bch2_trans_iter_exit(trans, &iter);
 	return ret;
 }
 
@@ -205,6 +195,7 @@ static int bch2_copygc_get_buckets(struct btree_trans *trans,
 	return ret < 0 ? ret : 0;
 }
 
+noinline
 static int bch2_copygc(struct btree_trans *trans,
 		       struct moving_context *ctxt,
 		       struct buckets_in_flight *buckets_in_flight)

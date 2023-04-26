@@ -20,10 +20,10 @@
 #include "recovery.h"
 #include "subvolume.h"
 #include "replicas.h"
+#include "trace.h"
 
 #include <linux/prefetch.h>
 #include <linux/sort.h>
-#include <trace/events/bcachefs.h>
 
 /*
  * bch2_btree_path_peek_slot() for a cached iterator might return a key in a
@@ -1268,7 +1268,7 @@ static noinline int extent_front_merge(struct btree_trans *trans,
 	struct bkey_i *update;
 	int ret;
 
-	update = bch2_bkey_make_mut(trans, k);
+	update = bch2_bkey_make_mut_noupdate(trans, k);
 	ret = PTR_ERR_OR_ZERO(update);
 	if (ret)
 		return ret;
@@ -1390,7 +1390,7 @@ int bch2_trans_update_extent(struct btree_trans *trans,
 			trans->extra_journal_res += compressed_sectors;
 
 		if (front_split) {
-			update = bch2_bkey_make_mut(trans, k);
+			update = bch2_bkey_make_mut_noupdate(trans, k);
 			if ((ret = PTR_ERR_OR_ZERO(update)))
 				goto err;
 
@@ -1404,7 +1404,7 @@ int bch2_trans_update_extent(struct btree_trans *trans,
 
 		if (k.k->p.snapshot != insert->k.p.snapshot &&
 		    (front_split || back_split)) {
-			update = bch2_bkey_make_mut(trans, k);
+			update = bch2_bkey_make_mut_noupdate(trans, k);
 			if ((ret = PTR_ERR_OR_ZERO(update)))
 				goto err;
 
@@ -1443,7 +1443,7 @@ int bch2_trans_update_extent(struct btree_trans *trans,
 		}
 
 		if (back_split) {
-			update = bch2_bkey_make_mut(trans, k);
+			update = bch2_bkey_make_mut_noupdate(trans, k);
 			if ((ret = PTR_ERR_OR_ZERO(update)))
 				goto err;
 
@@ -1501,21 +1501,31 @@ static noinline int flush_new_cached_update(struct btree_trans *trans,
 					    unsigned long ip)
 {
 	struct btree_path *btree_path;
+	struct bkey k;
 	int ret;
+
+	btree_path = bch2_path_get(trans, path->btree_id, path->pos, 1, 0,
+				   BTREE_ITER_INTENT, _THIS_IP_);
+	ret = bch2_btree_path_traverse(trans, btree_path, 0);
+	if (ret)
+		goto out;
+
+	/*
+	 * The old key in the insert entry might actually refer to an existing
+	 * key in the btree that has been deleted from cache and not yet
+	 * flushed. Check for this and skip the flush so we don't run triggers
+	 * against a stale key.
+	 */
+	bch2_btree_path_peek_slot_exact(btree_path, &k);
+	if (!bkey_deleted(&k))
+		goto out;
 
 	i->key_cache_already_flushed = true;
 	i->flags |= BTREE_TRIGGER_NORUN;
 
-	btree_path = bch2_path_get(trans, path->btree_id, path->pos, 1, 0,
-				   BTREE_ITER_INTENT, _THIS_IP_);
-
-	ret = bch2_btree_path_traverse(trans, btree_path, 0);
-	if (ret)
-		goto err;
-
 	btree_path_set_should_be_locked(btree_path);
 	ret = bch2_trans_update_by_path_trace(trans, btree_path, i->k, flags, ip);
-err:
+out:
 	bch2_path_put(trans, btree_path, true);
 	return ret;
 }
@@ -1596,9 +1606,7 @@ bch2_trans_update_by_path_trace(struct btree_trans *trans, struct btree_path *pa
 	 * the key cache - but the key has to exist in the btree for that to
 	 * work:
 	 */
-	if (path->cached &&
-	    bkey_deleted(&i->old_k) &&
-	    !(flags & BTREE_UPDATE_NO_KEY_CACHE_COHERENCY))
+	if (path->cached && bkey_deleted(&i->old_k))
 		return flush_new_cached_update(trans, path, i, flags, ip);
 
 	return 0;
@@ -1725,6 +1733,37 @@ int __must_check bch2_trans_update_buffered(struct btree_trans *trans,
 	trans->nr_wb_updates++;
 
 	return 0;
+}
+
+int bch2_bkey_get_empty_slot(struct btree_trans *trans, struct btree_iter *iter,
+			     enum btree_id btree, struct bpos end)
+{
+	struct bkey_s_c k;
+	int ret = 0;
+
+	bch2_trans_iter_init(trans, iter, btree, POS_MAX, BTREE_ITER_INTENT);
+	k = bch2_btree_iter_prev(iter);
+	ret = bkey_err(k);
+	if (ret)
+		goto err;
+
+	bch2_btree_iter_advance(iter);
+	k = bch2_btree_iter_peek_slot(iter);
+	ret = bkey_err(k);
+	if (ret)
+		goto err;
+
+	BUG_ON(k.k->type != KEY_TYPE_deleted);
+
+	if (bkey_gt(k.k->p, end)) {
+		ret = -BCH_ERR_ENOSPC_btree_slot;
+		goto err;
+	}
+
+	return 0;
+err:
+	bch2_trans_iter_exit(trans, iter);
+	return ret;
 }
 
 void bch2_trans_commit_hook(struct btree_trans *trans,

@@ -27,6 +27,7 @@
 #include "reflink.h"
 #include "replicas.h"
 #include "super-io.h"
+#include "trace.h"
 
 #include <linux/slab.h>
 #include <linux/bitops.h>
@@ -35,7 +36,6 @@
 #include <linux/preempt.h>
 #include <linux/rcupdate.h>
 #include <linux/sched/task.h>
-#include <trace/events/bcachefs.h>
 
 #define DROP_THIS_NODE		10
 #define DROP_PREV_NODE		11
@@ -1594,7 +1594,7 @@ static int bch2_gc_write_reflink_key(struct btree_trans *trans,
 			"  should be %u",
 			(bch2_bkey_val_to_text(&buf, c, k), buf.buf),
 			r->refcount)) {
-		struct bkey_i *new = bch2_bkey_make_mut(trans, k);
+		struct bkey_i *new = bch2_bkey_make_mut(trans, iter, k, 0);
 
 		ret = PTR_ERR_OR_ZERO(new);
 		if (ret)
@@ -1604,8 +1604,6 @@ static int bch2_gc_write_reflink_key(struct btree_trans *trans,
 			new->k.type = KEY_TYPE_deleted;
 		else
 			*bkey_refcount(new) = cpu_to_le64(r->refcount);
-
-		ret = bch2_trans_update(trans, iter, new, 0);
 	}
 fsck_err:
 	printbuf_exit(&buf);
@@ -1802,9 +1800,10 @@ again:
 
 	bch2_mark_superblocks(c);
 
-	if (BCH_SB_HAS_TOPOLOGY_ERRORS(c->disk_sb.sb) &&
-	    !test_bit(BCH_FS_INITIAL_GC_DONE, &c->flags) &&
-	    c->opts.fix_errors != FSCK_OPT_NO) {
+	if (IS_ENABLED(CONFIG_BCACHEFS_DEBUG) ||
+	    (BCH_SB_HAS_TOPOLOGY_ERRORS(c->disk_sb.sb) &&
+	     !test_bit(BCH_FS_INITIAL_GC_DONE, &c->flags) &&
+	     c->opts.fix_errors != FSCK_OPT_NO)) {
 		bch_info(c, "Starting topology repair pass");
 		ret = bch2_repair_topology(c);
 		if (ret)
@@ -1920,13 +1919,13 @@ static int gc_btree_gens_key(struct btree_trans *trans,
 	percpu_up_read(&c->mark_lock);
 	return 0;
 update:
-	u = bch2_bkey_make_mut(trans, k);
+	u = bch2_bkey_make_mut(trans, iter, k, 0);
 	ret = PTR_ERR_OR_ZERO(u);
 	if (ret)
 		return ret;
 
 	bch2_extent_normalize(c, bkey_i_to_s(u));
-	return bch2_trans_update(trans, iter, u, 0);
+	return 0;
 }
 
 static int bch2_alloc_write_oldest_gen(struct btree_trans *trans, struct btree_iter *iter,

@@ -21,9 +21,9 @@
 #include "reflink.h"
 #include "replicas.h"
 #include "subvolume.h"
+#include "trace.h"
 
 #include <linux/preempt.h>
-#include <trace/events/bcachefs.h>
 
 static inline void fs_usage_data_type_to_base(struct bch_fs_usage *fs_usage,
 					      enum bch_data_type data_type,
@@ -1448,10 +1448,9 @@ static int bch2_trans_mark_stripe_ptr(struct btree_trans *trans,
 	struct bch_replicas_padded r;
 	int ret = 0;
 
-	bch2_trans_iter_init(trans, &iter, BTREE_ID_stripes, POS(0, p.ec.idx),
-			     BTREE_ITER_INTENT|
-			     BTREE_ITER_WITH_UPDATES);
-	s = bch2_bkey_get_mut_typed(trans, &iter, stripe);
+	s = bch2_bkey_get_mut_typed(trans, &iter,
+			BTREE_ID_stripes, POS(0, p.ec.idx),
+			BTREE_ITER_WITH_UPDATES, stripe);
 	ret = PTR_ERR_OR_ZERO(s);
 	if (unlikely(ret)) {
 		bch2_trans_inconsistent_on(ret == -ENOENT, trans,
@@ -1471,10 +1470,6 @@ static int bch2_trans_mark_stripe_ptr(struct btree_trans *trans,
 	stripe_blockcount_set(&s->v, p.ec.block,
 		stripe_blockcount_get(&s->v, p.ec.block) +
 		sectors);
-
-	ret = bch2_trans_update(trans, &iter, &s->k_i, 0);
-	if (ret)
-		goto err;
 
 	bch2_bkey_to_replicas(&r.e, bkey_i_to_s_c(&s->k_i));
 	r.e.data_type = data_type;
@@ -1750,10 +1745,9 @@ static int __bch2_trans_mark_reflink_p(struct btree_trans *trans,
 	struct printbuf buf = PRINTBUF;
 	int ret;
 
-	bch2_trans_iter_init(trans, &iter, BTREE_ID_reflink, POS(0, *idx),
-			     BTREE_ITER_INTENT|
-			     BTREE_ITER_WITH_UPDATES);
-	k = bch2_bkey_get_mut(trans, &iter);
+	k = bch2_bkey_get_mut_noupdate(trans, &iter,
+			BTREE_ID_reflink, POS(0, *idx),
+			BTREE_ITER_WITH_UPDATES);
 	ret = PTR_ERR_OR_ZERO(k);
 	if (ret)
 		goto err;

@@ -19,6 +19,7 @@
 #include "keylist.h"
 #include "quota.h"
 #include "reflink.h"
+#include "trace.h"
 
 #include <linux/aio.h>
 #include <linux/backing-dev.h>
@@ -32,7 +33,6 @@
 #include <linux/uio.h>
 #include <linux/writeback.h>
 
-#include <trace/events/bcachefs.h>
 #include <trace/events/writeback.h>
 
 /*
@@ -290,6 +290,9 @@ static int bch2_quota_reservation_add(struct bch_fs *c,
 {
 	int ret;
 
+	if (test_bit(EI_INODE_SNAPSHOT, &inode->ei_flags))
+		return 0;
+
 	mutex_lock(&inode->ei_quota_lock);
 	ret = bch2_quota_acct(c, inode->ei_qid, Q_SPC, sectors,
 			      check_enospc ? KEY_TYPE_QUOTA_PREALLOC : KEY_TYPE_QUOTA_NOCHECK);
@@ -371,7 +374,9 @@ static void __i_sectors_acct(struct bch_fs *c, struct bch_inode_info *inode,
 	inode->v.i_blocks += sectors;
 
 #ifdef CONFIG_BCACHEFS_QUOTA
-	if (quota_res && sectors > 0) {
+	if (quota_res &&
+	    !test_bit(EI_INODE_SNAPSHOT, &inode->ei_flags) &&
+	    sectors > 0) {
 		BUG_ON(sectors > quota_res->sectors);
 		BUG_ON(sectors > inode->ei_quota_reserved);
 
@@ -1512,11 +1517,10 @@ static void bch2_writepage_io_alloc(struct bch_fs *c,
 	op->wbio.bio.bi_opf	= wbc_to_write_flags(wbc);
 }
 
-static int __bch2_writepage(struct page *_page,
+static int __bch2_writepage(struct folio *folio,
 			    struct writeback_control *wbc,
 			    void *data)
 {
-	struct folio *folio = page_folio(_page);
 	struct bch_inode_info *inode = to_bch_ei(folio->mapping->host);
 	struct bch_fs *c = inode->v.i_sb->s_fs_info;
 	struct bch_writepage_state *w = data;
@@ -2912,7 +2916,7 @@ static int bch2_truncate_folios(struct bch_inode_info *inode,
 	return ret;
 }
 
-static int bch2_extend(struct user_namespace *mnt_userns,
+static int bch2_extend(struct mnt_idmap *idmap,
 		       struct bch_inode_info *inode,
 		       struct bch_inode_unpacked *inode_u,
 		       struct iattr *iattr)
@@ -2931,7 +2935,7 @@ static int bch2_extend(struct user_namespace *mnt_userns,
 
 	truncate_setsize(&inode->v, iattr->ia_size);
 
-	return bch2_setattr_nonsize(mnt_userns, inode, iattr);
+	return bch2_setattr_nonsize(idmap, inode, iattr);
 }
 
 static int bch2_truncate_finish_fn(struct bch_inode_info *inode,
@@ -2952,7 +2956,7 @@ static int bch2_truncate_start_fn(struct bch_inode_info *inode,
 	return 0;
 }
 
-int bch2_truncate(struct user_namespace *mnt_userns,
+int bch2_truncate(struct mnt_idmap *idmap,
 		  struct bch_inode_info *inode, struct iattr *iattr)
 {
 	struct bch_fs *c = inode->v.i_sb->s_fs_info;
@@ -2997,7 +3001,7 @@ int bch2_truncate(struct user_namespace *mnt_userns,
 		  (u64) inode->v.i_size, inode_u.bi_size);
 
 	if (iattr->ia_size > inode->v.i_size) {
-		ret = bch2_extend(mnt_userns, inode, &inode_u, iattr);
+		ret = bch2_extend(idmap, inode, &inode_u, iattr);
 		goto err;
 	}
 
@@ -3055,7 +3059,7 @@ int bch2_truncate(struct user_namespace *mnt_userns,
 	ret = bch2_write_inode(c, inode, bch2_truncate_finish_fn, NULL, 0);
 	mutex_unlock(&inode->ei_update_lock);
 
-	ret = bch2_setattr_nonsize(mnt_userns, inode, iattr);
+	ret = bch2_setattr_nonsize(idmap, inode, iattr);
 err:
 	bch2_pagecache_block_put(inode);
 	return bch2_err_class(ret);

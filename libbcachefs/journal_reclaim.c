@@ -10,10 +10,10 @@
 #include "journal_reclaim.h"
 #include "replicas.h"
 #include "super.h"
+#include "trace.h"
 
 #include <linux/kthread.h>
 #include <linux/sched/mm.h>
-#include <trace/events/bcachefs.h>
 
 /* Free space calculations: */
 

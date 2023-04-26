@@ -9,11 +9,11 @@
 #include "debug.h"
 #include "errcode.h"
 #include "error.h"
+#include "trace.h"
 
 #include <linux/prefetch.h>
 #include <linux/sched/mm.h>
 #include <linux/seq_buf.h>
-#include <trace/events/bcachefs.h>
 
 #define BTREE_CACHE_NOT_FREED_INCREMENT(counter) \
 do {						 \

@@ -20,9 +20,9 @@
 #include "recovery.h"
 #include "replicas.h"
 #include "super-io.h"
+#include "trace.h"
 
 #include <linux/random.h>
-#include <trace/events/bcachefs.h>
 
 static int bch2_btree_insert_node(struct btree_update *, struct btree_trans *,
 				  struct btree_path *, struct btree *,

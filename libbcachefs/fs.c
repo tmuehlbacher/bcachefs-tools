@@ -216,7 +216,7 @@ struct inode *bch2_vfs_inode_get(struct bch_fs *c, subvol_inum inum)
 }
 
 struct bch_inode_info *
-__bch2_create(struct user_namespace *mnt_userns,
+__bch2_create(struct mnt_idmap *idmap,
 	      struct bch_inode_info *dir, struct dentry *dentry,
 	      umode_t mode, dev_t rdev, subvol_inum snapshot_src,
 	      unsigned flags)
@@ -262,8 +262,8 @@ retry:
 				  inode_inum(dir), &dir_u, &inode_u,
 				  !(flags & BCH_CREATE_TMPFILE)
 				  ? &dentry->d_name : NULL,
-				  from_kuid(mnt_userns, current_fsuid()),
-				  from_kgid(mnt_userns, current_fsgid()),
+				  from_kuid(i_user_ns(&dir->v), current_fsuid()),
+				  from_kgid(i_user_ns(&dir->v), current_fsgid()),
 				  mode, rdev,
 				  default_acl, acl, snapshot_src, flags) ?:
 		bch2_quota_acct(c, bch_qid(&inode_u), Q_INO, 1,
@@ -370,12 +370,12 @@ static struct dentry *bch2_lookup(struct inode *vdir, struct dentry *dentry,
 	return d_splice_alias(vinode, dentry);
 }
 
-static int bch2_mknod(struct user_namespace *mnt_userns,
+static int bch2_mknod(struct mnt_idmap *idmap,
 		      struct inode *vdir, struct dentry *dentry,
 		      umode_t mode, dev_t rdev)
 {
 	struct bch_inode_info *inode =
-		__bch2_create(mnt_userns, to_bch_ei(vdir), dentry, mode, rdev,
+		__bch2_create(idmap, to_bch_ei(vdir), dentry, mode, rdev,
 			      (subvol_inum) { 0 }, 0);
 
 	if (IS_ERR(inode))
@@ -385,11 +385,11 @@ static int bch2_mknod(struct user_namespace *mnt_userns,
 	return 0;
 }
 
-static int bch2_create(struct user_namespace *mnt_userns,
+static int bch2_create(struct mnt_idmap *idmap,
 		       struct inode *vdir, struct dentry *dentry,
 		       umode_t mode, bool excl)
 {
-	return bch2_mknod(mnt_userns, vdir, dentry, mode|S_IFREG, 0);
+	return bch2_mknod(idmap, vdir, dentry, mode|S_IFREG, 0);
 }
 
 static int __bch2_link(struct bch_fs *c,
@@ -486,7 +486,7 @@ static int bch2_unlink(struct inode *vdir, struct dentry *dentry)
 	return __bch2_unlink(vdir, dentry, false);
 }
 
-static int bch2_symlink(struct user_namespace *mnt_userns,
+static int bch2_symlink(struct mnt_idmap *idmap,
 			struct inode *vdir, struct dentry *dentry,
 			const char *symname)
 {
@@ -494,7 +494,7 @@ static int bch2_symlink(struct user_namespace *mnt_userns,
 	struct bch_inode_info *dir = to_bch_ei(vdir), *inode;
 	int ret;
 
-	inode = __bch2_create(mnt_userns, dir, dentry, S_IFLNK|S_IRWXUGO, 0,
+	inode = __bch2_create(idmap, dir, dentry, S_IFLNK|S_IRWXUGO, 0,
 			      (subvol_inum) { 0 }, BCH_CREATE_TMPFILE);
 	if (IS_ERR(inode))
 		return bch2_err_class(PTR_ERR(inode));
@@ -521,13 +521,13 @@ err:
 	return ret;
 }
 
-static int bch2_mkdir(struct user_namespace *mnt_userns,
+static int bch2_mkdir(struct mnt_idmap *idmap,
 		      struct inode *vdir, struct dentry *dentry, umode_t mode)
 {
-	return bch2_mknod(mnt_userns, vdir, dentry, mode|S_IFDIR, 0);
+	return bch2_mknod(idmap, vdir, dentry, mode|S_IFDIR, 0);
 }
 
-static int bch2_rename2(struct user_namespace *mnt_userns,
+static int bch2_rename2(struct mnt_idmap *idmap,
 			struct inode *src_vdir, struct dentry *src_dentry,
 			struct inode *dst_vdir, struct dentry *dst_dentry,
 			unsigned flags)
@@ -634,7 +634,7 @@ err:
 	return ret;
 }
 
-static void bch2_setattr_copy(struct user_namespace *mnt_userns,
+static void bch2_setattr_copy(struct mnt_idmap *idmap,
 			      struct bch_inode_info *inode,
 			      struct bch_inode_unpacked *bi,
 			      struct iattr *attr)
@@ -643,9 +643,9 @@ static void bch2_setattr_copy(struct user_namespace *mnt_userns,
 	unsigned int ia_valid = attr->ia_valid;
 
 	if (ia_valid & ATTR_UID)
-		bi->bi_uid = from_kuid(mnt_userns, attr->ia_uid);
+		bi->bi_uid = from_kuid(i_user_ns(&inode->v), attr->ia_uid);
 	if (ia_valid & ATTR_GID)
-		bi->bi_gid = from_kgid(mnt_userns, attr->ia_gid);
+		bi->bi_gid = from_kgid(i_user_ns(&inode->v), attr->ia_gid);
 
 	if (ia_valid & ATTR_SIZE)
 		bi->bi_size = attr->ia_size;
@@ -664,13 +664,13 @@ static void bch2_setattr_copy(struct user_namespace *mnt_userns,
 			: inode->v.i_gid;
 
 		if (!in_group_p(gid) &&
-		    !capable_wrt_inode_uidgid(mnt_userns, &inode->v, CAP_FSETID))
+		    !capable_wrt_inode_uidgid(idmap, &inode->v, CAP_FSETID))
 			mode &= ~S_ISGID;
 		bi->bi_mode = mode;
 	}
 }
 
-int bch2_setattr_nonsize(struct user_namespace *mnt_userns,
+int bch2_setattr_nonsize(struct mnt_idmap *idmap,
 			 struct bch_inode_info *inode,
 			 struct iattr *attr)
 {
@@ -687,10 +687,10 @@ int bch2_setattr_nonsize(struct user_namespace *mnt_userns,
 	qid = inode->ei_qid;
 
 	if (attr->ia_valid & ATTR_UID)
-		qid.q[QTYP_USR] = from_kuid(mnt_userns, attr->ia_uid);
+		qid.q[QTYP_USR] = from_kuid(i_user_ns(&inode->v), attr->ia_uid);
 
 	if (attr->ia_valid & ATTR_GID)
-		qid.q[QTYP_GRP] = from_kgid(mnt_userns, attr->ia_gid);
+		qid.q[QTYP_GRP] = from_kgid(i_user_ns(&inode->v), attr->ia_gid);
 
 	ret = bch2_fs_quota_transfer(c, inode, qid, ~0,
 				     KEY_TYPE_QUOTA_PREALLOC);
@@ -708,7 +708,7 @@ retry:
 	if (ret)
 		goto btree_err;
 
-	bch2_setattr_copy(mnt_userns, inode, &inode_u, attr);
+	bch2_setattr_copy(idmap, inode, &inode_u, attr);
 
 	if (attr->ia_valid & ATTR_MODE) {
 		ret = bch2_acl_chmod(&trans, inode_inum(inode), &inode_u,
@@ -740,7 +740,7 @@ err:
 	return bch2_err_class(ret);
 }
 
-static int bch2_getattr(struct user_namespace *mnt_userns,
+static int bch2_getattr(struct mnt_idmap *idmap,
 			const struct path *path, struct kstat *stat,
 			u32 request_mask, unsigned query_flags)
 {
@@ -781,7 +781,7 @@ static int bch2_getattr(struct user_namespace *mnt_userns,
 	return 0;
 }
 
-static int bch2_setattr(struct user_namespace *mnt_userns,
+static int bch2_setattr(struct mnt_idmap *idmap,
 			struct dentry *dentry, struct iattr *iattr)
 {
 	struct bch_inode_info *inode = to_bch_ei(dentry->d_inode);
@@ -789,20 +789,20 @@ static int bch2_setattr(struct user_namespace *mnt_userns,
 
 	lockdep_assert_held(&inode->v.i_rwsem);
 
-	ret = setattr_prepare(mnt_userns, dentry, iattr);
+	ret = setattr_prepare(idmap, dentry, iattr);
 	if (ret)
 		return ret;
 
 	return iattr->ia_valid & ATTR_SIZE
-		? bch2_truncate(mnt_userns, inode, iattr)
-		: bch2_setattr_nonsize(mnt_userns, inode, iattr);
+		? bch2_truncate(idmap, inode, iattr)
+		: bch2_setattr_nonsize(idmap, inode, iattr);
 }
 
-static int bch2_tmpfile(struct user_namespace *mnt_userns,
+static int bch2_tmpfile(struct mnt_idmap *idmap,
 			struct inode *vdir, struct file *file, umode_t mode)
 {
 	struct bch_inode_info *inode =
-		__bch2_create(mnt_userns, to_bch_ei(vdir),
+		__bch2_create(idmap, to_bch_ei(vdir),
 			      file->f_path.dentry, mode, 0,
 			      (subvol_inum) { 0 }, BCH_CREATE_TMPFILE);
 

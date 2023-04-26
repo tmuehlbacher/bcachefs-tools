@@ -17,8 +17,7 @@
 #include "journal_reclaim.h"
 #include "journal_sb.h"
 #include "journal_seq_blacklist.h"
-
-#include <trace/events/bcachefs.h>
+#include "trace.h"
 
 #define x(n)	#n,
 static const char * const bch2_journal_watermarks[] = {

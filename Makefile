@@ -184,8 +184,6 @@ update-bcachefs-sources:
 	test -d libbcachefs || mkdir libbcachefs
 	cp $(LINUX_DIR)/fs/bcachefs/*.[ch] libbcachefs/
 	git add libbcachefs/*.[ch]
-	cp $(LINUX_DIR)/include/trace/events/bcachefs.h include/trace/events/
-	git add include/trace/events/bcachefs.h
 	cp $(LINUX_DIR)/include/linux/closure.h include/linux/
 	git add include/linux/closure.h
 	cp $(LINUX_DIR)/lib/closure.c linux/

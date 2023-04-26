@@ -113,7 +113,7 @@ static inline struct bch_write_bio *wbio_init(struct bio *bio)
 {
 	struct bch_write_bio *wbio = to_wbio(bio);
 
-	memset(wbio, 0, offsetof(struct bch_write_bio, bio));
+	memset(&wbio->wbio, 0, sizeof(wbio->wbio));
 	return wbio;
 }
 

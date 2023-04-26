@@ -10,10 +10,10 @@
 #include "error.h"
 #include "journal.h"
 #include "journal_reclaim.h"
+#include "trace.h"
 
 #include <linux/sched/mm.h>
 #include <linux/seq_buf.h>
-#include <trace/events/bcachefs.h>
 
 static inline bool btree_uses_pcpu_readers(enum btree_id id)
 {
@@ -387,10 +387,9 @@ static int btree_key_cache_fill(struct btree_trans *trans,
 	struct bkey_i *new_k = NULL;
 	int ret;
 
-	bch2_trans_iter_init(trans, &iter, ck->key.btree_id, ck->key.pos,
-			     BTREE_ITER_KEY_CACHE_FILL|
-			     BTREE_ITER_CACHED_NOFILL);
-	k = bch2_btree_iter_peek_slot(&iter);
+	k = bch2_bkey_get_iter(trans, &iter, ck->key.btree_id, ck->key.pos,
+			       BTREE_ITER_KEY_CACHE_FILL|
+			       BTREE_ITER_CACHED_NOFILL);
 	ret = bkey_err(k);
 	if (ret)
 		goto err;

@@ -60,14 +60,12 @@ static inline void vpfree(void *p, size_t size)
 		free_pages((unsigned long) p, get_order(size));
 }
 
-static inline void *_vpmalloc(size_t size, gfp_t gfp_mask)
+static inline void *vpmalloc(size_t size, gfp_t gfp_mask)
 {
-	return (void *) _get_free_pages(gfp_mask|__GFP_NOWARN,
+	return (void *) __get_free_pages(gfp_mask|__GFP_NOWARN,
 					 get_order(size)) ?:
 		__vmalloc(size, gfp_mask);
 }
-#define vpmalloc(_size, _gfp)			\
-	alloc_hooks(_vpmalloc(_size, _gfp), void *, NULL)
 
 static inline void kvpfree(void *p, size_t size)
 {
@@ -77,14 +75,12 @@ static inline void kvpfree(void *p, size_t size)
 		vpfree(p, size);
 }
 
-static inline void *_kvpmalloc(size_t size, gfp_t gfp_mask)
+static inline void *kvpmalloc(size_t size, gfp_t gfp_mask)
 {
 	return size < PAGE_SIZE
-		? _kmalloc(size, gfp_mask)
-		: _vpmalloc(size, gfp_mask);
+		? kmalloc(size, gfp_mask)
+		: vpmalloc(size, gfp_mask);
 }
-#define kvpmalloc(_size, _gfp)			\
-	alloc_hooks(_kvpmalloc(_size, _gfp), void *, NULL)
 
 int mempool_init_kvpmalloc_pool(mempool_t *, int, size_t);
 
@@ -534,9 +530,7 @@ static inline unsigned fract_exp_two(unsigned x, unsigned fract_bits)
 }
 
 void bch2_bio_map(struct bio *bio, void *base, size_t);
-int _bch2_bio_alloc_pages(struct bio *, size_t, gfp_t);
-#define bch2_bio_alloc_pages(_bio, _size, _gfp)				\
-	alloc_hooks(_bch2_bio_alloc_pages(_bio, _size, _gfp), int, -ENOMEM)
+int bch2_bio_alloc_pages(struct bio *, size_t, gfp_t);
 
 static inline sector_t bdev_sectors(struct block_device *bdev)
 {
@@ -841,6 +835,13 @@ u64 *bch2_acc_percpu_u64s(u64 __percpu *, unsigned);
 static inline int u8_cmp(u8 l, u8 r)
 {
 	return cmp_int(l, r);
+}
+
+#include <linux/uuid.h>
+
+static inline int uuid_le_cmp(const uuid_le u1, const uuid_le u2)
+{
+	return memcmp(&u1, &u2, sizeof(uuid_le));
 }
 
 #endif /* _BCACHEFS_UTIL_H */

@@ -34,6 +34,9 @@ struct bkey_ops {
 	void		(*compat)(enum btree_id id, unsigned version,
 				  unsigned big_endian, int write,
 				  struct bkey_s);
+
+	/* Size of value type when first created: */
+	unsigned	min_val_size;
 };
 
 extern const struct bkey_ops bch2_bkey_ops[];
@@ -80,10 +83,9 @@ static inline int bch2_mark_key(struct btree_trans *trans,
 }
 
 enum btree_update_flags {
-	__BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE,
+	__BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE = __BTREE_ITER_FLAGS_END,
 	__BTREE_UPDATE_NOJOURNAL,
 	__BTREE_UPDATE_KEY_CACHE_RECLAIM,
-	__BTREE_UPDATE_NO_KEY_CACHE_COHERENCY,
 
 	__BTREE_TRIGGER_NORUN,		/* Don't run triggers at all */
 
@@ -98,8 +100,6 @@ enum btree_update_flags {
 #define BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE (1U << __BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE)
 #define BTREE_UPDATE_NOJOURNAL		(1U << __BTREE_UPDATE_NOJOURNAL)
 #define BTREE_UPDATE_KEY_CACHE_RECLAIM	(1U << __BTREE_UPDATE_KEY_CACHE_RECLAIM)
-#define BTREE_UPDATE_NO_KEY_CACHE_COHERENCY	\
-	(1U << __BTREE_UPDATE_NO_KEY_CACHE_COHERENCY)
 
 #define BTREE_TRIGGER_NORUN		(1U << __BTREE_TRIGGER_NORUN)
 

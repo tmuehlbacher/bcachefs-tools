@@ -14,8 +14,7 @@
 #include "journal_reclaim.h"
 #include "journal_seq_blacklist.h"
 #include "replicas.h"
-
-#include <trace/events/bcachefs.h>
+#include "trace.h"
 
 static struct nonce journal_nonce(const struct jset *jset)
 {

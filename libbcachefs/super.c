@@ -22,6 +22,7 @@
 #include "checksum.h"
 #include "clock.h"
 #include "compress.h"
+#include "counters.h"
 #include "debug.h"
 #include "disk_groups.h"
 #include "ec.h"
@@ -47,7 +48,7 @@
 #include "super.h"
 #include "super-io.h"
 #include "sysfs.h"
-#include "counters.h"
+#include "trace.h"
 
 #include <linux/backing-dev.h>
 #include <linux/blkdev.h>
@@ -59,8 +60,6 @@
 #include <linux/random.h>
 #include <linux/sysfs.h>
 #include <crypto/hash.h>
-
-#include <trace/events/bcachefs.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Kent Overstreet <kent.overstreet@gmail.com>");

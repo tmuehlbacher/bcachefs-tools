@@ -41,9 +41,4 @@ typedef struct {
    ((c) >> 8) & 0xff, (c) & 0xff,					\
    (d0), (d1), (d2), (d3), (d4), (d5), (d6), (d7) }})
 
-static inline int uuid_le_cmp(const uuid_le u1, const uuid_le u2)
-{
-	return memcmp(&u1, &u2, sizeof(uuid_le));
-}
-
 #endif

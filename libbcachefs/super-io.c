@@ -16,13 +16,12 @@
 #include "quota.h"
 #include "super-io.h"
 #include "super.h"
+#include "trace.h"
 #include "vstructs.h"
 #include "counters.h"
 
 #include <linux/backing-dev.h>
 #include <linux/sort.h>
-
-#include <trace/events/bcachefs.h>
 
 const char * const bch2_sb_fields[] = {
 #define x(name, nr)	#name,

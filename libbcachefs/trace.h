@@ -2,8 +2,8 @@
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM bcachefs
 
-#if !defined(_TRACE_BCACHE_H) || defined(TRACE_HEADER_MULTI_READ)
-#define _TRACE_BCACHE_H
+#if !defined(_TRACE_BCACHEFS_H) || defined(TRACE_HEADER_MULTI_READ)
+#define _TRACE_BCACHEFS_H
 
 #include <linux/tracepoint.h>
 
@@ -663,7 +663,7 @@ TRACE_EVENT(bucket_invalidate,
 /* Moving IO */
 
 TRACE_EVENT(bucket_evacuate,
-	TP_PROTO(struct bch_fs *c, struct bpos bucket),
+	TP_PROTO(struct bch_fs *c, struct bpos *bucket),
 	TP_ARGS(c, bucket),
 
 	TP_STRUCT__entry(
@@ -674,8 +674,8 @@ TRACE_EVENT(bucket_evacuate,
 
 	TP_fast_assign(
 		__entry->dev		= c->dev;
-		__entry->dev_idx	= bucket.inode;
-		__entry->bucket		= bucket.offset;
+		__entry->dev_idx	= bucket->inode;
+		__entry->bucket		= bucket->offset;
 	),
 
 	TP_printk("%d:%d %u:%llu",
@@ -1250,7 +1250,13 @@ TRACE_EVENT(write_buffer_flush_slowpath,
 	TP_printk("%zu/%zu", __entry->nr, __entry->size)
 );
 
-#endif /* _TRACE_BCACHE_H */
+#endif /* _TRACE_BCACHEFS_H */
 
 /* This part must be outside protection */
+#undef TRACE_INCLUDE_PATH
+#define TRACE_INCLUDE_PATH ../../fs/bcachefs
+
+#undef TRACE_INCLUDE_FILE
+#define TRACE_INCLUDE_FILE trace
+
 #include <trace/define_trace.h>

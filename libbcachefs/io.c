@@ -32,13 +32,12 @@
 #include "subvolume.h"
 #include "super.h"
 #include "super-io.h"
+#include "trace.h"
 
 #include <linux/blkdev.h>
 #include <linux/prefetch.h>
 #include <linux/random.h>
 #include <linux/sched/mm.h>
-
-#include <trace/events/bcachefs.h>
 
 const char *bch2_blk_status_to_str(blk_status_t status)
 {
@@ -258,15 +257,14 @@ static inline int bch2_extent_update_i_size_sectors(struct btree_trans *trans,
 	unsigned inode_update_flags = BTREE_UPDATE_NOJOURNAL;
 	int ret;
 
-	bch2_trans_iter_init(trans, &iter, BTREE_ID_inodes,
-			     SPOS(0,
-				  extent_iter->pos.inode,
-				  extent_iter->snapshot),
-			     BTREE_ITER_INTENT|BTREE_ITER_CACHED);
-	k = bch2_bkey_get_mut(trans, &iter);
+	k = bch2_bkey_get_mut_noupdate(trans, &iter, BTREE_ID_inodes,
+			      SPOS(0,
+				   extent_iter->pos.inode,
+				   extent_iter->snapshot),
+			      BTREE_ITER_CACHED);
 	ret = PTR_ERR_OR_ZERO(k);
 	if (unlikely(ret))
-		goto err;
+		return ret;
 
 	if (unlikely(k->k.type != KEY_TYPE_inode_v3)) {
 		k = bch2_inode_to_v3(trans, k);
@@ -1395,7 +1393,7 @@ static int bch2_nocow_write_convert_one_unwritten(struct btree_trans *trans,
 		return 0;
 	}
 
-	new = bch2_bkey_make_mut(trans, k);
+	new = bch2_bkey_make_mut_noupdate(trans, k);
 	ret = PTR_ERR_OR_ZERO(new);
 	if (ret)
 		return ret;
@@ -2313,9 +2311,8 @@ static int __bch2_rbio_narrow_crcs(struct btree_trans *trans,
 	if (crc_is_compressed(rbio->pick.crc))
 		return 0;
 
-	bch2_trans_iter_init(trans, &iter, rbio->data_btree, rbio->data_pos,
-			     BTREE_ITER_SLOTS|BTREE_ITER_INTENT);
-	k = bch2_btree_iter_peek_slot(&iter);
+	k = bch2_bkey_get_iter(trans, &iter, rbio->data_btree, rbio->data_pos,
+			       BTREE_ITER_SLOTS|BTREE_ITER_INTENT);
 	if ((ret = bkey_err(k)))
 		goto out;
 
@@ -2551,10 +2548,8 @@ int __bch2_read_indirect_extent(struct btree_trans *trans,
 	reflink_offset = le64_to_cpu(bkey_i_to_reflink_p(orig_k->k)->v.idx) +
 		*offset_into_extent;
 
-	bch2_trans_iter_init(trans, &iter, BTREE_ID_reflink,
-			     POS(0, reflink_offset),
-			     BTREE_ITER_SLOTS);
-	k = bch2_btree_iter_peek_slot(&iter);
+	k = bch2_bkey_get_iter(trans, &iter, BTREE_ID_reflink,
+			       POS(0, reflink_offset), 0);
 	ret = bkey_err(k);
 	if (ret)
 		goto err;

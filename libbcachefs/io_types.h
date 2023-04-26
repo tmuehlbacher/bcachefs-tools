@@ -83,6 +83,7 @@ struct bch_read_bio {
 };
 
 struct bch_write_bio {
+	struct_group(wbio,
 	struct bch_fs		*c;
 	struct bch_write_bio	*parent;
 
@@ -99,6 +100,7 @@ struct bch_write_bio {
 				nocow:1,
 				used_mempool:1,
 				first_btree_write:1;
+	);
 
 	struct bio		bio;
 };

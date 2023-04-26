@@ -93,7 +93,7 @@ static int bch2_ioc_setflags(struct bch_fs *c,
 		return ret;
 
 	inode_lock(&inode->v);
-	if (!inode_owner_or_capable(file_mnt_user_ns(file), &inode->v)) {
+	if (!inode_owner_or_capable(file_mnt_idmap(file), &inode->v)) {
 		ret = -EACCES;
 		goto setflags_out;
 	}
@@ -172,7 +172,7 @@ static int bch2_ioc_fssetxattr(struct bch_fs *c,
 		return ret;
 
 	inode_lock(&inode->v);
-	if (!inode_owner_or_capable(file_mnt_user_ns(file), &inode->v)) {
+	if (!inode_owner_or_capable(file_mnt_idmap(file), &inode->v)) {
 		ret = -EACCES;
 		goto err;
 	}
@@ -393,7 +393,7 @@ retry:
 		goto err3;
 	}
 
-	error = inode_permission(file_mnt_user_ns(filp),
+	error = inode_permission(file_mnt_idmap(filp),
 				 dir, MAY_WRITE | MAY_EXEC);
 	if (error)
 		goto err3;
@@ -409,7 +409,7 @@ retry:
 	    !arg.src_ptr)
 		snapshot_src.subvol = to_bch_ei(dir)->ei_inode.bi_subvol;
 
-	inode = __bch2_create(file_mnt_user_ns(filp), to_bch_ei(dir),
+	inode = __bch2_create(file_mnt_idmap(filp), to_bch_ei(dir),
 			      dst_dentry, arg.mode|S_IFDIR,
 			      0, snapshot_src, create_flags);
 	error = PTR_ERR_OR_ZERO(inode);

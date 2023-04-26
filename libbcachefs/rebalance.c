@@ -12,11 +12,11 @@
 #include "move.h"
 #include "rebalance.h"
 #include "super-io.h"
+#include "trace.h"
 
 #include <linux/freezer.h>
 #include <linux/kthread.h>
 #include <linux/sched/cputime.h>
-#include <trace/events/bcachefs.h>
 
 /*
  * Check if an extent should be moved:

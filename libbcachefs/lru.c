@@ -13,14 +13,6 @@
 int bch2_lru_invalid(const struct bch_fs *c, struct bkey_s_c k,
 		     unsigned flags, struct printbuf *err)
 {
-	const struct bch_lru *lru = bkey_s_c_to_lru(k).v;
-
-	if (bkey_val_bytes(k.k) < sizeof(*lru)) {
-		prt_printf(err, "incorrect value size (%zu < %zu)",
-		       bkey_val_bytes(k.k), sizeof(*lru));
-		return -BCH_ERR_invalid_bkey;
-	}
-
 	if (!lru_pos_time(k.k->p)) {
 		prt_printf(err, "lru entry at time=0");
 		return -BCH_ERR_invalid_bkey;
@@ -122,8 +114,7 @@ static int bch2_check_lru_key(struct btree_trans *trans,
 			alloc_pos.inode, alloc_pos.offset))
 		return bch2_btree_delete_at(trans, lru_iter, 0);
 
-	bch2_trans_iter_init(trans, &iter, BTREE_ID_alloc, alloc_pos, 0);
-	k = bch2_btree_iter_peek_slot(&iter);
+	k = bch2_bkey_get_iter(trans, &iter, BTREE_ID_alloc, alloc_pos, 0);
 	ret = bkey_err(k);
 	if (ret)
 		goto err;

@@ -67,12 +67,6 @@ int bch2_quota_invalid(const struct bch_fs *c, struct bkey_s_c k,
 		return -BCH_ERR_invalid_bkey;
 	}
 
-	if (bkey_val_bytes(k.k) != sizeof(struct bch_quota)) {
-		prt_printf(err, "incorrect value size (%zu != %zu)",
-		       bkey_val_bytes(k.k), sizeof(struct bch_quota));
-		return -BCH_ERR_invalid_bkey;
-	}
-
 	return 0;
 }
 
@@ -562,23 +556,22 @@ static int bch2_fs_quota_read_inode(struct btree_trans *trans,
 {
 	struct bch_fs *c = trans->c;
 	struct bch_inode_unpacked u;
-	struct bch_subvolume subvolume;
+	struct bch_snapshot_tree s_t;
 	int ret;
 
-	ret = bch2_snapshot_get_subvol(trans, k.k->p.snapshot, &subvolume);
+	ret = bch2_snapshot_tree_lookup(trans,
+			snapshot_t(c, k.k->p.snapshot)->tree, &s_t);
 	if (ret)
 		return ret;
 
-	/*
-	 * We don't do quota accounting in snapshots:
-	 */
-	if (BCH_SUBVOLUME_SNAP(&subvolume))
+	if (!s_t.master_subvol)
 		goto advance;
 
-	if (!bkey_is_inode(k.k))
-		goto advance;
-
-	ret = bch2_inode_unpack(k, &u);
+	ret = bch2_inode_find_by_inum_trans(trans,
+				(subvol_inum) {
+					le32_to_cpu(s_t.master_subvol),
+					k.k->p.offset,
+				}, &u);
 	if (ret)
 		return ret;
 
@@ -587,7 +580,7 @@ static int bch2_fs_quota_read_inode(struct btree_trans *trans,
 	bch2_quota_acct(c, bch_qid(&u), Q_INO, 1,
 			KEY_TYPE_QUOTA_NOCHECK);
 advance:
-	bch2_btree_iter_set_pos(iter, POS(iter->pos.inode, iter->pos.offset + 1));
+	bch2_btree_iter_set_pos(iter, bpos_nosnap_successor(iter->pos));
 	return 0;
 }
 
@@ -907,10 +900,8 @@ static int bch2_set_quota_trans(struct btree_trans *trans,
 	struct bkey_s_c k;
 	int ret;
 
-	bch2_trans_iter_init(trans, &iter, BTREE_ID_quotas, new_quota->k.p,
-			     BTREE_ITER_SLOTS|BTREE_ITER_INTENT);
-	k = bch2_btree_iter_peek_slot(&iter);
-
+	k = bch2_bkey_get_iter(trans, &iter, BTREE_ID_quotas, new_quota->k.p,
+			       BTREE_ITER_SLOTS|BTREE_ITER_INTENT);
 	ret = bkey_err(k);
 	if (unlikely(ret))
 		return ret;

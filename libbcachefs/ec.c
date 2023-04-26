@@ -119,12 +119,6 @@ int bch2_stripe_invalid(const struct bch_fs *c, struct bkey_s_c k,
 		return -BCH_ERR_invalid_bkey;
 	}
 
-	if (bkey_val_bytes(k.k) < sizeof(*s)) {
-		prt_printf(err, "incorrect value size (%zu < %zu)",
-		       bkey_val_bytes(k.k), sizeof(*s));
-		return -BCH_ERR_invalid_bkey;
-	}
-
 	if (bkey_val_u64s(k.k) < stripe_val_u64s(s)) {
 		prt_printf(err, "incorrect value size (%zu < %u)",
 		       bkey_val_u64s(k.k), stripe_val_u64s(s));
@@ -458,9 +452,8 @@ static int get_stripe_key_trans(struct btree_trans *trans, u64 idx,
 	struct bkey_s_c k;
 	int ret;
 
-	bch2_trans_iter_init(trans, &iter, BTREE_ID_stripes,
-			     POS(0, idx), BTREE_ITER_SLOTS);
-	k = bch2_btree_iter_peek_slot(&iter);
+	k = bch2_bkey_get_iter(trans, &iter, BTREE_ID_stripes,
+			       POS(0, idx), BTREE_ITER_SLOTS);
 	ret = bkey_err(k);
 	if (ret)
 		goto err;
@@ -761,9 +754,8 @@ static int ec_stripe_delete(struct btree_trans *trans, u64 idx)
 	struct bkey_s_c_stripe s;
 	int ret;
 
-	bch2_trans_iter_init(trans, &iter, BTREE_ID_stripes, POS(0, idx),
-			     BTREE_ITER_INTENT);
-	k = bch2_btree_iter_peek_slot(&iter);
+	k = bch2_bkey_get_iter(trans, &iter, BTREE_ID_stripes, POS(0, idx),
+			       BTREE_ITER_INTENT);
 	ret = bkey_err(k);
 	if (ret)
 		goto err;
@@ -841,9 +833,8 @@ static int ec_stripe_key_update(struct btree_trans *trans,
 	struct bkey_s_c k;
 	int ret;
 
-	bch2_trans_iter_init(trans, &iter, BTREE_ID_stripes,
-			     new->k.p, BTREE_ITER_INTENT);
-	k = bch2_btree_iter_peek_slot(&iter);
+	k = bch2_bkey_get_iter(trans, &iter, BTREE_ID_stripes,
+			       new->k.p, BTREE_ITER_INTENT);
 	ret = bkey_err(k);
 	if (ret)
 		goto err;

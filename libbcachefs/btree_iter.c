@@ -15,10 +15,10 @@
 #include "recovery.h"
 #include "replicas.h"
 #include "subvolume.h"
+#include "trace.h"
 
 #include <linux/random.h>
 #include <linux/prefetch.h>
-#include <trace/events/bcachefs.h>
 
 static inline void btree_path_list_remove(struct btree_trans *, struct btree_path *);
 static inline void btree_path_list_add(struct btree_trans *, struct btree_path *,
