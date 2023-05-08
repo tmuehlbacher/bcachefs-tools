@@ -37,8 +37,14 @@ int bch2_snapshot_tree_invalid(const struct bch_fs *c, struct bkey_s_c k,
 int bch2_snapshot_tree_lookup(struct btree_trans *trans, u32 id,
 			      struct bch_snapshot_tree *s)
 {
-	return bch2_bkey_get_val_typed(trans, BTREE_ID_snapshot_trees, POS(0, id),
-				       BTREE_ITER_WITH_UPDATES, snapshot_tree, s);
+	int ret;
+
+	ret = bch2_bkey_get_val_typed(trans, BTREE_ID_snapshot_trees, POS(0, id),
+				      BTREE_ITER_WITH_UPDATES, snapshot_tree, s);
+
+	if (bch2_err_matches(ret, ENOENT))
+		bch_err(trans->c, "snapshot tree %u not found", id);
+	return ret;
 }
 
 static struct bkey_i_snapshot_tree *
@@ -185,7 +191,7 @@ static int snapshot_live(struct btree_trans *trans, u32 id)
 		return 0;
 
 	ret = snapshot_lookup(trans, id, &v);
-	if (ret == -ENOENT)
+	if (bch2_err_matches(ret, ENOENT))
 		bch_err(trans->c, "snapshot node %u not found", id);
 	if (ret)
 		return ret;
@@ -303,7 +309,7 @@ static int bch2_snapshot_tree_master_subvol(struct btree_trans *trans,
 found:
 	bch2_trans_iter_exit(trans, &iter);
 
-	if (ret == -ENOENT) {
+	if (bch2_err_matches(ret, ENOENT)) {
 		struct bkey_i_subvolume *s;
 
 		*subvol_id = bch2_snapshot_tree_oldest_subvol(c, snapshot_root);
@@ -512,7 +518,7 @@ static int check_snapshot(struct btree_trans *trans,
 	id = le32_to_cpu(s.v->parent);
 	if (id) {
 		ret = snapshot_lookup(trans, id, &v);
-		if (ret == -ENOENT)
+		if (bch2_err_matches(ret, ENOENT))
 			bch_err(c, "snapshot with nonexistent parent:\n  %s",
 				(bch2_bkey_val_to_text(&buf, c, s.s_c), buf.buf));
 		if (ret)
@@ -531,7 +537,7 @@ static int check_snapshot(struct btree_trans *trans,
 		id = le32_to_cpu(s.v->children[i]);
 
 		ret = snapshot_lookup(trans, id, &v);
-		if (ret == -ENOENT)
+		if (bch2_err_matches(ret, ENOENT))
 			bch_err(c, "snapshot node %llu has nonexistent child %u",
 				s.k->p.offset, id);
 		if (ret)
@@ -551,7 +557,7 @@ static int check_snapshot(struct btree_trans *trans,
 	if (should_have_subvol) {
 		id = le32_to_cpu(s.v->subvol);
 		ret = bch2_subvolume_get(trans, id, 0, false, &subvol);
-		if (ret == -ENOENT)
+		if (bch2_err_matches(ret, ENOENT))
 			bch_err(c, "snapshot points to nonexistent subvolume:\n  %s",
 				(bch2_bkey_val_to_text(&buf, c, s.s_c), buf.buf));
 		if (ret)
@@ -614,9 +620,8 @@ int bch2_fs_check_snapshots(struct bch_fs *c)
 			BTREE_ITER_PREFETCH, k,
 			NULL, NULL, BTREE_INSERT_LAZY_RW|BTREE_INSERT_NOFAIL,
 		check_snapshot(&trans, &iter, k)));
-
 	if (ret)
-		bch_err(c, "error %i checking snapshots", ret);
+		bch_err(c, "%s: error %s", __func__, bch2_err_str(ret));
 	return ret;
 }
 
@@ -637,7 +642,7 @@ static int check_subvol(struct btree_trans *trans,
 	snapid = le32_to_cpu(subvol.v->snapshot);
 	ret = snapshot_lookup(trans, snapid, &snapshot);
 
-	if (ret == -ENOENT)
+	if (bch2_err_matches(ret, ENOENT))
 		bch_err(c, "subvolume %llu points to nonexistent snapshot %u",
 			k.k->p.offset, snapid);
 	if (ret)
@@ -655,9 +660,10 @@ static int check_subvol(struct btree_trans *trans,
 
 	if (!BCH_SUBVOLUME_SNAP(subvol.v)) {
 		u32 snapshot_root = bch2_snapshot_root(c, le32_to_cpu(subvol.v->snapshot));
+		u32 snapshot_tree = snapshot_t(c, snapshot_root)->tree;
 		struct bch_snapshot_tree st;
 
-		ret = bch2_snapshot_tree_lookup(trans, snapshot_root, &st);
+		ret = bch2_snapshot_tree_lookup(trans, snapshot_tree, &st);
 		if (ret)
 			return ret;
 
@@ -680,19 +686,17 @@ fsck_err:
 
 int bch2_fs_check_subvols(struct bch_fs *c)
 {
-	struct btree_trans trans;
 	struct btree_iter iter;
 	struct bkey_s_c k;
 	int ret;
 
-	bch2_trans_init(&trans, c, 0, 0);
-
-	ret = for_each_btree_key_commit(&trans, iter,
+	ret = bch2_trans_run(c,
+		for_each_btree_key_commit(&trans, iter,
 			BTREE_ID_subvolumes, POS_MIN, BTREE_ITER_PREFETCH, k,
 			NULL, NULL, BTREE_INSERT_LAZY_RW|BTREE_INSERT_NOFAIL,
-		check_subvol(&trans, &iter, k));
-
-	bch2_trans_exit(&trans);
+		check_subvol(&trans, &iter, k)));
+	if (ret)
+		bch_err(c, "%s: error %s", __func__, bch2_err_str(ret));
 
 	return ret;
 }
@@ -704,20 +708,15 @@ void bch2_fs_snapshots_exit(struct bch_fs *c)
 
 int bch2_fs_snapshots_start(struct bch_fs *c)
 {
-	struct btree_trans trans;
 	struct btree_iter iter;
 	struct bkey_s_c k;
 	int ret = 0;
 
-	bch2_trans_init(&trans, c, 0, 0);
-
-	for_each_btree_key2(&trans, iter, BTREE_ID_snapshots,
+	ret = bch2_trans_run(c,
+		for_each_btree_key2(&trans, iter, BTREE_ID_snapshots,
 			   POS_MIN, 0, k,
-		bch2_mark_snapshot(&trans, BTREE_ID_snapshots, 0, bkey_s_c_null, k, 0) ?:
-		bch2_snapshot_set_equiv(&trans, k));
-
-	bch2_trans_exit(&trans);
-
+			bch2_mark_snapshot(&trans, BTREE_ID_snapshots, 0, bkey_s_c_null, k, 0) ?:
+			bch2_snapshot_set_equiv(&trans, k)));
 	if (ret)
 		bch_err(c, "error starting snapshots: %s", bch2_err_str(ret));
 	return ret;
@@ -737,7 +736,8 @@ static int bch2_snapshot_node_set_deleted(struct btree_trans *trans, u32 id)
 				    0, snapshot);
 	ret = PTR_ERR_OR_ZERO(s);
 	if (unlikely(ret)) {
-		bch2_fs_inconsistent_on(ret == -ENOENT, trans->c, "missing snapshot %u", id);
+		bch2_fs_inconsistent_on(bch2_err_matches(ret, ENOENT),
+					trans->c, "missing snapshot %u", id);
 		return ret;
 	}
 
@@ -766,7 +766,8 @@ static int bch2_snapshot_node_delete(struct btree_trans *trans, u32 id)
 	s = bch2_bkey_get_iter_typed(trans, &iter, BTREE_ID_snapshots, POS(0, id),
 				     BTREE_ITER_INTENT, snapshot);
 	ret = bkey_err(s);
-	bch2_fs_inconsistent_on(ret == -ENOENT, c, "missing snapshot %u", id);
+	bch2_fs_inconsistent_on(bch2_err_matches(ret, ENOENT), c,
+				"missing snapshot %u", id);
 
 	if (ret)
 		goto err;
@@ -782,7 +783,8 @@ static int bch2_snapshot_node_delete(struct btree_trans *trans, u32 id)
 				     0, snapshot);
 		ret = PTR_ERR_OR_ZERO(parent);
 		if (unlikely(ret)) {
-			bch2_fs_inconsistent_on(ret == -ENOENT, c, "missing snapshot %u", parent_id);
+			bch2_fs_inconsistent_on(bch2_err_matches(ret, ENOENT), c,
+						"missing snapshot %u", parent_id);
 			goto err;
 		}
 
@@ -902,7 +904,7 @@ static int bch2_snapshot_node_create_children(struct btree_trans *trans, u32 par
 			0, snapshot);
 	ret = PTR_ERR_OR_ZERO(n_parent);
 	if (unlikely(ret)) {
-		if (ret == -ENOENT)
+		if (bch2_err_matches(ret, ENOENT))
 			bch_err(trans->c, "snapshot %u not found", parent);
 		return ret;
 	}
@@ -1182,7 +1184,8 @@ bch2_subvolume_get_inlined(struct btree_trans *trans, unsigned subvol,
 {
 	int ret = bch2_bkey_get_val_typed(trans, BTREE_ID_subvolumes, POS(0, subvol),
 					  iter_flags, subvolume, s);
-	bch2_fs_inconsistent_on(ret == -ENOENT && inconsistent_if_not_found,
+	bch2_fs_inconsistent_on(bch2_err_matches(ret, ENOENT) &&
+				inconsistent_if_not_found,
 				trans->c, "missing subvolume %u", subvol);
 	return ret;
 }
@@ -1218,7 +1221,7 @@ int bch2_subvolume_get_snapshot(struct btree_trans *trans, u32 subvol,
 
 	if (likely(!ret))
 		*snapid = le32_to_cpu(bkey_s_c_to_subvolume(k).v->snapshot);
-	else if (ret == -ENOENT)
+	else if (bch2_err_matches(ret, ENOENT))
 		bch2_fs_inconsistent(trans->c, "missing subvolume %u", subvol);
 	bch2_trans_iter_exit(trans, &iter);
 	return ret;
@@ -1284,7 +1287,8 @@ static int __bch2_subvolume_delete(struct btree_trans *trans, u32 subvolid)
 				BTREE_ITER_CACHED|BTREE_ITER_INTENT,
 				subvolume);
 	ret = bkey_err(subvol);
-	bch2_fs_inconsistent_on(ret == -ENOENT, trans->c, "missing subvolume %u", subvolid);
+	bch2_fs_inconsistent_on(bch2_err_matches(ret, ENOENT), trans->c,
+				"missing subvolume %u", subvolid);
 	if (ret)
 		return ret;
 
@@ -1399,7 +1403,8 @@ int bch2_subvolume_unlink(struct btree_trans *trans, u32 subvolid)
 			BTREE_ITER_CACHED, subvolume);
 	ret = PTR_ERR_OR_ZERO(n);
 	if (unlikely(ret)) {
-		bch2_fs_inconsistent_on(ret == -ENOENT, trans->c, "missing subvolume %u", subvolid);
+		bch2_fs_inconsistent_on(bch2_err_matches(ret, ENOENT), trans->c,
+					"missing subvolume %u", subvolid);
 		return ret;
 	}
 
