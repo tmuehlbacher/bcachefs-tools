@@ -350,11 +350,8 @@ static inline void bch2_time_stats_update_one(struct bch2_time_stats *stats,
 
 	if (time_after64(end, start)) {
 		duration = end - start;
-		stats->duration_stats = mean_and_variance_update_inlined(stats->duration_stats,
-								 duration);
-		stats->duration_stats_weighted = mean_and_variance_weighted_update(
-			stats->duration_stats_weighted,
-			duration);
+		stats->duration_stats = mean_and_variance_update(stats->duration_stats, duration);
+		mean_and_variance_weighted_update(&stats->duration_stats_weighted, duration);
 		stats->max_duration = max(stats->max_duration, duration);
 		stats->min_duration = min(stats->min_duration, duration);
 		bch2_quantiles_update(&stats->quantiles, duration);
@@ -362,10 +359,8 @@ static inline void bch2_time_stats_update_one(struct bch2_time_stats *stats,
 
 	if (time_after64(end, stats->last_event)) {
 		freq = end - stats->last_event;
-		stats->freq_stats = mean_and_variance_update_inlined(stats->freq_stats, freq);
-		stats->freq_stats_weighted = mean_and_variance_weighted_update(
-			stats->freq_stats_weighted,
-			freq);
+		stats->freq_stats = mean_and_variance_update(stats->freq_stats, freq);
+		mean_and_variance_weighted_update(&stats->freq_stats_weighted, freq);
 		stats->max_freq = max(stats->max_freq, freq);
 		stats->min_freq = min(stats->min_freq, freq);
 		stats->last_event = end;
@@ -594,8 +589,8 @@ void bch2_time_stats_exit(struct bch2_time_stats *stats)
 void bch2_time_stats_init(struct bch2_time_stats *stats)
 {
 	memset(stats, 0, sizeof(*stats));
-	stats->duration_stats_weighted.w = 8;
-	stats->freq_stats_weighted.w = 8;
+	stats->duration_stats_weighted.weight = 8;
+	stats->freq_stats_weighted.weight = 8;
 	stats->min_duration = U64_MAX;
 	stats->min_freq = U64_MAX;
 	spin_lock_init(&stats->lock);

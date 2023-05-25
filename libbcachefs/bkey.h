@@ -9,8 +9,16 @@
 #include "util.h"
 #include "vstructs.h"
 
+#if 0
+
+/*
+ * compiled unpack functions are disabled, pending a new interface for
+ * dynamically allocating executable memory:
+ */
+
 #ifdef CONFIG_X86_64
 #define HAVE_BCACHEFS_COMPILED_UNPACK	1
+#endif
 #endif
 
 void bch2_bkey_packed_to_binary_text(struct printbuf *,

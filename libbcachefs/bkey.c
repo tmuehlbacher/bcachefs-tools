@@ -724,7 +724,7 @@ unsigned bch2_bkey_ffs(const struct btree *b, const struct bkey_packed *k)
 	return 0;
 }
 
-#ifdef CONFIG_X86_64
+#ifdef HAVE_BCACHEFS_COMPILED_UNPACK
 
 #define I(_x)			(*(out)++ = (_x))
 #define I1(i0)						I(i0)

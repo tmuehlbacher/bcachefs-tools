@@ -62,10 +62,12 @@ static void btree_node_data_free(struct bch_fs *c, struct btree *b)
 
 	EBUG_ON(btree_node_write_in_flight(b));
 
+	clear_btree_node_just_written(b);
+
 	kvpfree(b->data, btree_bytes(c));
 	b->data = NULL;
 #ifdef __KERNEL__
-	vfree(b->aux_data);
+	kvfree(b->aux_data);
 #else
 	munmap(b->aux_data, btree_aux_data_bytes(b));
 #endif
@@ -100,7 +102,7 @@ static int btree_node_data_alloc(struct bch_fs *c, struct btree *b, gfp_t gfp)
 	if (!b->data)
 		return -BCH_ERR_ENOMEM_btree_node_mem_alloc;
 #ifdef __KERNEL__
-	b->aux_data = vmalloc_exec(btree_aux_data_bytes(b), gfp);
+	b->aux_data = kvmalloc(btree_aux_data_bytes(b), gfp);
 #else
 	b->aux_data = mmap(NULL, btree_aux_data_bytes(b),
 			   PROT_READ|PROT_WRITE|PROT_EXEC,
@@ -126,7 +128,6 @@ static struct btree *__btree_node_mem_alloc(struct bch_fs *c, gfp_t gfp)
 		return NULL;
 
 	bkey_btree_ptr_init(&b->key);
-	bch2_btree_lock_init(&b->c);
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	lockdep_set_no_check_recursion(&b->c.lock.dep_map);
 #endif
@@ -149,6 +150,8 @@ struct btree *__bch2_btree_node_mem_alloc(struct bch_fs *c)
 		kfree(b);
 		return NULL;
 	}
+
+	bch2_btree_lock_init(&b->c, 0);
 
 	bc->used++;
 	list_add(&b->list, &bc->freeable);
@@ -484,7 +487,7 @@ void bch2_fs_btree_cache_exit(struct bch_fs *c)
 	while (!list_empty(&bc->freed_nonpcpu)) {
 		b = list_first_entry(&bc->freed_nonpcpu, struct btree, list);
 		list_del(&b->list);
-		six_lock_pcpu_free(&b->c.lock);
+		six_lock_exit(&b->c.lock);
 		kfree(b);
 	}
 
@@ -645,8 +648,7 @@ struct btree *bch2_btree_node_mem_alloc(struct btree_trans *trans, bool pcpu_rea
 		mutex_lock(&bc->lock);
 	}
 
-	if (pcpu_read_locks)
-		six_lock_pcpu_alloc(&b->c.lock);
+	bch2_btree_lock_init(&b->c, pcpu_read_locks ? SIX_LOCK_INIT_PCPU : 0);
 
 	BUG_ON(!six_trylock_intent(&b->c.lock));
 	BUG_ON(!six_trylock_write(&b->c.lock));
@@ -700,6 +702,7 @@ err:
 	/* Try to cannibalize another cached btree node: */
 	if (bc->alloc_lock == current) {
 		b2 = btree_node_cannibalize(c);
+		clear_btree_node_just_written(b2);
 		bch2_btree_node_hash_remove(bc, b2);
 
 		if (b) {
@@ -784,7 +787,7 @@ static noinline struct btree *bch2_btree_node_fill(struct btree_trans *trans,
 	set_btree_node_read_in_flight(b);
 
 	six_unlock_write(&b->c.lock);
-	seq = b->c.lock.state.seq;
+	seq = six_lock_seq(&b->c.lock);
 	six_unlock_intent(&b->c.lock);
 
 	/* Unlock before doing IO: */
@@ -908,7 +911,7 @@ retry:
 	}
 
 	if (unlikely(btree_node_read_in_flight(b))) {
-		u32 seq = b->c.lock.state.seq;
+		u32 seq = six_lock_seq(&b->c.lock);
 
 		six_unlock_type(&b->c.lock, lock_type);
 		bch2_trans_unlock(trans);
@@ -1006,7 +1009,7 @@ struct btree *bch2_btree_node_get(struct btree_trans *trans, struct btree_path *
 	}
 
 	if (unlikely(btree_node_read_in_flight(b))) {
-		u32 seq = b->c.lock.state.seq;
+		u32 seq = six_lock_seq(&b->c.lock);
 
 		six_unlock_type(&b->c.lock, lock_type);
 		bch2_trans_unlock(trans);

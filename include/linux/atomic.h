@@ -32,6 +32,8 @@ typedef struct {
 #define __ATOMIC_SUB(v, p)		uatomic_sub(p, v)
 #define __ATOMIC_INC(p)			uatomic_inc(p)
 #define __ATOMIC_DEC(p)			uatomic_dec(p)
+#define __ATOMIC_AND(v, p)		uatomic_and(p, v)
+#define __ATOMIC_OR(v, p)		uatomic_or(p, v)
 
 #define xchg(p, v)			uatomic_xchg(p, v)
 #define xchg_acquire(p, v)		uatomic_xchg(p, v)
@@ -56,6 +58,8 @@ typedef struct {
 #define __ATOMIC_SUB_RETURN(v, p)	__atomic_sub_fetch(p, v, __ATOMIC_RELAXED)
 #define __ATOMIC_SUB_RETURN_RELEASE(v, p)				\
 					__atomic_sub_fetch(p, v, __ATOMIC_RELEASE)
+#define __ATOMIC_AND(p)			__atomic_and_fetch(p, v, __ATOMIC_RELAXED)
+#define __ATOMIC_OR(p)			__atomic_or_fetch(p, v, __ATOMIC_RELAXED)
 
 #define xchg(p, v)			__atomic_exchange_n(p, v, __ATOMIC_SEQ_CST)
 #define xchg_acquire(p, v)		__atomic_exchange_n(p, v, __ATOMIC_ACQUIRE)
@@ -242,6 +246,16 @@ static inline i_type a_type##_add_unless(a_type##_t *v, i_type a, i_type u)\
 static inline bool a_type##_inc_not_zero(a_type##_t *v)			\
 {									\
 	return a_type##_add_unless(v, 1, 0);				\
+}									\
+									\
+static inline void a_type##_and(i_type a, a_type##_t *v)		\
+{									\
+	__ATOMIC_AND(a, v);						\
+}									\
+									\
+static inline void a_type##_or(i_type a, a_type##_t *v)			\
+{									\
+	__ATOMIC_OR(a, v);						\
 }									\
 									\
 static inline i_type a_type##_xchg(a_type##_t *v, i_type i)		\
