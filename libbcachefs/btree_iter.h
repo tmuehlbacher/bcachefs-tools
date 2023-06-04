@@ -89,6 +89,32 @@ __trans_next_path(struct btree_trans *trans, unsigned idx)
 #define trans_for_each_path(_trans, _path)				\
 	trans_for_each_path_from(_trans, _path, 0)
 
+static inline struct btree_path *
+__trans_next_path_safe(struct btree_trans *trans, unsigned *idx)
+{
+	u64 l;
+
+	if (*idx == BTREE_ITER_MAX)
+		return NULL;
+
+	l = trans->paths_allocated >> *idx;
+	if (!l)
+		return NULL;
+
+	*idx += __ffs64(l);
+	EBUG_ON(*idx >= BTREE_ITER_MAX);
+	return &trans->paths[*idx];
+}
+
+/*
+ * This version is intended to be safe for use on a btree_trans that is owned by
+ * another thread, for bch2_btree_trans_to_text();
+ */
+#define trans_for_each_path_safe(_trans, _path, _idx)			\
+	for (_idx = 0;							\
+	     (_path = __trans_next_path_safe((_trans), &_idx));		\
+	     _idx++)
+
 static inline struct btree_path *next_btree_path(struct btree_trans *trans, struct btree_path *path)
 {
 	unsigned idx = path ? path->sorted_idx + 1 : 0;
@@ -487,7 +513,7 @@ static inline struct bkey_s_c __bch2_bkey_get_iter(struct btree_trans *trans,
 	k = bch2_btree_iter_peek_slot(iter);
 
 	if (!bkey_err(k) && type && k.k->type != type)
-		k = bkey_s_c_err(-ENOENT);
+		k = bkey_s_c_err(-BCH_ERR_ENOENT_bkey_type_mismatch);
 	if (unlikely(bkey_err(k)))
 		bch2_trans_iter_exit(trans, iter);
 	return k;
@@ -824,6 +850,37 @@ __bch2_btree_iter_peek_upto_and_restart(struct btree_trans *trans,
 	     (_k) = bch2_btree_iter_peek_upto_type(&(_iter), _end, _flags),	\
 	     !((_ret) = bkey_err(_k)) && (_k).k;				\
 	     bch2_btree_iter_advance(&(_iter)))
+
+#define drop_locks_do(_trans, _do)					\
+({									\
+	bch2_trans_unlock(_trans);					\
+	_do ?: bch2_trans_relock(_trans);				\
+})
+
+#define allocate_dropping_locks_errcode(_trans, _do)			\
+({									\
+	gfp_t _gfp = GFP_NOWAIT|__GFP_NOWARN;				\
+	int _ret = _do;							\
+									\
+	if (bch2_err_matches(_ret, ENOMEM)) {				\
+		_gfp = GFP_KERNEL;					\
+		_ret = drop_locks_do(trans, _do);			\
+	}								\
+	_ret;								\
+})
+
+#define allocate_dropping_locks(_trans, _ret, _do)			\
+({									\
+	gfp_t _gfp = GFP_NOWAIT|__GFP_NOWARN;				\
+	typeof(_do) _p = _do;						\
+									\
+	_ret = 0;							\
+	if (unlikely(!_p)) {						\
+		_gfp = GFP_KERNEL;					\
+		_ret = drop_locks_do(trans, ((_p = _do), 0));		\
+	}								\
+	_p;								\
+})
 
 /* new multiple iterator interface: */
 

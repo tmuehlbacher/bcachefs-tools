@@ -128,9 +128,6 @@ static struct btree *__btree_node_mem_alloc(struct bch_fs *c, gfp_t gfp)
 		return NULL;
 
 	bkey_btree_ptr_init(&b->key);
-#ifdef CONFIG_DEBUG_LOCK_ALLOC
-	lockdep_set_no_check_recursion(&b->c.lock.dep_map);
-#endif
 	INIT_LIST_HEAD(&b->list);
 	INIT_LIST_HEAD(&b->write_blocked);
 	b->byte_order = ilog2(btree_bytes(c));
@@ -639,9 +636,10 @@ struct btree *bch2_btree_node_mem_alloc(struct btree_trans *trans, bool pcpu_rea
 			goto got_node;
 		}
 
-	b = __btree_node_mem_alloc(c, __GFP_NOWARN);
+	b = __btree_node_mem_alloc(c, GFP_NOWAIT|__GFP_NOWARN);
 	if (!b) {
 		mutex_unlock(&bc->lock);
+		bch2_trans_unlock(trans);
 		b = __btree_node_mem_alloc(c, GFP_KERNEL);
 		if (!b)
 			goto err;
@@ -670,8 +668,11 @@ got_node:
 
 	mutex_unlock(&bc->lock);
 
-	if (btree_node_data_alloc(c, b, __GFP_NOWARN|GFP_KERNEL))
-		goto err;
+	if (btree_node_data_alloc(c, b, GFP_NOWAIT|__GFP_NOWARN)) {
+		bch2_trans_unlock(trans);
+		if (btree_node_data_alloc(c, b, GFP_KERNEL|__GFP_NOWARN))
+			goto err;
+	}
 
 	mutex_lock(&bc->lock);
 	bc->used++;
@@ -864,6 +865,7 @@ static struct btree *__bch2_btree_node_get(struct btree_trans *trans, struct btr
 	struct btree_cache *bc = &c->btree_cache;
 	struct btree *b;
 	struct bset_tree *t;
+	bool need_relock = false;
 	int ret;
 
 	EBUG_ON(level >= BTREE_MAX_DEPTH);
@@ -877,6 +879,7 @@ retry:
 		 */
 		b = bch2_btree_node_fill(trans, path, k, path->btree_id,
 					 level, lock_type, true);
+		need_relock = true;
 
 		/* We raced and found the btree node in the cache */
 		if (!b)
@@ -915,6 +918,7 @@ retry:
 
 		six_unlock_type(&b->c.lock, lock_type);
 		bch2_trans_unlock(trans);
+		need_relock = true;
 
 		bch2_btree_node_wait_on_read(b);
 
@@ -922,17 +926,17 @@ retry:
 		 * should_be_locked is not set on this path yet, so we need to
 		 * relock it specifically:
 		 */
-		if (trans) {
-			int ret = bch2_trans_relock(trans) ?:
-				bch2_btree_path_relock_intent(trans, path);
-			if (ret) {
-				BUG_ON(!trans->restarted);
-				return ERR_PTR(ret);
-			}
-		}
-
 		if (!six_relock_type(&b->c.lock, lock_type, seq))
 			goto retry;
+	}
+
+	if (unlikely(need_relock)) {
+		int ret = bch2_trans_relock(trans) ?:
+			bch2_btree_path_relock_intent(trans, path);
+		if (ret) {
+			six_unlock_type(&b->c.lock, lock_type);
+			return ERR_PTR(ret);
+		}
 	}
 
 	prefetch(b->aux_data);

@@ -271,6 +271,13 @@ static inline i_type a_type##_cmpxchg(a_type##_t *v, i_type old, i_type new)\
 static inline i_type a_type##_cmpxchg_acquire(a_type##_t *v, i_type old, i_type new)\
 {									\
 	return cmpxchg_acquire(&v->counter, old, new);			\
+}									\
+									\
+static inline bool a_type##_try_cmpxchg_acquire(a_type##_t *v, i_type *old, i_type new)\
+{									\
+	i_type prev = *old;						\
+	*old = cmpxchg_acquire(&v->counter, *old, new);			\
+	return prev == *old;						\
 }
 
 DEF_ATOMIC_OPS(atomic,		int)

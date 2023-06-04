@@ -316,25 +316,11 @@ static noinline int
 bch2_trans_journal_preres_get_cold(struct btree_trans *trans, unsigned flags,
 				   unsigned long trace_ip)
 {
-	struct bch_fs *c = trans->c;
-	int ret;
-
-	bch2_trans_unlock(trans);
-
-	ret = bch2_journal_preres_get(&c->journal,
+	return drop_locks_do(trans,
+		bch2_journal_preres_get(&trans->c->journal,
 			&trans->journal_preres,
 			trans->journal_preres_u64s,
-			(flags & JOURNAL_WATERMARK_MASK));
-	if (ret)
-		return ret;
-
-	ret = bch2_trans_relock(trans);
-	if (ret) {
-		trace_and_count(c, trans_restart_journal_preres_get, trans, trace_ip, 0);
-		return ret;
-	}
-
-	return 0;
+			(flags & JOURNAL_WATERMARK_MASK)));
 }
 
 static __always_inline int bch2_trans_journal_res_get(struct btree_trans *trans,
@@ -961,48 +947,27 @@ int bch2_trans_commit_error(struct btree_trans *trans, unsigned flags,
 			trace_and_count(c, trans_restart_btree_node_split, trans, trace_ip, i->path);
 		break;
 	case -BCH_ERR_btree_insert_need_mark_replicas:
-		bch2_trans_unlock(trans);
-
-		ret = bch2_replicas_delta_list_mark(c, trans->fs_usage_deltas);
-		if (ret)
-			break;
-
-		ret = bch2_trans_relock(trans);
-		if (ret)
-			trace_and_count(c, trans_restart_mark_replicas, trans, trace_ip);
+		ret = drop_locks_do(trans,
+			bch2_replicas_delta_list_mark(c, trans->fs_usage_deltas));
 		break;
 	case -BCH_ERR_journal_res_get_blocked:
-		bch2_trans_unlock(trans);
-
 		if ((flags & BTREE_INSERT_JOURNAL_RECLAIM) &&
 		    !(flags & JOURNAL_WATERMARK_reserved)) {
 			ret = -BCH_ERR_journal_reclaim_would_deadlock;
 			break;
 		}
 
-		ret = bch2_trans_journal_res_get(trans,
+		ret = drop_locks_do(trans,
+			bch2_trans_journal_res_get(trans,
 					(flags & JOURNAL_WATERMARK_MASK)|
-					JOURNAL_RES_GET_CHECK);
-		if (ret)
-			break;
-
-		ret = bch2_trans_relock(trans);
-		if (ret)
-			trace_and_count(c, trans_restart_journal_res_get, trans, trace_ip);
+					JOURNAL_RES_GET_CHECK));
 		break;
 	case -BCH_ERR_btree_insert_need_journal_reclaim:
-		bch2_trans_unlock(trans);
-
 		trace_and_count(c, trans_blocked_journal_reclaim, trans, trace_ip);
 
-		wait_event_freezable(c->journal.reclaim_wait,
-				     (ret = journal_reclaim_wait_done(c)));
-		if (ret < 0)
-			break;
-
-		ret = bch2_trans_relock(trans);
-		if (ret)
-			trace_and_count(c, trans_restart_journal_reclaim, trans, trace_ip);
+		ret = drop_locks_do(trans,
+			(wait_event_freezable(c->journal.reclaim_wait,
+				     (ret = journal_reclaim_wait_done(c))), ret));
 		break;
 	case -BCH_ERR_btree_insert_need_flush_buffer: {
 		struct btree_write_buffer *wb = &c->btree_write_buffer;
@@ -1010,20 +975,20 @@ int bch2_trans_commit_error(struct btree_trans *trans, unsigned flags,
 		ret = 0;
 
 		if (wb->state.nr > wb->size * 3 / 4) {
-			bch2_trans_reset_updates(trans);
 			bch2_trans_unlock(trans);
-
 			mutex_lock(&wb->flush_lock);
 
-			if (wb->state.nr > wb->size * 3 / 4)
+			if (wb->state.nr > wb->size * 3 / 4) {
+				bch2_trans_begin(trans);
 				ret = __bch2_btree_write_buffer_flush(trans,
 						flags|BTREE_INSERT_NOCHECK_RW, true);
-			else
+				if (!ret) {
+					trace_and_count(c, trans_restart_write_buffer_flush, trans, _THIS_IP_);
+					ret = btree_trans_restart(trans, BCH_ERR_transaction_restart_write_buffer_flush);
+				}
+			} else {
 				mutex_unlock(&wb->flush_lock);
-
-			if (!ret) {
-				trace_and_count(c, trans_restart_write_buffer_flush, trans, _THIS_IP_);
-				ret = btree_trans_restart(trans, BCH_ERR_transaction_restart_write_buffer_flush);
+				ret = bch2_trans_relock(trans);
 			}
 		}
 		break;
@@ -1053,10 +1018,7 @@ bch2_trans_commit_get_rw_cold(struct btree_trans *trans, unsigned flags)
 	    test_bit(BCH_FS_STARTED, &c->flags))
 		return -BCH_ERR_erofs_trans_commit;
 
-	bch2_trans_unlock(trans);
-
-	ret =   bch2_fs_read_write_early(c) ?:
-		bch2_trans_relock(trans);
+	ret = drop_locks_do(trans, bch2_fs_read_write_early(c));
 	if (ret)
 		return ret;
 
@@ -1343,6 +1305,97 @@ static int need_whiteout_for_snapshot(struct btree_trans *trans,
 
 	return ret;
 }
+
+static int pos_overwritten_in_snapshot(struct btree_trans *trans, enum btree_id btree,
+				       struct bpos pos, u32 snapshot)
+{
+	struct bch_fs *c = trans->c;
+	struct btree_iter iter;
+	struct bkey_s_c k;
+	int ret;
+
+	for_each_btree_key_norestart(trans, iter,
+			btree, SPOS(pos.inode, pos.offset, snapshot),
+			BTREE_ITER_ALL_SNAPSHOTS|
+			BTREE_ITER_NOPRESERVE, k, ret) {
+		if (bpos_ge(k.k->p, pos))
+			break;
+
+		if (bch2_snapshot_is_ancestor(c, k.k->p.snapshot, pos.snapshot)) {
+			ret = 1;
+			break;
+		}
+	}
+	bch2_trans_iter_exit(trans, &iter);
+
+	return ret;
+}
+
+int __bch2_insert_snapshot_whiteouts(struct btree_trans *trans,
+				   enum btree_id btree,
+				   struct bpos old_pos,
+				   struct bpos new_pos)
+{
+	struct bch_fs *c = trans->c;
+	struct btree_iter old_iter, new_iter;
+	struct bkey_s_c k;
+	snapshot_id_list s;
+	struct bkey_i *update;
+	int ret;
+
+	if (!bch2_snapshot_has_children(c, old_pos.snapshot))
+		return 0;
+
+	darray_init(&s);
+
+	bch2_trans_iter_init(trans, &old_iter, btree, old_pos,
+			     BTREE_ITER_NOT_EXTENTS|
+			     BTREE_ITER_ALL_SNAPSHOTS);
+	while ((k = bch2_btree_iter_prev(&old_iter)).k &&
+	       !(ret = bkey_err(k)) &&
+	       bkey_eq(old_pos, k.k->p)) {
+
+		if (!bch2_snapshot_is_ancestor(c, k.k->p.snapshot, old_pos.snapshot) ||
+		    snapshot_list_has_ancestor(c, &s, k.k->p.snapshot))
+			continue;
+
+		ret = pos_overwritten_in_snapshot(trans, btree,
+					new_pos, k.k->p.snapshot);
+		if (ret < 0)
+			break;
+
+		if (!ret) {
+			struct bpos whiteout_pos =
+				SPOS(new_pos.inode, new_pos.offset, k.k->p.snapshot);;
+
+			bch2_trans_iter_init(trans, &new_iter, btree, whiteout_pos,
+					     BTREE_ITER_NOT_EXTENTS|
+					     BTREE_ITER_INTENT);
+			update = bch2_trans_kmalloc(trans, sizeof(struct bkey_i));
+			ret = PTR_ERR_OR_ZERO(update);
+			if (ret)
+				break;
+
+			bkey_init(&update->k);
+			update->k.p		= whiteout_pos;
+			update->k.type		= KEY_TYPE_whiteout;
+
+			ret   = bch2_btree_iter_traverse(&new_iter) ?:
+				bch2_trans_update(trans, &new_iter, update,
+						BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE);
+			bch2_trans_iter_exit(trans, &new_iter);
+		}
+
+		ret = snapshot_list_add(c, &s, k.k->p.snapshot);
+		if (ret)
+			break;
+	}
+	bch2_trans_iter_exit(trans, &old_iter);
+	darray_exit(&s);
+
+	return ret;
+}
+
 int bch2_trans_update_extent(struct btree_trans *trans,
 			     struct btree_iter *orig_iter,
 			     struct bkey_i *insert,
@@ -1396,8 +1449,10 @@ int bch2_trans_update_extent(struct btree_trans *trans,
 
 			bch2_cut_back(start, update);
 
-			ret = bch2_btree_insert_nonextent(trans, btree_id, update,
-						  BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE|flags);
+			ret =   bch2_insert_snapshot_whiteouts(trans, btree_id,
+						k.k->p, update->k.p) ?:
+				bch2_btree_insert_nonextent(trans, btree_id, update,
+						BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE|flags);
 			if (ret)
 				goto err;
 		}
@@ -1411,7 +1466,9 @@ int bch2_trans_update_extent(struct btree_trans *trans,
 			bch2_cut_front(start, update);
 			bch2_cut_back(insert->k.p, update);
 
-			ret = bch2_btree_insert_nonextent(trans, btree_id, update,
+			ret =   bch2_insert_snapshot_whiteouts(trans, btree_id,
+						k.k->p, update->k.p) ?:
+				bch2_btree_insert_nonextent(trans, btree_id, update,
 						  BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE|flags);
 			if (ret)
 				goto err;

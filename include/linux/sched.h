@@ -117,7 +117,7 @@ static inline void put_task_struct(struct task_struct *t)
 		__put_task_struct(t);
 }
 
-#define cond_resched()
+static inline void cond_resched(void) {}
 #define need_resched()	0
 
 void schedule(void);

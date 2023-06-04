@@ -2,6 +2,11 @@
 #ifndef _LINUX_MATH_H
 #define _LINUX_MATH_H
 
+#include <linux/kernel.h>
+
+/* abs() */
+#include <stdlib.h>
+
 /*
  * This looks more complex than it should be. But we need to
  * get the type for the ~ right in round_down (it needs to be

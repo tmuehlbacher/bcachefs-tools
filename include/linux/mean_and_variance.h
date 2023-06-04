@@ -3,10 +3,9 @@
 #define MEAN_AND_VARIANCE_H_
 
 #include <linux/types.h>
-#include <linux/kernel.h>
 #include <linux/limits.h>
+#include <linux/math.h>
 #include <linux/math64.h>
-#include <stdlib.h>
 
 #define SQRT_U64_MAX 4294967295ULL
 
@@ -178,14 +177,12 @@ static inline s64 fast_divpow2(s64 n, u8 d)
  *
  * see linked pdf equation 12.
  */
-static inline struct mean_and_variance
-mean_and_variance_update(struct mean_and_variance s, s64 v)
+static inline void
+mean_and_variance_update(struct mean_and_variance *s, s64 v)
 {
-	return (struct mean_and_variance) {
-		.n           = s.n + 1,
-		.sum         = s.sum + v,
-		.sum_squares = u128_add(s.sum_squares, u128_square(abs(v))),
-	};
+	s->n++;
+	s->sum += v;
+	s->sum_squares = u128_add(s->sum_squares, u128_square(abs(v)));
 }
 
 s64 mean_and_variance_get_mean(struct mean_and_variance s);

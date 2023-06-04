@@ -576,6 +576,13 @@ static int bch2_fs_quota_read_inode(struct btree_trans *trans,
 					le32_to_cpu(s_t.master_subvol),
 					k.k->p.offset,
 				}, &u);
+	/*
+	 * Inode might be deleted in this snapshot - the easiest way to handle
+	 * that is to just skip it here:
+	 */
+	if (bch2_err_matches(ret, ENOENT))
+		goto advance;
+
 	if (ret)
 		return ret;
 
@@ -615,7 +622,7 @@ int bch2_fs_quota_read(struct bch_fs *c)
 			POS_MIN, BTREE_ITER_PREFETCH|BTREE_ITER_ALL_SNAPSHOTS, k,
 		bch2_fs_quota_read_inode(&trans, &iter, k));
 	if (ret)
-		bch_err(c, "err in quota_read: %s", bch2_err_str(ret));
+		bch_err(c, "%s: err %s", __func__, bch2_err_str(ret));
 
 	bch2_trans_exit(&trans);
 	return ret;
@@ -893,7 +900,7 @@ static int bch2_get_next_quota(struct super_block *sb, struct kqid *kqid,
 	ret = -ENOENT;
 found:
 	mutex_unlock(&q->lock);
-	return ret;
+	return bch2_err_class(ret);
 }
 
 static int bch2_set_quota_trans(struct btree_trans *trans,
@@ -953,7 +960,7 @@ static int bch2_set_quota(struct super_block *sb, struct kqid qid,
 			    bch2_set_quota_trans(&trans, &new_quota, qdq)) ?:
 		__bch2_quota_set(c, bkey_i_to_s_c(&new_quota.k_i), qdq);
 
-	return ret;
+	return bch2_err_class(ret);
 }
 
 const struct quotactl_ops bch2_quotactl_operations = {

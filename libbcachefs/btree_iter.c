@@ -41,13 +41,10 @@ static struct btree_path *btree_path_alloc(struct btree_trans *, struct btree_pa
  */
 static inline int bch2_trans_cond_resched(struct btree_trans *trans)
 {
-	if (need_resched() || race_fault()) {
-		bch2_trans_unlock(trans);
-		schedule();
-		return bch2_trans_relock(trans);
-	} else {
+	if (need_resched() || race_fault())
+		return drop_locks_do(trans, (schedule(), 0));
+	else
 		return 0;
-	}
 }
 
 static inline int __btree_path_cmp(const struct btree_path *l,
@@ -2793,6 +2790,7 @@ void *__bch2_trans_kmalloc(struct btree_trans *trans, size_t size)
 	unsigned new_top = trans->mem_top + size;
 	size_t old_bytes = trans->mem_bytes;
 	size_t new_bytes = roundup_pow_of_two(new_top);
+	int ret;
 	void *new_mem;
 	void *p;
 
@@ -2800,15 +2798,27 @@ void *__bch2_trans_kmalloc(struct btree_trans *trans, size_t size)
 
 	WARN_ON_ONCE(new_bytes > BTREE_TRANS_MEM_MAX);
 
-	new_mem = krealloc(trans->mem, new_bytes, GFP_NOFS);
-	if (!new_mem && new_bytes <= BTREE_TRANS_MEM_MAX) {
-		new_mem = mempool_alloc(&trans->c->btree_trans_mem_pool, GFP_KERNEL);
-		new_bytes = BTREE_TRANS_MEM_MAX;
-		kfree(trans->mem);
-	}
+	new_mem = krealloc(trans->mem, new_bytes, GFP_NOWAIT|__GFP_NOWARN);
+	if (unlikely(!new_mem)) {
+		bch2_trans_unlock(trans);
 
-	if (!new_mem)
-		return ERR_PTR(-BCH_ERR_ENOMEM_trans_kmalloc);
+		new_mem = krealloc(trans->mem, new_bytes, GFP_KERNEL);
+		if (!new_mem && new_bytes <= BTREE_TRANS_MEM_MAX) {
+			new_mem = mempool_alloc(&trans->c->btree_trans_mem_pool, GFP_KERNEL);
+			new_bytes = BTREE_TRANS_MEM_MAX;
+			kfree(trans->mem);
+		}
+
+		if (!new_mem)
+			return ERR_PTR(-BCH_ERR_ENOMEM_trans_kmalloc);
+
+		trans->mem = new_mem;
+		trans->mem_bytes = new_bytes;
+
+		ret = bch2_trans_relock(trans);
+		if (ret)
+			return ERR_PTR(ret);
+	}
 
 	trans->mem = new_mem;
 	trans->mem_bytes = new_bytes;
@@ -2879,11 +2889,8 @@ u32 bch2_trans_begin(struct btree_trans *trans)
 
 	if (!trans->restarted &&
 	    (need_resched() ||
-	     local_clock() - trans->last_begin_time > BTREE_TRANS_MAX_LOCK_HOLD_TIME_NS)) {
-		bch2_trans_unlock(trans);
-		cond_resched();
-		bch2_trans_relock(trans);
-	}
+	     local_clock() - trans->last_begin_time > BTREE_TRANS_MAX_LOCK_HOLD_TIME_NS))
+		drop_locks_do(trans, (cond_resched(), 0));
 
 	if (unlikely(time_after(jiffies, trans->srcu_lock_time + msecs_to_jiffies(10))))
 		bch2_trans_reset_srcu_lock(trans);
@@ -3110,7 +3117,7 @@ void bch2_btree_trans_to_text(struct printbuf *out, struct btree_trans *trans)
 	struct btree_path *path;
 	struct btree_bkey_cached_common *b;
 	static char lock_types[] = { 'r', 'i', 'w' };
-	unsigned l;
+	unsigned l, idx;
 
 	if (!out->nr_tabstops) {
 		printbuf_tabstop_push(out, 16);
@@ -3119,7 +3126,7 @@ void bch2_btree_trans_to_text(struct printbuf *out, struct btree_trans *trans)
 
 	prt_printf(out, "%i %s\n", trans->locking_wait.task->pid, trans->fn);
 
-	trans_for_each_path(trans, path) {
+	trans_for_each_path_safe(trans, path, idx) {
 		if (!path->nodes_locked)
 			continue;
 
