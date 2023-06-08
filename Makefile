@@ -98,7 +98,7 @@ TAGS:
 tags:
 	ctags -R .
 
-SRCS=$(shell find . -type f ! -path '*/.*/*' -iname '*.c')
+SRCS=$(sort $(shell find . -type f ! -path '*/.*/*' -iname '*.c'))
 DEPS=$(SRCS:.c=.d)
 -include $(DEPS)
 
