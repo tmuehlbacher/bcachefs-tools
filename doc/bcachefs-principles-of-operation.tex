@@ -129,21 +129,28 @@ When encryption is enabled, the poly1305 MAC replaces the normal data and
 metadata checksums. This style of encryption is superior to typical block layer
 or filesystem level encryption (usually AES-XTS), which only operates on blocks
 and doesn't have a way to store nonces or MACs. In contrast, we store a nonce
-and cryptographic MAC alongside data pointers - meaning we have a chain of trust
+and cryptographic MAC alongside data pointers, meaning we have a chain of trust
 up to the superblock (or journal, in the case of unclean shutdowns) and can
 definitely tell if metadata has been modified, dropped, or replaced with an
-earlier version - replay attacks are not possible.
+earlier version.  Therefore, replay attacks are not possible, with the exception
+of an offline rollback of the entire filesystem to a previous version (but see
+the WARNING below).
 
 Encryption can only be specified for the entire filesystem, not per file or
 directory - this is because metadata blocks do not belong to a particular file.
-All metadata except for the superblock is encrypted.
+All data and metadata except for the superblock is encrypted, and all data
+and metadata is authenticated.
 
 In the future we'll probably add AES-GCM for platforms that have hardware
 acceleration for AES, but in the meantime software implementations of ChaCha20
 are also quite fast on most platforms.
 
-\texttt{scrypt} is used for the key derivation function - for converting the
-user supplied passphrase to an encryption key.
+\texttt{scrypt} is currently used for the key derivation function (KDF), which
+converts the user supplied passphrase to an encryption key.  This is the same
+function used by Tarsnap and Qubes OS’s backup support.  The key derivation is
+implemented entirely in user-space, so other means of deriving a key can be used
+in the future without any kernel changes.
+
 
 To format a filesystem with encryption, use
 \begin{quote} \begin{verbatim}
@@ -168,7 +175,54 @@ There is a \texttt{wide\_macs} option which controls the size of the
 cryptographic MACs stored on disk. By default, only 80 bits are stored, which
 should be sufficient security for most applications. With the
 \texttt{wide\_macs} option enabled we store the full 128 bit MAC, at the cost of
-making extents 8 bytes bigger.
+making extents 8 bytes bigger.  \texttt{wide\_macs} is recommended for cases
+where an attacker can make repeated attempts at forging a MAC, such as scenarios
+where the storage device itself is untrusted (but see below).
+
+For technical reasons, bcachefs encryption is unsafe if the underlying storage
+is snapshotted and rolled back to an earlier version.  (Using bcachefs's own
+snapshot functionality \textit{is} safe.) Therefore, one must exercise care
+when using bcachefs encryption with ``fancy'' storage devices.  It is safe to
+rely on bcachefs encryption if both of the following hold:
+
+\begin{itemize}
+	\item You trust your drives to not be actively malicious. For the
+	      internal storage on your laptop or desktop, this is probably a
+	      safe assumption, and if it is not, you likely have much worse
+	      problems. However, it is not necessarily a safe assumption for
+	      e.g. USB drives or network storage. In those cases you will
+	      need to decide for yourself if you are worried about this.
+
+	\item You are not using ``fancy'' storage systems that support snapshots.
+	      This includes e.g. LVM, ZFS, and loop devices on reflinked or
+	      snapshotted files. Most network storage and/or virtualization
+	      solutions also support snapshots.
+\end{itemize}
+
+If you \textit{are} using snapshots, you must make sure that you never mount
+a snapshotted, encrypted volume, except with \texttt{-o nochanges}.  If this
+rule is violated, an attacker might be able to recover sensitive data that
+the encryption was supposed to protect \footnotemark.  Future versions of
+bcachefs will not have this limitation.  In the meantime, one can make this
+problem much more difficult to exploit by encrypting the volumes on which
+bcachefs resides using LUKS, provided that LUKS is above anything that could
+take a snapshot.  For instance, if you are using bcachefs on LVM and might
+take an LVM snapshot, LUKS would need to be between LVM and bcachefs.
+
+\footnotetext{Technical details: AEAD algorithms, such as ChaCha20/Poly1305,
+require that a \textit{nonce} be used for every encryption. This nonce does not
+need to be kept secret, but one must never encrypt more than one message with
+the same (key, nonce) pair.  In the case of ChaCha20/Poly1305, violating this
+rule loses confidentiality and integrity for all messages with the reused nonce.
+Unfortunately, bcachefs currently derives the nonce for data and journal extents
+from on-disk state.  If a volume is snapshotted and the snapshot mounted,
+bcachefs will use the same keys and nonces for both the original volume and the
+snapshot.  As long at least one of the volumes is strictly read-only, everything
+is okay, but soon as data is written, bcachefs will use the same nonce to
+encrypt what is almost certain to be two different messages, which is insecure.
+Encrypting the volume bcachefs is on makes this much harder to exploit because
+the attacks rely on observing the XOR of the ChaCha20 ciphertexts, and disk
+encryption hides this information.}
 
 \subsubsection{Compression}
 
