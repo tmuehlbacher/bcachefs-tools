@@ -371,7 +371,8 @@ static struct open_bucket *try_alloc_bucket(struct btree_trans *trans, struct bc
 	if (!ob)
 		iter.path->preserve = false;
 err:
-	set_btree_iter_dontneed(&iter);
+	if (iter.trans && iter.path)
+		set_btree_iter_dontneed(&iter);
 	bch2_trans_iter_exit(trans, &iter);
 	printbuf_exit(&buf);
 	return ob;
@@ -934,9 +935,7 @@ static int __open_bucket_add_buckets(struct btree_trans *trans,
 	unsigned i;
 	int ret;
 
-	rcu_read_lock();
 	devs = target_rw_devs(c, wp->data_type, target);
-	rcu_read_unlock();
 
 	/* Don't allocate from devices we already have pointers to: */
 	for (i = 0; i < devs_have->nr; i++)

@@ -2918,6 +2918,10 @@ static void bch2_trans_alloc_paths(struct btree_trans *trans, struct bch_fs *c)
 #endif
 	if (!p)
 		p = mempool_alloc(&trans->c->btree_paths_pool, GFP_NOFS);
+	/*
+	 * paths need to be zeroed, bch2_check_for_deadlock looks at paths in
+	 * other threads
+	 */
 
 	trans->paths		= p; p += paths_bytes;
 	trans->updates		= p; p += updates_bytes;

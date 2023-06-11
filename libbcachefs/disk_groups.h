@@ -68,6 +68,14 @@ static inline struct bch_devs_mask target_rw_devs(struct bch_fs *c,
 	return devs;
 }
 
+static inline bool bch2_target_accepts_data(struct bch_fs *c,
+					    enum bch_data_type data_type,
+					    u16 target)
+{
+	struct bch_devs_mask rw_devs = target_rw_devs(c, data_type, target);
+	return !bitmap_empty(rw_devs.d, BCH_SB_MEMBERS_MAX);
+}
+
 bool bch2_dev_in_target(struct bch_fs *, unsigned, unsigned);
 
 int bch2_disk_path_find(struct bch_sb_handle *, const char *);
@@ -87,5 +95,7 @@ int bch2_dev_group_set(struct bch_fs *, struct bch_dev *, const char *);
 
 const char *bch2_sb_validate_disk_groups(struct bch_sb *,
 					 struct bch_sb_field *);
+
+void bch2_disk_groups_to_text(struct printbuf *, struct bch_fs *);
 
 #endif /* _BCACHEFS_DISK_GROUPS_H */

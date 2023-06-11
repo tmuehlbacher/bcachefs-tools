@@ -121,7 +121,7 @@ static inline int snapshot_list_add(struct bch_fs *c, snapshot_id_list *s, u32 i
 {
 	int ret;
 
-	BUG_ON(snapshot_list_has_id(s, id));
+	EBUG_ON(snapshot_list_has_id(s, id));
 	ret = darray_push(s, id);
 	if (ret)
 		bch_err(c, "error reallocating snapshot_id_list (size %zu)", s->size);
