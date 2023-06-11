@@ -113,8 +113,10 @@ static int fs_cmds(int argc, char *argv[])
 {
 	char *cmd = pop_cmd(&argc, argv);
 
-	if (argc < 1)
-		return fs_usage();
+	if (argc < 1) {
+		usage();
+		exit(EXIT_FAILURE);
+	}
 	if (!strcmp(cmd, "usage"))
 		return cmd_fs_usage(argc, argv);
 

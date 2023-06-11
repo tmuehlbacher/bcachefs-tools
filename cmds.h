@@ -20,7 +20,6 @@ int cmd_run(int argc, char *argv[]);
 int cmd_stop(int argc, char *argv[]);
 #endif
 
-int fs_usage(void);
 int cmd_fs_usage(int argc, char *argv[]);
 
 int device_usage(void);

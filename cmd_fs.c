@@ -1,4 +1,4 @@
-
+#include <getopt.h>
 #include <stdio.h>
 #include <sys/ioctl.h>
 
@@ -275,30 +275,40 @@ static void fs_usage_to_text(struct printbuf *out, const char *path)
 	bcache_fs_close(fs);
 }
 
-int fs_usage(void)
+static void fs_usage_usage(void)
 {
-       puts("bcachefs fs - manage a running filesystem\n"
-            "Usage: bcachefs fs <CMD> [OPTION]... path\n"
-            "\n"
-            "Commands:\n"
-            "  usage                      show disk usage\n"
-            "\n"
-            "Report bugs to <linux-bcachefs@vger.kernel.org>");
-       return 0;
+	puts("bcachefs fs usage - display detailed filesystem usage\n"
+	     "Usage: bcachefs fs usage [OPTION]... <mountpoint>\n"
+	     "\n"
+	     "Options:\n"
+	     "  -h, --human-readable              Human readable units\n"
+	     "      --help                        Display this help and exit\n"
+	     "Report bugs to <linux-bcachefs@vger.kernel.org>");
 }
 
 int cmd_fs_usage(int argc, char *argv[])
 {
+	static const struct option longopts[] = {
+		{ "help",		no_argument,		NULL, 'H' },
+		{ NULL }
+	};
 	bool human_readable = false;
 	struct printbuf buf = PRINTBUF;
 	char *fs;
 	int opt;
 
-	while ((opt = getopt(argc, argv, "h")) != -1)
+	while ((opt = getopt_long(argc, argv, "h",
+				  longopts, NULL)) != -1)
 		switch (opt) {
 		case 'h':
 			human_readable = true;
 			break;
+		case 'H':
+			fs_usage_usage();
+			exit(EXIT_SUCCESS);
+		default:
+			fs_usage_usage();
+			exit(EXIT_FAILURE);
 		}
 	args_shift(optind);
 
