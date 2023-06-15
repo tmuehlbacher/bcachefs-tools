@@ -51,6 +51,9 @@ in stdenv.mkDerivation {
   cargoRoot = "rust-src";
   cargoDeps = rustPlatform.importCargoLock {
     lockFile = "${src}/rust-src/Cargo.lock";
+    outputHashes = {
+      "bindgen-0.64.0" = "sha256-GNG8as33HLRYJGYe0nw6qBzq86aHiGonyynEM7gaEE4=";
+    };
   };
 
   makeFlags = [
