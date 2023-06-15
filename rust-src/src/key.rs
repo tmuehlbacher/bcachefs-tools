@@ -72,7 +72,13 @@ fn ask_for_key(sb: &bch_sb_handle) -> anyhow::Result<()> {
 
     let bch_key_magic = BCH_KEY_MAGIC.as_bytes().read_u64::<LittleEndian>().unwrap();
     let crypt = sb.sb().crypt().unwrap();
-    let pass = rpassword::read_password_from_tty(Some("Enter passphrase: "))?;
+    let pass = if atty::is(atty::Stream::Stdin) {
+        rpassword::read_password_from_tty(Some("Enter passphrase: "))?
+    } else {
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line)?;
+        line
+    };
     let pass = std::ffi::CString::new(pass.trim_end())?; // bind to keep the CString alive
     let mut output: bch_key = unsafe {
         bcachefs::derive_passphrase(
