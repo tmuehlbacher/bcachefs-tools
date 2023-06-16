@@ -51,6 +51,9 @@ in stdenv.mkDerivation {
   ];
 
   cargoRoot = "rust-src";
+  # when git-based crates are updated, run:
+  # nix run github:Mic92/nix-update -- --version=skip --flake default
+  # to update the hashes
   cargoDeps = rustPlatform.importCargoLock {
     lockFile = "${src}/rust-src/Cargo.lock";
     outputHashes = {
