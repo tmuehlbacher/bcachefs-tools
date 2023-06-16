@@ -13,6 +13,8 @@
 , lz4
 , nix-gitignore
 , rustPlatform
+, rustc
+, cargo
  }:
 
 let
@@ -28,9 +30,9 @@ in stdenv.mkDerivation {
 
   nativeBuildInputs = [
     pkg-config
+    cargo
+    rustc
     rustPlatform.cargoSetupHook
-    rustPlatform.rust.cargo
-    rustPlatform.rust.rustc
     rustPlatform.bindgenHook
   ];
 
