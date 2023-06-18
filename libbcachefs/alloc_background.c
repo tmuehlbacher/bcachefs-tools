@@ -788,10 +788,12 @@ static int bch2_bucket_do_index(struct btree_trans *trans,
 	if (ca->mi.freespace_initialized &&
 	    test_bit(BCH_FS_CHECK_ALLOC_DONE, &c->flags) &&
 	    bch2_trans_inconsistent_on(old.k->type != old_type, trans,
-			"incorrect key when %s %s btree (got %s should be %s)\n"
+			"incorrect key when %s %s:%llu:%llu:0 (got %s should be %s)\n"
 			"  for %s",
 			set ? "setting" : "clearing",
 			bch2_btree_ids[btree],
+			iter.pos.inode,
+			iter.pos.offset,
 			bch2_bkey_types[old.k->type],
 			bch2_bkey_types[old_type],
 			(bch2_bkey_val_to_text(&buf, c, alloc_k), buf.buf))) {
@@ -1278,8 +1280,8 @@ fsck_err:
 	return ret;
 }
 
-static int bch2_check_discard_freespace_key(struct btree_trans *trans,
-					    struct btree_iter *iter)
+static int __bch2_check_discard_freespace_key(struct btree_trans *trans,
+					      struct btree_iter *iter)
 {
 	struct bch_fs *c = trans->c;
 	struct btree_iter alloc_iter;
@@ -1321,6 +1323,7 @@ static int bch2_check_discard_freespace_key(struct btree_trans *trans,
 		goto delete;
 out:
 fsck_err:
+	set_btree_iter_dontneed(&alloc_iter);
 	bch2_trans_iter_exit(trans, &alloc_iter);
 	printbuf_exit(&buf);
 	return ret;
@@ -1328,6 +1331,24 @@ delete:
 	ret = bch2_btree_delete_extent_at(trans, iter,
 			iter->btree_id == BTREE_ID_freespace ? 1 : 0, 0);
 	goto out;
+}
+
+static int bch2_check_discard_freespace_key(struct btree_trans *trans,
+					    struct btree_iter *iter,
+					    struct bpos end)
+{
+	if (!btree_node_type_is_extents(iter->btree_id)) {
+		return __bch2_check_discard_freespace_key(trans, iter);
+	} else {
+		int ret;
+
+		while (!bkey_eq(iter->pos, end) &&
+		       !(ret = btree_trans_too_many_iters(trans) ?:
+			       __bch2_check_discard_freespace_key(trans, iter)))
+			bch2_btree_iter_set_pos(iter, bpos_nosnap_successor(iter->pos));
+
+		return ret;
+	}
 }
 
 /*
@@ -1485,12 +1506,12 @@ bkey_err:
 			BTREE_ID_need_discard, POS_MIN,
 			BTREE_ITER_PREFETCH, k,
 			NULL, NULL, BTREE_INSERT_NOFAIL|BTREE_INSERT_LAZY_RW,
-		bch2_check_discard_freespace_key(&trans, &iter)) ?:
+		bch2_check_discard_freespace_key(&trans, &iter, k.k->p)) ?:
 	      for_each_btree_key_commit(&trans, iter,
 			BTREE_ID_freespace, POS_MIN,
 			BTREE_ITER_PREFETCH, k,
 			NULL, NULL, BTREE_INSERT_NOFAIL|BTREE_INSERT_LAZY_RW,
-		bch2_check_discard_freespace_key(&trans, &iter)) ?:
+		bch2_check_discard_freespace_key(&trans, &iter, k.k->p)) ?:
 	      for_each_btree_key_commit(&trans, iter,
 			BTREE_ID_bucket_gens, POS_MIN,
 			BTREE_ITER_PREFETCH, k,

@@ -2859,6 +2859,7 @@ static noinline void bch2_trans_reset_srcu_lock(struct btree_trans *trans)
 u32 bch2_trans_begin(struct btree_trans *trans)
 {
 	struct btree_path *path;
+	u64 now;
 
 	bch2_trans_reset_updates(trans);
 
@@ -2887,10 +2888,14 @@ u32 bch2_trans_begin(struct btree_trans *trans)
 			path->preserve = false;
 	}
 
+	now = local_clock();
 	if (!trans->restarted &&
 	    (need_resched() ||
-	     local_clock() - trans->last_begin_time > BTREE_TRANS_MAX_LOCK_HOLD_TIME_NS))
+	     now - trans->last_begin_time > BTREE_TRANS_MAX_LOCK_HOLD_TIME_NS)) {
 		drop_locks_do(trans, (cond_resched(), 0));
+		now = local_clock();
+	}
+	trans->last_begin_time = now;
 
 	if (unlikely(time_after(jiffies, trans->srcu_lock_time + msecs_to_jiffies(10))))
 		bch2_trans_reset_srcu_lock(trans);
@@ -2901,7 +2906,6 @@ u32 bch2_trans_begin(struct btree_trans *trans)
 		trans->notrace_relock_fail = false;
 	}
 
-	trans->last_begin_time = local_clock();
 	return trans->restart_count;
 }
 
