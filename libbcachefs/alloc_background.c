@@ -1315,9 +1315,11 @@ static int __bch2_check_discard_freespace_key(struct btree_trans *trans,
 	if (fsck_err_on(a->data_type != state ||
 			(state == BCH_DATA_free &&
 			 genbits != alloc_freespace_genbits(*a)), c,
-			"%s\n  incorrectly set in %s index (free %u, genbits %llu should be %llu)",
+			"%s\n  incorrectly set at %s:%llu:%llu:0 (free %u, genbits %llu should be %llu)",
 			(bch2_bkey_val_to_text(&buf, c, alloc_k), buf.buf),
 			bch2_btree_ids[iter->btree_id],
+			iter->pos.inode,
+			iter->pos.offset,
 			a->data_type == state,
 			genbits >> 56, alloc_freespace_genbits(*a) >> 56))
 		goto delete;
@@ -1328,8 +1330,10 @@ fsck_err:
 	printbuf_exit(&buf);
 	return ret;
 delete:
-	ret = bch2_btree_delete_extent_at(trans, iter,
-			iter->btree_id == BTREE_ID_freespace ? 1 : 0, 0);
+	ret =   bch2_btree_delete_extent_at(trans, iter,
+			iter->btree_id == BTREE_ID_freespace ? 1 : 0, 0) ?:
+		bch2_trans_commit(trans, NULL, NULL,
+			BTREE_INSERT_NOFAIL|BTREE_INSERT_LAZY_RW);
 	goto out;
 }
 
@@ -1502,15 +1506,13 @@ bkey_err:
 	if (ret < 0)
 		goto err;
 
-	ret = for_each_btree_key_commit(&trans, iter,
+	ret = for_each_btree_key2(&trans, iter,
 			BTREE_ID_need_discard, POS_MIN,
 			BTREE_ITER_PREFETCH, k,
-			NULL, NULL, BTREE_INSERT_NOFAIL|BTREE_INSERT_LAZY_RW,
 		bch2_check_discard_freespace_key(&trans, &iter, k.k->p)) ?:
-	      for_each_btree_key_commit(&trans, iter,
+	      for_each_btree_key2(&trans, iter,
 			BTREE_ID_freespace, POS_MIN,
 			BTREE_ITER_PREFETCH, k,
-			NULL, NULL, BTREE_INSERT_NOFAIL|BTREE_INSERT_LAZY_RW,
 		bch2_check_discard_freespace_key(&trans, &iter, k.k->p)) ?:
 	      for_each_btree_key_commit(&trans, iter,
 			BTREE_ID_bucket_gens, POS_MIN,
