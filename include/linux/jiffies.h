@@ -71,7 +71,7 @@ static inline u64 sched_clock(void)
 {
 	struct timespec ts;
 
-	clock_gettime(CLOCK_MONOTONIC, &ts);
+	clock_gettime(CLOCK_MONOTONIC_COARSE, &ts);
 
 	return ((s64) ts.tv_sec * NSEC_PER_SEC) + ts.tv_nsec;
 }
