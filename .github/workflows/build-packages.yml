@@ -2,9 +2,6 @@ on: [push]
 
 name: build
 
-env:
-  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
-
 jobs:
 
   deb:
