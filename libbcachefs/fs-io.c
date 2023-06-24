@@ -35,6 +35,49 @@
 
 #include <trace/events/writeback.h>
 
+struct folio_vec {
+	struct folio	*fv_folio;
+	size_t		fv_offset;
+	size_t		fv_len;
+};
+
+static inline struct folio_vec biovec_to_foliovec(struct bio_vec bv)
+{
+
+	struct folio *folio	= page_folio(bv.bv_page);
+	size_t offset		= (folio_page_idx(folio, bv.bv_page) << PAGE_SHIFT) +
+		bv.bv_offset;
+	size_t len = min_t(size_t, folio_size(folio) - offset, bv.bv_len);
+
+	return (struct folio_vec) {
+		.fv_folio	= folio,
+		.fv_offset	= offset,
+		.fv_len		= len,
+	};
+}
+
+static inline struct folio_vec bio_iter_iovec_folio(struct bio *bio,
+						    struct bvec_iter iter)
+{
+	return biovec_to_foliovec(bio_iter_iovec(bio, iter));
+}
+
+#define __bio_for_each_folio(bvl, bio, iter, start)			\
+	for (iter = (start);						\
+	     (iter).bi_size &&						\
+		((bvl = bio_iter_iovec_folio((bio), (iter))), 1);	\
+	     bio_advance_iter_single((bio), &(iter), (bvl).fv_len))
+
+/**
+ * bio_for_each_folio - iterate over folios within a bio
+ *
+ * Like other non-_all versions, this iterates over what bio->bi_iter currently
+ * points to. This version is for drivers, where the bio may have previously
+ * been split or cloned.
+ */
+#define bio_for_each_folio(bvl, bio, iter)				\
+	__bio_for_each_folio(bvl, bio, iter, (bio)->bi_iter)
+
 /*
  * Use u64 for the end pos and sector helpers because if the folio covers the
  * max supported range of the mapping, the start offset of the next folio
@@ -81,7 +124,7 @@ static int filemap_get_contig_folios_d(struct address_space *mapping,
 			break;
 
 		f = __filemap_get_folio(mapping, pos >> PAGE_SHIFT, fgp_flags, gfp);
-		if (!f)
+		if (IS_ERR_OR_NULL(f))
 			break;
 
 		BUG_ON(folios->nr && folio_pos(f) != pos);
@@ -1062,17 +1105,16 @@ bool bch2_release_folio(struct folio *folio, gfp_t gfp_mask)
 
 static void bch2_readpages_end_io(struct bio *bio)
 {
-	struct bvec_iter_all iter;
-	struct folio_vec fv;
+	struct folio_iter fi;
 
-	bio_for_each_folio_all(fv, bio, iter) {
+	bio_for_each_folio_all(fi, bio) {
 		if (!bio->bi_status) {
-			folio_mark_uptodate(fv.fv_folio);
+			folio_mark_uptodate(fi.folio);
 		} else {
-			folio_clear_uptodate(fv.fv_folio);
-			folio_set_error(fv.fv_folio);
+			folio_clear_uptodate(fi.folio);
+			folio_set_error(fi.folio);
 		}
-		folio_unlock(fv.fv_folio);
+		folio_unlock(fi.folio);
 	}
 
 	bio_put(bio);
@@ -1430,34 +1472,33 @@ static void bch2_writepage_io_done(struct bch_write_op *op)
 		container_of(op, struct bch_writepage_io, op);
 	struct bch_fs *c = io->op.c;
 	struct bio *bio = &io->op.wbio.bio;
-	struct bvec_iter_all iter;
-	struct folio_vec fv;
+	struct folio_iter fi;
 	unsigned i;
 
 	if (io->op.error) {
 		set_bit(EI_INODE_ERROR, &io->inode->ei_flags);
 
-		bio_for_each_folio_all(fv, bio, iter) {
+		bio_for_each_folio_all(fi, bio) {
 			struct bch_folio *s;
 
-			folio_set_error(fv.fv_folio);
-			mapping_set_error(fv.fv_folio->mapping, -EIO);
+			folio_set_error(fi.folio);
+			mapping_set_error(fi.folio->mapping, -EIO);
 
-			s = __bch2_folio(fv.fv_folio);
+			s = __bch2_folio(fi.folio);
 			spin_lock(&s->lock);
-			for (i = 0; i < folio_sectors(fv.fv_folio); i++)
+			for (i = 0; i < folio_sectors(fi.folio); i++)
 				s->s[i].nr_replicas = 0;
 			spin_unlock(&s->lock);
 		}
 	}
 
 	if (io->op.flags & BCH_WRITE_WROTE_DATA_INLINE) {
-		bio_for_each_folio_all(fv, bio, iter) {
+		bio_for_each_folio_all(fi, bio) {
 			struct bch_folio *s;
 
-			s = __bch2_folio(fv.fv_folio);
+			s = __bch2_folio(fi.folio);
 			spin_lock(&s->lock);
-			for (i = 0; i < folio_sectors(fv.fv_folio); i++)
+			for (i = 0; i < folio_sectors(fi.folio); i++)
 				s->s[i].nr_replicas = 0;
 			spin_unlock(&s->lock);
 		}
@@ -1482,11 +1523,11 @@ static void bch2_writepage_io_done(struct bch_write_op *op)
 	 */
 	i_sectors_acct(c, io->inode, NULL, io->op.i_sectors_delta);
 
-	bio_for_each_folio_all(fv, bio, iter) {
-		struct bch_folio *s = __bch2_folio(fv.fv_folio);
+	bio_for_each_folio_all(fi, bio) {
+		struct bch_folio *s = __bch2_folio(fi.folio);
 
 		if (atomic_dec_and_test(&s->write_count))
-			folio_end_writeback(fv.fv_folio);
+			folio_end_writeback(fi.folio);
 	}
 
 	bio_put(&io->op.wbio.bio);
@@ -1723,7 +1764,7 @@ int bch2_write_begin(struct file *file, struct address_space *mapping,
 	folio = __filemap_get_folio(mapping, pos >> PAGE_SHIFT,
 				FGP_LOCK|FGP_WRITE|FGP_CREAT|FGP_STABLE,
 				mapping_gfp_mask(mapping));
-	if (!folio)
+	if (IS_ERR_OR_NULL(folio))
 		goto err_unlock;
 
 	if (folio_test_uptodate(folio))
@@ -2321,9 +2362,28 @@ static noinline bool bch2_dio_write_check_allocated(struct dio_write *dio)
 static void bch2_dio_write_loop_async(struct bch_write_op *);
 static __always_inline long bch2_dio_write_done(struct dio_write *dio);
 
+/*
+ * We're going to return -EIOCBQUEUED, but we haven't finished consuming the
+ * iov_iter yet, so we need to stash a copy of the iovec: it might be on the
+ * caller's stack, we're not guaranteed that it will live for the duration of
+ * the IO:
+ */
 static noinline int bch2_dio_write_copy_iov(struct dio_write *dio)
 {
 	struct iovec *iov = dio->inline_vecs;
+
+	/*
+	 * iov_iter has a single embedded iovec - nothing to do:
+	 */
+	if (iter_is_ubuf(&dio->iter))
+		return 0;
+
+	/*
+	 * We don't currently handle non-iovec iov_iters here - return an error,
+	 * and we'll fall back to doing the IO synchronously:
+	 */
+	if (!iter_is_iovec(&dio->iter))
+		return -1;
 
 	if (dio->iter.nr_segs > ARRAY_SIZE(dio->inline_vecs)) {
 		iov = kmalloc_array(dio->iter.nr_segs, sizeof(*iov),
@@ -2334,8 +2394,8 @@ static noinline int bch2_dio_write_copy_iov(struct dio_write *dio)
 		dio->free_iov = true;
 	}
 
-	memcpy(iov, dio->iter.iov, dio->iter.nr_segs * sizeof(*iov));
-	dio->iter.iov = iov;
+	memcpy(iov, dio->iter.__iov, dio->iter.nr_segs * sizeof(*iov));
+	dio->iter.__iov = iov;
 	return 0;
 }
 
@@ -2395,7 +2455,7 @@ static __always_inline long bch2_dio_write_done(struct dio_write *dio)
 	bch2_pagecache_block_put(inode);
 
 	if (dio->free_iov)
-		kfree(dio->iter.iov);
+		kfree(dio->iter.__iov);
 
 	ret = dio->op.error ?: ((long) dio->written << 9);
 	bio_put(&dio->op.wbio.bio);
@@ -2437,13 +2497,7 @@ static __always_inline void bch2_dio_write_end(struct dio_write *dio)
 		mutex_unlock(&inode->ei_quota_lock);
 	}
 
-	if (likely(!bio_flagged(bio, BIO_NO_PAGE_REF))) {
-		struct bvec_iter_all iter;
-		struct folio_vec fv;
-
-		bio_for_each_folio_all(fv, bio, iter)
-			folio_put(fv.fv_folio);
-	}
+	bio_release_pages(bio, false);
 
 	if (unlikely(dio->op.error))
 		set_bit(EI_INODE_ERROR, &inode->ei_flags);
@@ -2562,13 +2616,7 @@ out:
 err:
 	dio->op.error = ret;
 
-	if (!bio_flagged(bio, BIO_NO_PAGE_REF)) {
-		struct bvec_iter_all iter;
-		struct folio_vec fv;
-
-		bio_for_each_folio_all(fv, bio, iter)
-			folio_put(fv.fv_folio);
-	}
+	bio_release_pages(bio, false);
 
 	bch2_quota_reservation_put(c, inode, &dio->quota_res);
 	goto out;
@@ -2807,7 +2855,7 @@ static int __bch2_truncate_folio(struct bch_inode_info *inode,
 	u64 end_pos;
 
 	folio = filemap_lock_folio(mapping, index);
-	if (!folio) {
+	if (IS_ERR_OR_NULL(folio)) {
 		/*
 		 * XXX: we're doing two index lookups when we end up reading the
 		 * folio
@@ -2820,7 +2868,7 @@ static int __bch2_truncate_folio(struct bch_inode_info *inode,
 
 		folio = __filemap_get_folio(mapping, index,
 					    FGP_LOCK|FGP_CREAT, GFP_KERNEL);
-		if (unlikely(!folio)) {
+		if (unlikely(IS_ERR_OR_NULL(folio))) {
 			ret = -ENOMEM;
 			goto out;
 		}
@@ -3743,7 +3791,7 @@ static bool folio_hole_offset(struct address_space *mapping, loff_t *offset)
 	bool ret = true;
 
 	folio = filemap_lock_folio(mapping, *offset >> PAGE_SHIFT);
-	if (!folio)
+	if (IS_ERR_OR_NULL(folio))
 		return true;
 
 	s = bch2_folio(folio);

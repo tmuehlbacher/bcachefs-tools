@@ -18,27 +18,24 @@
 
 #include <string.h>
 #include <asm/types.h>
+#include <stdbool.h>
+
+#define UUID_SIZE 16
 
 typedef struct {
-	__u8 b[16];
-} uuid_le;
+	__u8 b[UUID_SIZE];
+} __uuid_t;
 
-typedef struct {
-	__u8 b[16];
-} uuid_be;
-
-#define UUID_LE(a, b, c, d0, d1, d2, d3, d4, d5, d6, d7)		\
-((uuid_le)								\
-{{ (a) & 0xff, ((a) >> 8) & 0xff, ((a) >> 16) & 0xff, ((a) >> 24) & 0xff, \
-   (b) & 0xff, ((b) >> 8) & 0xff,					\
-   (c) & 0xff, ((c) >> 8) & 0xff,					\
-   (d0), (d1), (d2), (d3), (d4), (d5), (d6), (d7) }})
-
-#define UUID_BE(a, b, c, d0, d1, d2, d3, d4, d5, d6, d7)		\
-((uuid_be)								\
+#define UUID_INIT(a, b, c, d0, d1, d2, d3, d4, d5, d6, d7)			\
+((__uuid_t)								\
 {{ ((a) >> 24) & 0xff, ((a) >> 16) & 0xff, ((a) >> 8) & 0xff, (a) & 0xff, \
    ((b) >> 8) & 0xff, (b) & 0xff,					\
    ((c) >> 8) & 0xff, (c) & 0xff,					\
    (d0), (d1), (d2), (d3), (d4), (d5), (d6), (d7) }})
+
+static inline bool uuid_equal(const __uuid_t *u1, const __uuid_t *u2)
+{
+	return memcmp(u1, u2, sizeof(__uuid_t)) == 0;
+}
 
 #endif

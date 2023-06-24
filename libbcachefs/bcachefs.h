@@ -208,6 +208,7 @@
 #include "fifo.h"
 #include "nocow_locking_types.h"
 #include "opts.h"
+#include "seqmutex.h"
 #include "util.h"
 
 #ifdef CONFIG_BCACHEFS_DEBUG
@@ -289,6 +290,11 @@ do {									\
 	printk_ratelimited(KERN_ERR bch2_fmt_inum(c, _inum, fmt), ##__VA_ARGS__)
 #define bch_err_inum_offset_ratelimited(c, _inum, _offset, fmt, ...) \
 	printk_ratelimited(KERN_ERR bch2_fmt_inum_offset(c, _inum, _offset, fmt), ##__VA_ARGS__)
+
+#define bch_err_fn(_c, _ret)						\
+	 bch_err(_c, "%s(): error %s", __func__, bch2_err_str(_ret))
+#define bch_err_msg(_c, _ret, _msg)					\
+	 bch_err(_c, "%s(): error " _msg " %s", __func__, bch2_err_str(_ret))
 
 #define bch_verbose(c, fmt, ...)					\
 do {									\
@@ -483,7 +489,7 @@ struct bch_dev {
 	 * Committed by bch2_write_super() -> bch_fs_mi_update()
 	 */
 	struct bch_member_cpu	mi;
-	uuid_le			uuid;
+	__uuid_t		uuid;
 	char			name[BDEVNAME_SIZE];
 
 	struct bch_sb_handle	disk_sb;
@@ -701,8 +707,8 @@ struct bch_fs {
 
 	/* Updated by bch2_sb_update():*/
 	struct {
-		uuid_le		uuid;
-		uuid_le		user_uuid;
+		__uuid_t	uuid;
+		__uuid_t	user_uuid;
 
 		u16		version;
 		u16		version_min;
@@ -779,7 +785,7 @@ struct bch_fs {
 	}			btree_write_stats[BTREE_WRITE_TYPE_NR];
 
 	/* btree_iter.c: */
-	struct mutex		btree_trans_lock;
+	struct seqmutex		btree_trans_lock;
 	struct list_head	btree_trans_list;
 	mempool_t		btree_paths_pool;
 	mempool_t		btree_trans_mem_pool;

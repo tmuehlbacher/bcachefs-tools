@@ -385,7 +385,7 @@ static int check_snapshot_tree(struct btree_trans *trans,
 		if (ret)
 			goto err;
 
-		u = bch2_bkey_make_mut_typed(trans, iter, k, 0, snapshot_tree);
+		u = bch2_bkey_make_mut_typed(trans, iter, &k, 0, snapshot_tree);
 		ret = PTR_ERR_OR_ZERO(u);
 		if (ret)
 			goto err;
@@ -473,7 +473,7 @@ static int snapshot_tree_ptr_repair(struct btree_trans *trans,
 		return ret;
 
 	if (ret || le32_to_cpu(s_t.root_snapshot) != root_id) {
-		u = bch2_bkey_make_mut_typed(trans, &root_iter, root.s_c, 0, snapshot);
+		u = bch2_bkey_make_mut_typed(trans, &root_iter, &root.s_c, 0, snapshot);
 		ret =   PTR_ERR_OR_ZERO(u) ?:
 			snapshot_tree_create(trans, root_id,
 				bch2_snapshot_tree_oldest_subvol(c, root_id),
@@ -487,7 +487,7 @@ static int snapshot_tree_ptr_repair(struct btree_trans *trans,
 	}
 
 	if (s->k->p.snapshot != root_id) {
-		u = bch2_bkey_make_mut_typed(trans, iter, s->s_c, 0, snapshot);
+		u = bch2_bkey_make_mut_typed(trans, iter, &s->s_c, 0, snapshot);
 		ret = PTR_ERR_OR_ZERO(u);
 		if (ret)
 			goto err;
@@ -623,7 +623,7 @@ int bch2_fs_check_snapshots(struct bch_fs *c)
 			NULL, NULL, BTREE_INSERT_LAZY_RW|BTREE_INSERT_NOFAIL,
 		check_snapshot(&trans, &iter, k)));
 	if (ret)
-		bch_err(c, "%s: error %s", __func__, bch2_err_str(ret));
+		bch_err_fn(c, ret);
 	return ret;
 }
 
@@ -677,7 +677,7 @@ static int check_subvol(struct btree_trans *trans,
 				"subvolume %llu is not set as snapshot but is not master subvolume",
 				k.k->p.offset)) {
 			struct bkey_i_subvolume *s =
-				bch2_bkey_make_mut_typed(trans, iter, subvol.s_c, 0, subvolume);
+				bch2_bkey_make_mut_typed(trans, iter, &subvol.s_c, 0, subvolume);
 			ret = PTR_ERR_OR_ZERO(s);
 			if (ret)
 				return ret;
@@ -702,8 +702,7 @@ int bch2_fs_check_subvols(struct bch_fs *c)
 			NULL, NULL, BTREE_INSERT_LAZY_RW|BTREE_INSERT_NOFAIL,
 		check_subvol(&trans, &iter, k)));
 	if (ret)
-		bch_err(c, "%s: error %s", __func__, bch2_err_str(ret));
-
+		bch_err_fn(c, ret);
 	return ret;
 }
 
@@ -724,7 +723,7 @@ int bch2_fs_snapshots_start(struct bch_fs *c)
 			bch2_mark_snapshot(&trans, BTREE_ID_snapshots, 0, bkey_s_c_null, k, 0) ?:
 			bch2_snapshot_set_equiv(&trans, k)));
 	if (ret)
-		bch_err(c, "error starting snapshots: %s", bch2_err_str(ret));
+		bch_err_fn(c, ret);
 	return ret;
 }
 
@@ -1123,6 +1122,8 @@ int bch2_delete_dead_snapshots(struct bch_fs *c)
 err:
 	darray_exit(&deleted);
 	bch2_trans_exit(&trans);
+	if (ret)
+		bch_err_fn(c, ret);
 	return ret;
 }
 
@@ -1248,7 +1249,7 @@ static int bch2_subvolume_reparent(struct btree_trans *trans,
 	    le32_to_cpu(bkey_s_c_to_subvolume(k).v->parent) != old_parent)
 		return 0;
 
-	s = bch2_bkey_make_mut_typed(trans, iter, k, 0, subvolume);
+	s = bch2_bkey_make_mut_typed(trans, iter, &k, 0, subvolume);
 	ret = PTR_ERR_OR_ZERO(s);
 	if (ret)
 		return ret;

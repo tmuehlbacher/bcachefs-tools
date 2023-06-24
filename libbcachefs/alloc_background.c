@@ -577,7 +577,7 @@ int bch2_alloc_read(struct bch_fs *c)
 	bch2_trans_exit(&trans);
 
 	if (ret)
-		bch_err(c, "error reading alloc info: %s", bch2_err_str(ret));
+		bch_err_fn(c, ret);
 
 	return ret;
 }
@@ -684,8 +684,7 @@ int bch2_bucket_gens_init(struct bch_fs *c)
 	bch2_trans_exit(&trans);
 
 	if (ret)
-		bch_err(c, "%s: error %s", __func__, bch2_err_str(ret));
-
+		bch_err_fn(c, ret);
 	return ret;
 }
 
@@ -730,7 +729,7 @@ int bch2_bucket_gens_read(struct bch_fs *c)
 	bch2_trans_exit(&trans);
 
 	if (ret)
-		bch_err(c, "error reading alloc info: %s", bch2_err_str(ret));
+		bch_err_fn(c, ret);
 
 	return ret;
 }
@@ -1031,12 +1030,13 @@ again:
 	return k;
 }
 
-static int bch2_check_alloc_key(struct btree_trans *trans,
-				struct bkey_s_c alloc_k,
-				struct btree_iter *alloc_iter,
-				struct btree_iter *discard_iter,
-				struct btree_iter *freespace_iter,
-				struct btree_iter *bucket_gens_iter)
+static noinline_for_stack
+int bch2_check_alloc_key(struct btree_trans *trans,
+			 struct bkey_s_c alloc_k,
+			 struct btree_iter *alloc_iter,
+			 struct btree_iter *discard_iter,
+			 struct btree_iter *freespace_iter,
+			 struct btree_iter *bucket_gens_iter)
 {
 	struct bch_fs *c = trans->c;
 	struct bch_dev *ca;
@@ -1160,10 +1160,11 @@ fsck_err:
 	return ret;
 }
 
-static int bch2_check_alloc_hole_freespace(struct btree_trans *trans,
-				 struct bpos start,
-				 struct bpos *end,
-				 struct btree_iter *freespace_iter)
+static noinline_for_stack
+int bch2_check_alloc_hole_freespace(struct btree_trans *trans,
+				    struct bpos start,
+				    struct bpos *end,
+				    struct btree_iter *freespace_iter)
 {
 	struct bch_fs *c = trans->c;
 	struct bch_dev *ca;
@@ -1215,10 +1216,11 @@ fsck_err:
 	return ret;
 }
 
-static int bch2_check_alloc_hole_bucket_gens(struct btree_trans *trans,
-				 struct bpos start,
-				 struct bpos *end,
-				 struct btree_iter *bucket_gens_iter)
+static noinline_for_stack
+int bch2_check_alloc_hole_bucket_gens(struct btree_trans *trans,
+				      struct bpos start,
+				      struct bpos *end,
+				      struct btree_iter *bucket_gens_iter)
 {
 	struct bch_fs *c = trans->c;
 	struct bkey_s_c k;
@@ -1280,7 +1282,7 @@ fsck_err:
 	return ret;
 }
 
-static int __bch2_check_discard_freespace_key(struct btree_trans *trans,
+static noinline_for_stack int __bch2_check_discard_freespace_key(struct btree_trans *trans,
 					      struct btree_iter *iter)
 {
 	struct bch_fs *c = trans->c;
@@ -1360,9 +1362,10 @@ static int bch2_check_discard_freespace_key(struct btree_trans *trans,
  * valid for buckets that exist; this just checks for keys for nonexistent
  * buckets.
  */
-static int bch2_check_bucket_gens_key(struct btree_trans *trans,
-				      struct btree_iter *iter,
-				      struct bkey_s_c k)
+static noinline_for_stack
+int bch2_check_bucket_gens_key(struct btree_trans *trans,
+			       struct btree_iter *iter,
+			       struct bkey_s_c k)
 {
 	struct bch_fs *c = trans->c;
 	struct bkey_i_bucket_gens g;
@@ -1521,7 +1524,9 @@ bkey_err:
 		bch2_check_bucket_gens_key(&trans, &iter, k));
 err:
 	bch2_trans_exit(&trans);
-	return ret < 0 ? ret : 0;
+	if (ret)
+		bch_err_fn(c, ret);
+	return ret;
 }
 
 static int bch2_check_alloc_to_lru_ref(struct btree_trans *trans,
@@ -1599,20 +1604,18 @@ fsck_err:
 
 int bch2_check_alloc_to_lru_refs(struct bch_fs *c)
 {
-	struct btree_trans trans;
 	struct btree_iter iter;
 	struct bkey_s_c k;
 	int ret = 0;
 
-	bch2_trans_init(&trans, c, 0, 0);
-
-	for_each_btree_key_commit(&trans, iter, BTREE_ID_alloc,
-			POS_MIN, BTREE_ITER_PREFETCH, k,
-			NULL, NULL, BTREE_INSERT_NOFAIL|BTREE_INSERT_LAZY_RW,
-		bch2_check_alloc_to_lru_ref(&trans, &iter));
-
-	bch2_trans_exit(&trans);
-	return ret < 0 ? ret : 0;
+	ret = bch2_trans_run(c,
+		for_each_btree_key_commit(&trans, iter, BTREE_ID_alloc,
+				POS_MIN, BTREE_ITER_PREFETCH, k,
+				NULL, NULL, BTREE_INSERT_NOFAIL|BTREE_INSERT_LAZY_RW,
+			bch2_check_alloc_to_lru_ref(&trans, &iter)));
+	if (ret)
+		bch_err_fn(c, ret);
+	return ret;
 }
 
 static int bch2_discard_one_bucket(struct btree_trans *trans,
@@ -2024,6 +2027,7 @@ int bch2_fs_freespace_init(struct bch_fs *c)
 		ret = bch2_dev_freespace_init(c, ca, &last_updated);
 		if (ret) {
 			percpu_ref_put(&ca->ref);
+			bch_err_fn(c, ret);
 			return ret;
 		}
 	}
@@ -2032,11 +2036,10 @@ int bch2_fs_freespace_init(struct bch_fs *c)
 		mutex_lock(&c->sb_lock);
 		bch2_write_super(c);
 		mutex_unlock(&c->sb_lock);
-
 		bch_verbose(c, "done initializing freespace");
 	}
 
-	return ret;
+	return 0;
 }
 
 /* Bucket IO clocks: */

@@ -32,7 +32,7 @@ void bch2_opts_usage(unsigned);
 
 struct format_opts {
 	char		*label;
-	uuid_le		uuid;
+	__uuid_t	uuid;
 	unsigned	version;
 	unsigned	superblock_size;
 	bool		encrypted;
@@ -88,9 +88,9 @@ struct bch_sb *__bch2_super_read(int, u64);
 int bcachectl_open(void);
 
 struct bchfs_handle {
-	uuid_le	uuid;
-	int	ioctl_fd;
-	int	sysfs_fd;
+	__uuid_t	uuid;
+	int		ioctl_fd;
+	int		sysfs_fd;
 };
 
 void bcache_fs_close(struct bchfs_handle);
@@ -239,7 +239,7 @@ struct dev_name {
 	unsigned	idx;
 	char		*dev;
 	char		*label;
-	uuid_le		uuid;
+	uuid_t		uuid;
 };
 typedef DARRAY(struct dev_name) dev_names;
 

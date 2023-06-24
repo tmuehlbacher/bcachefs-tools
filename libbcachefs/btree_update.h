@@ -115,7 +115,7 @@ int bch2_bkey_get_empty_slot(struct btree_trans *, struct btree_iter *,
 int __must_check bch2_trans_update(struct btree_trans *, struct btree_iter *,
 				   struct bkey_i *, enum btree_update_flags);
 int __must_check bch2_trans_update_buffered(struct btree_trans *,
-					    enum btree_id, struct bkey_i *);
+					    enum btree_id, struct bkey_i *, bool);
 
 void bch2_trans_commit_hook(struct btree_trans *,
 			    struct btree_trans_commit_hook *);
@@ -241,10 +241,10 @@ static inline struct bkey_i *bch2_bkey_make_mut_noupdate(struct btree_trans *tra
 				KEY_TYPE_##_type, sizeof(struct bkey_i_##_type)))
 
 static inline struct bkey_i *__bch2_bkey_make_mut(struct btree_trans *trans, struct btree_iter *iter,
-					struct bkey_s_c k, unsigned flags,
+					struct bkey_s_c *k, unsigned flags,
 					unsigned type, unsigned min_bytes)
 {
-	struct bkey_i *mut = __bch2_bkey_make_mut_noupdate(trans, k, type, min_bytes);
+	struct bkey_i *mut = __bch2_bkey_make_mut_noupdate(trans, *k, type, min_bytes);
 	int ret;
 
 	if (IS_ERR(mut))
@@ -253,11 +253,13 @@ static inline struct bkey_i *__bch2_bkey_make_mut(struct btree_trans *trans, str
 	ret = bch2_trans_update(trans, iter, mut, flags);
 	if (ret)
 		return ERR_PTR(ret);
+
+	*k = bkey_i_to_s_c(mut);
 	return mut;
 }
 
 static inline struct bkey_i *bch2_bkey_make_mut(struct btree_trans *trans, struct btree_iter *iter,
-						struct bkey_s_c k, unsigned flags)
+						struct bkey_s_c *k, unsigned flags)
 {
 	return __bch2_bkey_make_mut(trans, iter, k, flags, 0, 0);
 }

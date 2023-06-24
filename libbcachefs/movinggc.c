@@ -271,7 +271,7 @@ unsigned long bch2_copygc_wait_amount(struct bch_fs *c)
 	for_each_rw_member(ca, c, dev_idx) {
 		struct bch_dev_usage usage = bch2_dev_usage_read(ca);
 
-		fragmented_allowed = ((__dev_buckets_available(ca, usage, RESERVE_stripe) *
+		fragmented_allowed = ((__dev_buckets_available(ca, usage, BCH_WATERMARK_stripe) *
 				       ca->mi.bucket_size) >> 1);
 		fragmented = 0;
 
@@ -369,6 +369,7 @@ static int bch2_copygc_thread(void *arg)
 	}
 
 	move_buckets_wait(&trans, &ctxt, &move_buckets, true);
+	rhashtable_destroy(&move_buckets.table);
 	bch2_trans_exit(&trans);
 	bch2_moving_ctxt_exit(&ctxt);
 

@@ -404,12 +404,16 @@ int bch2_check_btree_backpointers(struct bch_fs *c)
 {
 	struct btree_iter iter;
 	struct bkey_s_c k;
+	int ret;
 
-	return bch2_trans_run(c,
+	ret = bch2_trans_run(c,
 		for_each_btree_key_commit(&trans, iter,
 			BTREE_ID_backpointers, POS_MIN, 0, k,
 			NULL, NULL, BTREE_INSERT_LAZY_RW|BTREE_INSERT_NOFAIL,
 		  bch2_check_btree_backpointer(&trans, &iter, k)));
+	if (ret)
+		bch_err_fn(c, ret);
+	return ret;
 }
 
 struct bpos_level {
@@ -769,6 +773,8 @@ int bch2_check_extents_to_backpointers(struct bch_fs *c)
 	}
 	bch2_trans_exit(&trans);
 
+	if (ret)
+		bch_err_fn(c, ret);
 	return ret;
 }
 
@@ -805,8 +811,10 @@ static int check_one_backpointer(struct btree_trans *trans,
 
 	if (fsck_err_on(!k.k, c,
 			"backpointer for missing extent\n  %s",
-			(bch2_bkey_val_to_text(&buf, c, bp.s_c), buf.buf)))
-		return bch2_btree_delete_at_buffered(trans, BTREE_ID_backpointers, bp.k->p);
+			(bch2_bkey_val_to_text(&buf, c, bp.s_c), buf.buf))) {
+		ret = bch2_btree_delete_at_buffered(trans, BTREE_ID_backpointers, bp.k->p);
+		goto out;
+	}
 out:
 fsck_err:
 	bch2_trans_iter_exit(trans, &iter);
@@ -872,5 +880,7 @@ int bch2_check_backpointers_to_extents(struct bch_fs *c)
 	}
 	bch2_trans_exit(&trans);
 
+	if (ret)
+		bch_err_fn(c, ret);
 	return ret;
 }

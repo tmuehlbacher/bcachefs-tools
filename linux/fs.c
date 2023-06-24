@@ -3,12 +3,12 @@
 #include <linux/posix_acl_xattr.h>
 #include <linux/xattr.h>
 
-const struct xattr_handler posix_acl_access_xattr_handler = {
+const struct xattr_handler nop_posix_acl_access = {
 	.name = XATTR_NAME_POSIX_ACL_ACCESS,
 	.flags = ACL_TYPE_ACCESS,
 };
 
-const struct xattr_handler posix_acl_default_xattr_handler = {
+const struct xattr_handler nop_posix_acl_default = {
 	.name = XATTR_NAME_POSIX_ACL_DEFAULT,
 	.flags = ACL_TYPE_DEFAULT,
 };

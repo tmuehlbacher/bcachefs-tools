@@ -151,7 +151,7 @@
 	x(0,				backpointer_to_overwritten_btree_node)	\
 	x(0,				lock_fail_root_changed)			\
 	x(0,				journal_reclaim_would_deadlock)		\
-	x(0,				fsck)					\
+	x(EINVAL,			fsck)					\
 	x(BCH_ERR_fsck,			fsck_fix)				\
 	x(BCH_ERR_fsck,			fsck_ignore)				\
 	x(BCH_ERR_fsck,			fsck_errors_not_fixed)			\
@@ -224,7 +224,7 @@ bool __bch2_err_matches(int, int);
 
 static inline bool _bch2_err_matches(int err, int class)
 {
-	return err && __bch2_err_matches(err, class);
+	return err < 0 && __bch2_err_matches(err, class);
 }
 
 #define bch2_err_matches(_err, _class)			\

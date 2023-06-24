@@ -943,6 +943,7 @@ retry:
 		cur.k->k.p.offset += cur.k->k.size;
 
 		if (have_extent) {
+			bch2_trans_unlock(&trans);
 			ret = bch2_fill_extent(c, info,
 					bkey_i_to_s_c(prev.k), 0);
 			if (ret)
@@ -961,9 +962,11 @@ err:
 	if (bch2_err_matches(ret, BCH_ERR_transaction_restart))
 		goto retry;
 
-	if (!ret && have_extent)
+	if (!ret && have_extent) {
+		bch2_trans_unlock(&trans);
 		ret = bch2_fill_extent(c, info, bkey_i_to_s_c(prev.k),
 				       FIEMAP_EXTENT_LAST);
+	}
 
 	bch2_trans_exit(&trans);
 	bch2_bkey_buf_exit(&cur, c);
@@ -1011,7 +1014,7 @@ static const struct file_operations bch_file_operations = {
 	.mmap		= bch2_mmap,
 	.open		= generic_file_open,
 	.fsync		= bch2_fsync,
-	.splice_read	= generic_file_splice_read,
+	.splice_read	= filemap_splice_read,
 	.splice_write	= iter_file_splice_write,
 	.fallocate	= bch2_fallocate_dispatch,
 	.unlocked_ioctl = bch2_fs_file_ioctl,
