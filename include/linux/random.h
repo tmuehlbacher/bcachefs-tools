@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <linux/bug.h>
+#include <linux/log2.h>
 
 #ifdef SYS_getrandom
 static inline int getrandom(void *buf, size_t buflen, unsigned int flags)
@@ -40,7 +41,30 @@ static inline type get_random_##type(void)		\
 
 get_random_type(int);
 get_random_type(long);
+get_random_type(u8);
+get_random_type(u16);
 get_random_type(u32);
 get_random_type(u64);
+
+static inline u32 get_random_u32_below(u32 ceil)
+{
+	if (ceil <= 1)
+		return 0;
+	for (;;) {
+		if (ceil <= 1U << 8) {
+			u32 mult = ceil * get_random_u8();
+			if (likely(is_power_of_2(ceil) || (u8)mult >= (1U << 8) % ceil))
+				return mult >> 8;
+		} else if (ceil <= 1U << 16) {
+			u32 mult = ceil * get_random_u16();
+			if (likely(is_power_of_2(ceil) || (u16)mult >= (1U << 16) % ceil))
+				return mult >> 16;
+		} else {
+			u64 mult = (u64)ceil * get_random_u32();
+			if (likely(is_power_of_2(ceil) || (u32)mult >= -ceil % ceil))
+				return mult >> 32;
+		}
+	}
+}
 
 #endif /* _LINUX_RANDOM_H */
