@@ -163,7 +163,8 @@ int bch2_bkey_pick_read_device(struct bch_fs *c, struct bkey_s_c k,
 /* KEY_TYPE_btree_ptr: */
 
 int bch2_btree_ptr_invalid(const struct bch_fs *c, struct bkey_s_c k,
-			   unsigned flags, struct printbuf *err)
+			   enum bkey_invalid_flags flags,
+			   struct printbuf *err)
 {
 	if (bkey_val_u64s(k.k) > BCH_REPLICAS_MAX) {
 		prt_printf(err, "value too big (%zu > %u)",
@@ -181,7 +182,8 @@ void bch2_btree_ptr_to_text(struct printbuf *out, struct bch_fs *c,
 }
 
 int bch2_btree_ptr_v2_invalid(const struct bch_fs *c, struct bkey_s_c k,
-			      unsigned flags, struct printbuf *err)
+			      enum bkey_invalid_flags flags,
+			      struct printbuf *err)
 {
 	if (bkey_val_u64s(k.k) > BKEY_BTREE_PTR_VAL_U64s_MAX) {
 		prt_printf(err, "value too big (%zu > %zu)",
@@ -216,7 +218,7 @@ void bch2_btree_ptr_v2_compat(enum btree_id btree_id, unsigned version,
 	compat_bpos(0, btree_id, version, big_endian, write, &bp.v->min_key);
 
 	if (version < bcachefs_metadata_version_inode_btree_change &&
-	    btree_node_type_is_extents(btree_id) &&
+	    btree_id_is_extents(btree_id) &&
 	    !bkey_eq(bp.v->min_key, POS_MIN))
 		bp.v->min_key = write
 			? bpos_nosnap_predecessor(bp.v->min_key)
@@ -371,7 +373,8 @@ bool bch2_extent_merge(struct bch_fs *c, struct bkey_s l, struct bkey_s_c r)
 /* KEY_TYPE_reservation: */
 
 int bch2_reservation_invalid(const struct bch_fs *c, struct bkey_s_c k,
-			     unsigned flags, struct printbuf *err)
+			     enum bkey_invalid_flags flags,
+			     struct printbuf *err)
 {
 	struct bkey_s_c_reservation r = bkey_s_c_to_reservation(k);
 
@@ -514,7 +517,7 @@ static void bch2_extent_crc_pack(union bch_extent_crc *dst,
 	switch (type) {
 	case BCH_EXTENT_ENTRY_crc32:
 		set_common_fields(dst->crc32, src);
-		dst->crc32.csum	 = *((__le32 *) &src.csum.lo);
+		memcpy(&dst->crc32.csum, &src.csum.lo, sizeof(dst->crc32.csum));
 		break;
 	case BCH_EXTENT_ENTRY_crc64:
 		set_common_fields(dst->crc64, src);
@@ -1103,7 +1106,8 @@ static int extent_ptr_invalid(const struct bch_fs *c,
 }
 
 int bch2_bkey_ptrs_invalid(const struct bch_fs *c, struct bkey_s_c k,
-			   unsigned flags, struct printbuf *err)
+			   enum bkey_invalid_flags flags,
+			   struct printbuf *err)
 {
 	struct bkey_ptrs_c ptrs = bch2_bkey_ptrs_c(k);
 	const union bch_extent_entry *entry;
@@ -1202,6 +1206,8 @@ int bch2_bkey_ptrs_invalid(const struct bch_fs *c, struct bkey_s_c k,
 			}
 			have_ec = true;
 			break;
+		case BCH_EXTENT_ENTRY_rebalance:
+			break;
 		}
 	}
 
@@ -1260,6 +1266,8 @@ void bch2_ptr_swab(struct bkey_s k)
 			break;
 		case BCH_EXTENT_ENTRY_stripe_ptr:
 			break;
+		case BCH_EXTENT_ENTRY_rebalance:
+			break;
 		}
 	}
 }
@@ -1309,6 +1317,8 @@ int bch2_cut_front_s(struct bpos where, struct bkey_s k)
 				entry->crc128.offset += sub;
 				break;
 			case BCH_EXTENT_ENTRY_stripe_ptr:
+				break;
+			case BCH_EXTENT_ENTRY_rebalance:
 				break;
 			}
 

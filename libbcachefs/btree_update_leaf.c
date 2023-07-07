@@ -29,7 +29,7 @@
  * bch2_btree_path_peek_slot() for a cached iterator might return a key in a
  * different snapshot:
  */
-struct bkey_s_c bch2_btree_path_peek_slot_exact(struct btree_path *path, struct bkey *u)
+static struct bkey_s_c bch2_btree_path_peek_slot_exact(struct btree_path *path, struct bkey *u)
 {
 	struct bkey_s_c k = bch2_btree_path_peek_slot(path, u);
 
@@ -320,7 +320,7 @@ bch2_trans_journal_preres_get_cold(struct btree_trans *trans, unsigned flags,
 		bch2_journal_preres_get(&trans->c->journal,
 			&trans->journal_preres,
 			trans->journal_preres_u64s,
-			(flags & JOURNAL_WATERMARK_MASK)));
+			(flags & BCH_WATERMARK_MASK)));
 }
 
 static __always_inline int bch2_trans_journal_res_get(struct btree_trans *trans,
@@ -407,6 +407,8 @@ static int run_one_mem_trigger(struct btree_trans *trans,
 {
 	struct bkey_s_c old = { &i->old_k, i->old_v };
 	struct bkey_i *new = i->k;
+	const struct bkey_ops *old_ops = bch2_bkey_type_ops(old.k->type);
+	const struct bkey_ops *new_ops = bch2_bkey_type_ops(i->k->k.type);
 	int ret;
 
 	verify_update_old_key(trans, i);
@@ -417,8 +419,7 @@ static int run_one_mem_trigger(struct btree_trans *trans,
 	if (!btree_node_type_needs_gc(i->btree_id))
 		return 0;
 
-	if (bch2_bkey_ops[old.k->type].atomic_trigger ==
-	    bch2_bkey_ops[i->k->k.type].atomic_trigger) {
+	if (old_ops->atomic_trigger == new_ops->atomic_trigger) {
 		ret   = bch2_mark_key(trans, i->btree_id, i->level,
 				old, bkey_i_to_s_c(new),
 				BTREE_TRIGGER_INSERT|BTREE_TRIGGER_OVERWRITE|flags);
@@ -449,6 +450,8 @@ static int run_one_trans_trigger(struct btree_trans *trans, struct btree_insert_
 	 */
 	struct bkey old_k = i->old_k;
 	struct bkey_s_c old = { &old_k, i->old_v };
+	const struct bkey_ops *old_ops = bch2_bkey_type_ops(old.k->type);
+	const struct bkey_ops *new_ops = bch2_bkey_type_ops(i->k->k.type);
 
 	verify_update_old_key(trans, i);
 
@@ -458,8 +461,7 @@ static int run_one_trans_trigger(struct btree_trans *trans, struct btree_insert_
 
 	if (!i->insert_trigger_run &&
 	    !i->overwrite_trigger_run &&
-	    bch2_bkey_ops[old.k->type].trans_trigger ==
-	    bch2_bkey_ops[i->k->k.type].trans_trigger) {
+	    old_ops->trans_trigger == new_ops->trans_trigger) {
 		i->overwrite_trigger_run = true;
 		i->insert_trigger_run = true;
 		return bch2_trans_mark_key(trans, i->btree_id, i->level, old, i->k,
@@ -634,7 +636,7 @@ bch2_trans_commit_write_locked(struct btree_trans *trans, unsigned flags,
 	 */
 	if (likely(!(flags & BTREE_INSERT_JOURNAL_REPLAY))) {
 		ret = bch2_trans_journal_res_get(trans,
-				(flags & JOURNAL_WATERMARK_MASK)|
+				(flags & BCH_WATERMARK_MASK)|
 				JOURNAL_RES_GET_NONBLOCK);
 		if (ret)
 			return ret;
@@ -852,10 +854,13 @@ static inline int do_bch2_trans_commit(struct btree_trans *trans, unsigned flags
 	struct printbuf buf = PRINTBUF;
 
 	trans_for_each_update(trans, i) {
-		int rw = (flags & BTREE_INSERT_JOURNAL_REPLAY) ? READ : WRITE;
+		enum bkey_invalid_flags invalid_flags = 0;
+
+		if (!(flags & BTREE_INSERT_JOURNAL_REPLAY))
+			invalid_flags |= BKEY_INVALID_WRITE|BKEY_INVALID_COMMIT;
 
 		if (unlikely(bch2_bkey_invalid(c, bkey_i_to_s_c(i->k),
-					       i->bkey_type, rw, &buf)))
+					       i->bkey_type, invalid_flags, &buf)))
 			return bch2_trans_commit_bkey_invalid(trans, flags, i, &buf);
 		btree_insert_entry_checks(trans, i);
 	}
@@ -883,7 +888,7 @@ static inline int do_bch2_trans_commit(struct btree_trans *trans, unsigned flags
 
 	ret = bch2_journal_preres_get(&c->journal,
 			&trans->journal_preres, trans->journal_preres_u64s,
-			(flags & JOURNAL_WATERMARK_MASK)|JOURNAL_RES_GET_NONBLOCK);
+			(flags & BCH_WATERMARK_MASK)|JOURNAL_RES_GET_NONBLOCK);
 	if (unlikely(ret == -BCH_ERR_journal_preres_get_blocked))
 		ret = bch2_trans_journal_preres_get_cold(trans, flags, trace_ip);
 	if (unlikely(ret))
@@ -950,14 +955,14 @@ int bch2_trans_commit_error(struct btree_trans *trans, unsigned flags,
 		break;
 	case -BCH_ERR_journal_res_get_blocked:
 		if ((flags & BTREE_INSERT_JOURNAL_RECLAIM) &&
-		    !(flags & JOURNAL_WATERMARK_reserved)) {
+		    (flags & BCH_WATERMARK_MASK) != BCH_WATERMARK_reclaim) {
 			ret = -BCH_ERR_journal_reclaim_would_deadlock;
 			break;
 		}
 
 		ret = drop_locks_do(trans,
 			bch2_trans_journal_res_get(trans,
-					(flags & JOURNAL_WATERMARK_MASK)|
+					(flags & BCH_WATERMARK_MASK)|
 					JOURNAL_RES_GET_CHECK));
 		break;
 	case -BCH_ERR_btree_insert_need_journal_reclaim:
@@ -2044,7 +2049,7 @@ int bch2_journal_log_msg(struct bch_fs *c, const char *fmt, ...)
 	int ret;
 
 	va_start(args, fmt);
-	ret = __bch2_fs_log_msg(c, JOURNAL_WATERMARK_reserved, fmt, args);
+	ret = __bch2_fs_log_msg(c, BCH_WATERMARK_reclaim, fmt, args);
 	va_end(args);
 	return ret;
 }

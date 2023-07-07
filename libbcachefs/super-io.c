@@ -23,6 +23,21 @@
 #include <linux/backing-dev.h>
 #include <linux/sort.h>
 
+static const char * const bch2_metadata_versions[] = {
+#define x(t, n) [n] = #t,
+	BCH_METADATA_VERSIONS()
+#undef x
+};
+
+void bch2_version_to_text(struct printbuf *out, unsigned v)
+{
+	const char *str = v < ARRAY_SIZE(bch2_metadata_versions)
+		? bch2_metadata_versions[v]
+		: "(unknown version)";
+
+	prt_printf(out, "%u: %s", v, str);
+}
+
 const char * const bch2_sb_fields[] = {
 #define x(name, nr)	#name,
 	BCH_SB_FIELDS()
@@ -250,6 +265,44 @@ static int validate_sb_layout(struct bch_sb_layout *layout, struct printbuf *out
 	return 0;
 }
 
+static int bch2_sb_compatible(struct bch_sb *sb, struct printbuf *out)
+{
+	u16 version		= le16_to_cpu(sb->version);
+	u16 version_min		= le16_to_cpu(sb->version_min);
+
+	if (!bch2_version_compatible(version)) {
+		prt_str(out, "Unsupported superblock version ");
+		bch2_version_to_text(out, version);
+		prt_str(out, " (min ");
+		bch2_version_to_text(out, bcachefs_metadata_version_min);
+		prt_str(out, ", max ");
+		bch2_version_to_text(out, bcachefs_metadata_version_current);
+		prt_str(out, ")");
+		return -BCH_ERR_invalid_sb_version;
+	}
+
+	if (!bch2_version_compatible(version_min)) {
+		prt_str(out, "Unsupported superblock version_min ");
+		bch2_version_to_text(out, version_min);
+		prt_str(out, " (min ");
+		bch2_version_to_text(out, bcachefs_metadata_version_min);
+		prt_str(out, ", max ");
+		bch2_version_to_text(out, bcachefs_metadata_version_current);
+		prt_str(out, ")");
+		return -BCH_ERR_invalid_sb_version;
+	}
+
+	if (version_min > version) {
+		prt_str(out, "Bad minimum version ");
+		bch2_version_to_text(out, version_min);
+		prt_str(out, ", greater than version field ");
+		bch2_version_to_text(out, version);
+		return -BCH_ERR_invalid_sb_version;
+	}
+
+	return 0;
+}
+
 static int bch2_sb_validate(struct bch_sb_handle *disk_sb, struct printbuf *out,
 			    int rw)
 {
@@ -257,32 +310,12 @@ static int bch2_sb_validate(struct bch_sb_handle *disk_sb, struct printbuf *out,
 	struct bch_sb_field *f;
 	struct bch_sb_field_members *mi;
 	enum bch_opt_id opt_id;
-	u32 version, version_min;
 	u16 block_size;
 	int ret;
 
-	version		= le16_to_cpu(sb->version);
-	version_min	= version >= bcachefs_metadata_version_bkey_renumber
-		? le16_to_cpu(sb->version_min)
-		: version;
-
-	if (version    >= bcachefs_metadata_version_max) {
-		prt_printf(out, "Unsupported superblock version %u (min %u, max %u)",
-		       version, bcachefs_metadata_version_min, bcachefs_metadata_version_max);
-		return -BCH_ERR_invalid_sb_version;
-	}
-
-	if (version_min < bcachefs_metadata_version_min) {
-		prt_printf(out, "Unsupported superblock version %u (min %u, max %u)",
-		       version_min, bcachefs_metadata_version_min, bcachefs_metadata_version_max);
-		return -BCH_ERR_invalid_sb_version;
-	}
-
-	if (version_min > version) {
-		prt_printf(out, "Bad minimum version %u, greater than version field %u",
-		       version_min, version);
-		return -BCH_ERR_invalid_sb_version;
-	}
+	ret = bch2_sb_compatible(sb, out);
+	if (ret)
+		return ret;
 
 	if (sb->features[1] ||
 	    (le64_to_cpu(sb->features[0]) & (~0ULL << BCH_FEATURE_NR))) {
@@ -331,7 +364,7 @@ static int bch2_sb_validate(struct bch_sb_handle *disk_sb, struct printbuf *out,
 	if (rw == READ) {
 		/*
 		 * Been seeing a bug where these are getting inexplicably
-		 * zeroed, so we'r now validating them, but we have to be
+		 * zeroed, so we're now validating them, but we have to be
 		 * careful not to preven people's filesystems from mounting:
 		 */
 		if (!BCH_SB_JOURNAL_FLUSH_DELAY(sb))
@@ -512,7 +545,6 @@ int bch2_sb_from_fs(struct bch_fs *c, struct bch_dev *ca)
 static int read_one_super(struct bch_sb_handle *sb, u64 offset, struct printbuf *err)
 {
 	struct bch_csum csum;
-	u32 version, version_min;
 	size_t bytes;
 	int ret;
 reread:
@@ -532,22 +564,9 @@ reread:
 		return -BCH_ERR_invalid_sb_magic;
 	}
 
-	version		= le16_to_cpu(sb->sb->version);
-	version_min	= version >= bcachefs_metadata_version_bkey_renumber
-		? le16_to_cpu(sb->sb->version_min)
-		: version;
-
-	if (version    >= bcachefs_metadata_version_max) {
-		prt_printf(err, "Unsupported superblock version %u (min %u, max %u)",
-		       version, bcachefs_metadata_version_min, bcachefs_metadata_version_max);
-		return -BCH_ERR_invalid_sb_version;
-	}
-
-	if (version_min < bcachefs_metadata_version_min) {
-		prt_printf(err, "Unsupported superblock version %u (min %u, max %u)",
-		       version_min, bcachefs_metadata_version_min, bcachefs_metadata_version_max);
-		return -BCH_ERR_invalid_sb_version;
-	}
+	ret = bch2_sb_compatible(sb->sb, err);
+	if (ret)
+		return ret;
 
 	bytes = vstruct_bytes(sb->sb);
 
@@ -1389,21 +1408,29 @@ static const struct bch_sb_field_ops *bch2_sb_field_ops[] = {
 #undef x
 };
 
+static const struct bch_sb_field_ops bch2_sb_field_null_ops = {
+	NULL
+};
+
+static const struct bch_sb_field_ops *bch2_sb_field_type_ops(unsigned type)
+{
+	return likely(type < ARRAY_SIZE(bch2_sb_field_ops))
+		? bch2_sb_field_ops[type]
+		: &bch2_sb_field_null_ops;
+}
+
 static int bch2_sb_field_validate(struct bch_sb *sb, struct bch_sb_field *f,
 				  struct printbuf *err)
 {
 	unsigned type = le32_to_cpu(f->type);
 	struct printbuf field_err = PRINTBUF;
+	const struct bch_sb_field_ops *ops = bch2_sb_field_type_ops(type);
 	int ret;
 
-	if (type >= BCH_SB_FIELD_NR)
-		return 0;
-
-	ret = bch2_sb_field_ops[type]->validate(sb, f, &field_err);
+	ret = ops->validate ? ops->validate(sb, f, &field_err) : 0;
 	if (ret) {
 		prt_printf(err, "Invalid superblock section %s: %s",
-		       bch2_sb_fields[type],
-		       field_err.buf);
+			   bch2_sb_fields[type], field_err.buf);
 		prt_newline(err);
 		bch2_sb_field_to_text(err, sb, f);
 	}
@@ -1416,13 +1443,12 @@ void bch2_sb_field_to_text(struct printbuf *out, struct bch_sb *sb,
 			   struct bch_sb_field *f)
 {
 	unsigned type = le32_to_cpu(f->type);
-	const struct bch_sb_field_ops *ops = type < BCH_SB_FIELD_NR
-		? bch2_sb_field_ops[type] : NULL;
+	const struct bch_sb_field_ops *ops = bch2_sb_field_type_ops(type);
 
 	if (!out->nr_tabstops)
 		printbuf_tabstop_push(out, 32);
 
-	if (ops)
+	if (type < BCH_SB_FIELD_NR)
 		prt_printf(out, "%s", bch2_sb_fields[type]);
 	else
 		prt_printf(out, "(unknown field %u)", type);
@@ -1430,9 +1456,9 @@ void bch2_sb_field_to_text(struct printbuf *out, struct bch_sb *sb,
 	prt_printf(out, " (size %zu):", vstruct_bytes(f));
 	prt_newline(out);
 
-	if (ops && ops->to_text) {
+	if (ops->to_text) {
 		printbuf_indent_add(out, 2);
-		bch2_sb_field_ops[type]->to_text(out, sb, f);
+		ops->to_text(out, sb, f);
 		printbuf_indent_sub(out, 2);
 	}
 }
@@ -1503,12 +1529,12 @@ void bch2_sb_to_text(struct printbuf *out, struct bch_sb *sb,
 
 	prt_str(out, "Version:");
 	prt_tab(out);
-	prt_printf(out, "%s", bch2_metadata_versions[le16_to_cpu(sb->version)]);
+	bch2_version_to_text(out, le16_to_cpu(sb->version));
 	prt_newline(out);
 
 	prt_printf(out, "Oldest version on disk:");
 	prt_tab(out);
-	prt_printf(out, "%s", bch2_metadata_versions[le16_to_cpu(sb->version_min)]);
+	bch2_version_to_text(out, le16_to_cpu(sb->version_min));
 	prt_newline(out);
 
 	prt_printf(out, "Created:");

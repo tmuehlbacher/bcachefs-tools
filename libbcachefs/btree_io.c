@@ -517,7 +517,7 @@ static void btree_pos_to_text(struct printbuf *out, struct bch_fs *c,
 	prt_printf(out, "%s level %u/%u\n  ",
 	       bch2_btree_ids[b->c.btree_id],
 	       b->c.level,
-	       c->btree_roots[b->c.btree_id].level);
+	       bch2_btree_id_root(c, b->c.btree_id)->level);
 	bch2_bkey_val_to_text(out, c, bkey_i_to_s_c(&b->key));
 }
 
@@ -699,11 +699,9 @@ static int validate_bset(struct bch_fs *c, struct bch_dev *ca,
 	struct printbuf buf2 = PRINTBUF;
 	int ret = 0;
 
-	btree_err_on((version != BCH_BSET_VERSION_OLD &&
-		      version < bcachefs_metadata_version_min) ||
-		     version >= bcachefs_metadata_version_max,
+	btree_err_on(!bch2_version_compatible(version),
 		     BTREE_ERR_INCOMPATIBLE, c, ca, b, i,
-		     "unsupported bset version");
+		     "unsupported bset version %u", version);
 
 	if (btree_err_on(version < c->sb.version_min,
 			 BTREE_ERR_FIXABLE, c, NULL, b, i,
@@ -1283,7 +1281,7 @@ struct btree_node_read_all {
 	unsigned		nr;
 	void			*buf[BCH_REPLICAS_MAX];
 	struct bio		*bio[BCH_REPLICAS_MAX];
-	int			err[BCH_REPLICAS_MAX];
+	blk_status_t		err[BCH_REPLICAS_MAX];
 };
 
 static unsigned btree_node_sectors_written(struct bch_fs *c, void *data)
@@ -1766,7 +1764,11 @@ static void btree_node_write_work(struct work_struct *work)
 	} else {
 		ret = bch2_trans_do(c, NULL, NULL, 0,
 			bch2_btree_node_update_key_get_iter(&trans, b, &wbio->key,
-							    !wbio->wbio.failed.nr));
+					BCH_WATERMARK_reclaim|
+					BTREE_INSERT_JOURNAL_RECLAIM|
+					BTREE_INSERT_NOFAIL|
+					BTREE_INSERT_NOCHECK_RW,
+					!wbio->wbio.failed.nr));
 		if (ret)
 			goto err;
 	}
@@ -1777,7 +1779,7 @@ out:
 err:
 	set_btree_node_noevict(b);
 	if (!bch2_err_matches(ret, EROFS))
-		bch2_fs_fatal_error(c, "fatal error writing btree node");
+		bch2_fs_fatal_error(c, "fatal error writing btree node: %s", bch2_err_str(ret));
 	goto out;
 }
 
@@ -2015,9 +2017,7 @@ do_write:
 	BUG_ON(BSET_BIG_ENDIAN(i) != CPU_BIG_ENDIAN);
 	BUG_ON(i->seq != b->data->keys.seq);
 
-	i->version = c->sb.version < bcachefs_metadata_version_bkey_renumber
-		? cpu_to_le16(BCH_BSET_VERSION_OLD)
-		: cpu_to_le16(c->sb.version);
+	i->version = cpu_to_le16(c->sb.version);
 	SET_BSET_OFFSET(i, b->written);
 	SET_BSET_CSUM_TYPE(i, bch2_meta_checksum_type(c));
 
@@ -2230,7 +2230,7 @@ bool bch2_btree_flush_all_writes(struct bch_fs *c)
 	return __bch2_btree_flush_all(c, BTREE_NODE_write_in_flight);
 }
 
-const char * const bch2_btree_write_types[] = {
+static const char * const bch2_btree_write_types[] = {
 #define x(t, n) [n] = #t,
 	BCH_BTREE_WRITE_TYPES()
 	NULL

@@ -223,7 +223,8 @@ static unsigned bch_alloc_v1_val_u64s(const struct bch_alloc *a)
 }
 
 int bch2_alloc_v1_invalid(const struct bch_fs *c, struct bkey_s_c k,
-			  unsigned flags, struct printbuf *err)
+			  enum bkey_invalid_flags flags,
+			  struct printbuf *err)
 {
 	struct bkey_s_c_alloc a = bkey_s_c_to_alloc(k);
 
@@ -238,7 +239,8 @@ int bch2_alloc_v1_invalid(const struct bch_fs *c, struct bkey_s_c k,
 }
 
 int bch2_alloc_v2_invalid(const struct bch_fs *c, struct bkey_s_c k,
-			  unsigned flags, struct printbuf *err)
+			  enum bkey_invalid_flags flags,
+			  struct printbuf *err)
 {
 	struct bkey_alloc_unpacked u;
 
@@ -251,7 +253,8 @@ int bch2_alloc_v2_invalid(const struct bch_fs *c, struct bkey_s_c k,
 }
 
 int bch2_alloc_v3_invalid(const struct bch_fs *c, struct bkey_s_c k,
-			  unsigned flags, struct printbuf *err)
+			  enum bkey_invalid_flags flags,
+			  struct printbuf *err)
 {
 	struct bkey_alloc_unpacked u;
 
@@ -282,7 +285,7 @@ int bch2_alloc_v4_invalid(const struct bch_fs *c, struct bkey_s_c k,
 	}
 
 	if (rw == WRITE &&
-	    !(flags & BKEY_INVALID_FROM_JOURNAL) &&
+	    !(flags & BKEY_INVALID_JOURNAL) &&
 	    test_bit(BCH_FS_CHECK_BACKPOINTERS_DONE, &c->flags)) {
 		unsigned i, bp_len = 0;
 
@@ -605,7 +608,8 @@ static unsigned alloc_gen(struct bkey_s_c k, unsigned offset)
 }
 
 int bch2_bucket_gens_invalid(const struct bch_fs *c, struct bkey_s_c k,
-			     unsigned flags, struct printbuf *err)
+			     enum bkey_invalid_flags flags,
+			     struct printbuf *err)
 {
 	if (bkey_val_bytes(k.k) != sizeof(struct bch_bucket_gens)) {
 		prt_printf(err, "bad val size (%lu != %zu)",
@@ -929,7 +933,7 @@ int bch2_trans_mark_alloc(struct btree_trans *trans,
  * This synthesizes deleted extents for holes, similar to BTREE_ITER_SLOTS for
  * extents style btrees, but works on non-extents btrees:
  */
-struct bkey_s_c bch2_get_key_or_hole(struct btree_iter *iter, struct bpos end, struct bkey *hole)
+static struct bkey_s_c bch2_get_key_or_hole(struct btree_iter *iter, struct bpos end, struct bkey *hole)
 {
 	struct bkey_s_c k = bch2_btree_iter_peek_slot(iter);
 
@@ -1000,7 +1004,7 @@ static bool next_bucket(struct bch_fs *c, struct bpos *bucket)
 	return ca != NULL;
 }
 
-struct bkey_s_c bch2_get_key_or_real_bucket_hole(struct btree_iter *iter, struct bkey *hole)
+static struct bkey_s_c bch2_get_key_or_real_bucket_hole(struct btree_iter *iter, struct bkey *hole)
 {
 	struct bch_fs *c = iter->trans->c;
 	struct bkey_s_c k;
@@ -1719,7 +1723,8 @@ static int bch2_discard_one_bucket(struct btree_trans *trans,
 write:
 	ret =   bch2_trans_update(trans, &iter, &a->k_i, 0) ?:
 		bch2_trans_commit(trans, NULL, NULL,
-				  BTREE_INSERT_USE_RESERVE|BTREE_INSERT_NOFAIL);
+				  BCH_WATERMARK_btree|
+				  BTREE_INSERT_NOFAIL);
 	if (ret)
 		goto out;
 
@@ -1827,7 +1832,8 @@ static int invalidate_one_bucket(struct btree_trans *trans,
 	ret =   bch2_trans_update(trans, &alloc_iter, &a->k_i,
 				BTREE_TRIGGER_BUCKET_INVALIDATE) ?:
 		bch2_trans_commit(trans, NULL, NULL,
-				  BTREE_INSERT_USE_RESERVE|BTREE_INSERT_NOFAIL);
+				  BCH_WATERMARK_btree|
+				  BTREE_INSERT_NOFAIL);
 	if (ret)
 		goto out;
 

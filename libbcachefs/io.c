@@ -1696,7 +1696,7 @@ again:
 				&op->devs_have,
 				op->nr_replicas,
 				op->nr_replicas_required,
-				op->alloc_reserve,
+				op->watermark,
 				op->flags,
 				(op->flags & (BCH_WRITE_ALLOC_NOWAIT|
 					      BCH_WRITE_ONLY_SPECIFIED_DEVS))
@@ -1878,7 +1878,7 @@ err:
 		op->end_io(op);
 }
 
-const char * const bch2_write_flags[] = {
+static const char * const bch2_write_flags[] = {
 #define x(f)	#f,
 	BCH_WRITE_FLAGS()
 #undef x

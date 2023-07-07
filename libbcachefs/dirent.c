@@ -85,7 +85,8 @@ const struct bch_hash_desc bch2_dirent_hash_desc = {
 };
 
 int bch2_dirent_invalid(const struct bch_fs *c, struct bkey_s_c k,
-			unsigned flags, struct printbuf *err)
+			enum bkey_invalid_flags flags,
+			struct printbuf *err)
 {
 	struct bkey_s_c_dirent d = bkey_s_c_to_dirent(k);
 	unsigned len;
@@ -219,7 +220,7 @@ int bch2_dirent_read_target(struct btree_trans *trans, subvol_inum dir,
 	int ret = 0;
 
 	if (d.v->d_type == DT_SUBVOL &&
-	    d.v->d_parent_subvol != dir.subvol)
+	    le32_to_cpu(d.v->d_parent_subvol) != dir.subvol)
 		return 1;
 
 	if (likely(d.v->d_type != DT_SUBVOL)) {

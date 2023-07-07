@@ -84,7 +84,7 @@ static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
 		if (ret)
 			die("error %s walking btree nodes", bch2_err_str(ret));
 
-		b = c->btree_roots[i].b;
+		b = bch2_btree_id_root(c, i)->b;
 		if (!btree_node_fake(b)) {
 			ptrs = bch2_bkey_ptrs_c(bkey_i_to_s_c(&b->key));
 

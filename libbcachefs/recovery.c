@@ -308,7 +308,7 @@ static void bch2_journal_iter_advance(struct journal_iter *iter)
 	}
 }
 
-struct bkey_s_c bch2_journal_iter_peek(struct journal_iter *iter)
+static struct bkey_s_c bch2_journal_iter_peek(struct journal_iter *iter)
 {
 	struct journal_key *k = iter->keys->d + iter->idx;
 
@@ -664,7 +664,7 @@ static int bch2_journal_replay(struct bch_fs *c, u64 start_seq, u64 end_seq)
 				    BTREE_INSERT_LAZY_RW|
 				    BTREE_INSERT_NOFAIL|
 				    (!k->allocated
-				     ? BTREE_INSERT_JOURNAL_REPLAY|JOURNAL_WATERMARK_reserved
+				     ? BTREE_INSERT_JOURNAL_REPLAY|BCH_WATERMARK_reclaim
 				     : 0),
 			     bch2_journal_replay_key(&trans, k));
 		if (ret) {
@@ -702,13 +702,13 @@ static int journal_replay_entry_early(struct bch_fs *c,
 	case BCH_JSET_ENTRY_btree_root: {
 		struct btree_root *r;
 
-		if (entry->btree_id >= BTREE_ID_NR) {
-			bch_err(c, "filesystem has unknown btree type %u",
-				entry->btree_id);
-			return -EINVAL;
+		while (entry->btree_id >= c->btree_roots_extra.nr + BTREE_ID_NR) {
+			ret = darray_push(&c->btree_roots_extra, (struct btree_root) { NULL });
+			if (ret)
+				return ret;
 		}
 
-		r = &c->btree_roots[entry->btree_id];
+		r = bch2_btree_id_root(c, entry->btree_id);
 
 		if (entry->u64s) {
 			r->level = entry->level;
@@ -980,8 +980,8 @@ static int read_btree_roots(struct bch_fs *c)
 	unsigned i;
 	int ret = 0;
 
-	for (i = 0; i < BTREE_ID_NR; i++) {
-		struct btree_root *r = &c->btree_roots[i];
+	for (i = 0; i < btree_id_nr_alive(c); i++) {
+		struct btree_root *r = bch2_btree_id_root(c, i);
 
 		if (!r->alive)
 			continue;
@@ -1014,7 +1014,7 @@ static int read_btree_roots(struct bch_fs *c)
 	}
 
 	for (i = 0; i < BTREE_ID_NR; i++) {
-		struct btree_root *r = &c->btree_roots[i];
+		struct btree_root *r = bch2_btree_id_root(c, i);
 
 		if (!r->b) {
 			r->alive = false;
@@ -1042,7 +1042,7 @@ static int bch2_fs_initialize_subvolumes(struct bch_fs *c)
 	root_snapshot.k.p.offset = U32_MAX;
 	root_snapshot.v.flags	= 0;
 	root_snapshot.v.parent	= 0;
-	root_snapshot.v.subvol	= BCACHEFS_ROOT_SUBVOL;
+	root_snapshot.v.subvol	= cpu_to_le32(BCACHEFS_ROOT_SUBVOL);
 	root_snapshot.v.tree	= cpu_to_le32(1);
 	SET_BCH_SNAPSHOT_SUBVOL(&root_snapshot.v, true);
 
@@ -1146,17 +1146,22 @@ int bch2_fs_recovery(struct bch_fs *c)
 		goto err;
 	}
 
-	if (!c->opts.nochanges) {
-		if (c->sb.version < bcachefs_metadata_required_upgrade_below) {
-			bch_info(c, "version %s (%u) prior to %s (%u), upgrade and fsck required",
-				 bch2_metadata_versions[c->sb.version],
-				 c->sb.version,
-				 bch2_metadata_versions[bcachefs_metadata_required_upgrade_below],
-				 bcachefs_metadata_required_upgrade_below);
-			c->opts.version_upgrade	= true;
-			c->opts.fsck		= true;
-			c->opts.fix_errors	= FSCK_OPT_YES;
-		}
+	if (!c->opts.nochanges &&
+	    c->sb.version < bcachefs_metadata_required_upgrade_below) {
+		struct printbuf buf = PRINTBUF;
+
+		prt_str(&buf, "version ");
+		bch2_version_to_text(&buf, c->sb.version);
+		prt_str(&buf, " prior to ");
+		bch2_version_to_text(&buf, bcachefs_metadata_required_upgrade_below);
+		prt_str(&buf, ", upgrade and fsck required");
+
+		bch_info(c, "%s", buf.buf);
+		printbuf_exit(&buf);
+
+		c->opts.version_upgrade	= true;
+		c->opts.fsck		= true;
+		c->opts.fix_errors	= FSCK_OPT_YES;
 	}
 
 	if (c->opts.fsck && c->opts.norecovery) {
@@ -1463,7 +1468,7 @@ use_clean:
 
 	if (!(c->sb.compat & (1ULL << BCH_COMPAT_extents_above_btree_updates_done)) ||
 	    !(c->sb.compat & (1ULL << BCH_COMPAT_bformat_overflow_done)) ||
-	    le16_to_cpu(c->sb.version_min) < bcachefs_metadata_version_btree_ptr_sectors_written) {
+	    c->sb.version_min < bcachefs_metadata_version_btree_ptr_sectors_written) {
 		struct bch_move_stats stats;
 
 		bch2_move_stats_init(&stats, "recovery");

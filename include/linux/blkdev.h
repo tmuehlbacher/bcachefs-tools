@@ -9,6 +9,7 @@
 #define BIO_MAX_VECS	256U
 
 typedef unsigned fmode_t;
+typedef __u32 __bitwise blk_opf_t;
 
 struct bio;
 struct user_namespace;

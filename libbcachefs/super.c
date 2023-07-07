@@ -485,6 +485,7 @@ static void __bch2_fs_free(struct bch_fs *c)
 		for_each_possible_cpu(cpu)
 			kfree(per_cpu_ptr(c->btree_paths_bufs, cpu)->path);
 
+	darray_exit(&c->btree_roots_extra);
 	free_percpu(c->btree_paths_bufs);
 	free_percpu(c->pcpu);
 	mempool_exit(&c->large_bkey_pool);
@@ -560,9 +561,12 @@ void __bch2_fs_stop(struct bch_fs *c)
 
 	cancel_work_sync(&c->read_only_work);
 
-	for (i = 0; i < c->sb.nr_devices; i++)
-		if (c->devs[i])
-			bch2_free_super(&c->devs[i]->disk_sb);
+	for (i = 0; i < c->sb.nr_devices; i++) {
+		struct bch_dev *ca = rcu_dereference_protected(c->devs[i], true);
+
+		if (ca)
+			bch2_free_super(&ca->disk_sb);
+	}
 }
 
 void bch2_fs_free(struct bch_fs *c)
@@ -685,6 +689,7 @@ static struct bch_fs *bch2_fs_alloc(struct bch_sb *sb, struct bch_opts opts)
 
 	bch2_fs_copygc_init(c);
 	bch2_fs_btree_key_cache_init_early(&c->btree_key_cache);
+	bch2_fs_btree_interior_update_init_early(c);
 	bch2_fs_allocator_background_init(c);
 	bch2_fs_allocator_foreground_init(c);
 	bch2_fs_rebalance_init(c);
@@ -751,11 +756,11 @@ static struct bch_fs *bch2_fs_alloc(struct bch_sb *sb, struct bch_opts opts)
 		goto err;
 
 	/* Compat: */
-	if (sb->version <= bcachefs_metadata_version_inode_v2 &&
+	if (le16_to_cpu(sb->version) <= bcachefs_metadata_version_inode_v2 &&
 	    !BCH_SB_JOURNAL_FLUSH_DELAY(sb))
 		SET_BCH_SB_JOURNAL_FLUSH_DELAY(sb, 1000);
 
-	if (sb->version <= bcachefs_metadata_version_inode_v2 &&
+	if (le16_to_cpu(sb->version) <= bcachefs_metadata_version_inode_v2 &&
 	    !BCH_SB_JOURNAL_RECLAIM_DELAY(sb))
 		SET_BCH_SB_JOURNAL_RECLAIM_DELAY(sb, 100);
 
@@ -875,7 +880,8 @@ static void print_mount_opts(struct bch_fs *c)
 	struct printbuf p = PRINTBUF;
 	bool first = true;
 
-	prt_printf(&p, "mounted version=%s", bch2_metadata_versions[c->sb.version]);
+	prt_str(&p, "mounted version ");
+	bch2_version_to_text(&p, c->sb.version);
 
 	if (c->opts.read_only) {
 		prt_str(&p, " opts=");
@@ -1521,6 +1527,17 @@ int bch2_dev_remove(struct bch_fs *c, struct bch_dev *ca, int flags)
 	bch2_dev_free(ca);
 
 	/*
+	 * At this point the device object has been removed in-core, but the
+	 * on-disk journal might still refer to the device index via sb device
+	 * usage entries. Recovery fails if it sees usage information for an
+	 * invalid device. Flush journal pins to push the back of the journal
+	 * past now invalid device index references before we update the
+	 * superblock, but after the device object has been removed so any
+	 * further journal writes elide usage info for the device.
+	 */
+	bch2_journal_flush_all_pins(&c->journal);
+
+	/*
 	 * Free this device's slot in the bch_member array - all pointers to
 	 * this device must be gone:
 	 */
@@ -1986,7 +2003,7 @@ err:
 BCH_DEBUG_PARAMS()
 #undef BCH_DEBUG_PARAM
 
-unsigned bch2_metadata_version = bcachefs_metadata_version_current;
+static unsigned bch2_metadata_version = bcachefs_metadata_version_current;
 module_param_named(version, bch2_metadata_version, uint, 0400);
 
 module_exit(bcachefs_exit);

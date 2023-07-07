@@ -8,6 +8,7 @@
 
 struct bch_fs;
 struct btree_trans;
+enum bkey_invalid_flags;
 
 /* extent entries: */
 
@@ -154,11 +155,7 @@ bch2_extent_crc_unpack(const struct bkey *k, const union bch_extent_crc *crc)
 			common_fields(crc->crc32),
 		};
 
-		*((__le32 *) &ret.csum.lo) = crc->crc32.csum;
-
-		memcpy(&ret.csum.lo, &crc->crc32.csum,
-		       sizeof(crc->crc32.csum));
-
+		memcpy(&ret.csum.lo, &crc->crc32.csum, sizeof(crc->crc32.csum));
 		return ret;
 	}
 	case BCH_EXTENT_ENTRY_crc64: {
@@ -168,8 +165,8 @@ bch2_extent_crc_unpack(const struct bkey *k, const union bch_extent_crc *crc)
 			.csum.lo		= (__force __le64) crc->crc64.csum_lo,
 		};
 
-		*((__le16 *) &ret.csum.hi) = crc->crc64.csum_hi;
-
+		u16 hi = crc->crc64.csum_hi;
+		memcpy(&ret.csum.hi, &hi, sizeof(hi));
 		return ret;
 	}
 	case BCH_EXTENT_ENTRY_crc128: {
@@ -318,6 +315,9 @@ static inline struct bkey_ptrs bch2_bkey_ptrs(struct bkey_s k)
 			(_ptr).ec = _entry->stripe_ptr;			\
 			(_ptr).has_ec	= true;				\
 			break;						\
+		default:						\
+			/* nothing */					\
+			break;						\
 		}							\
 out:									\
 	_entry < (_end);						\
@@ -383,11 +383,13 @@ int bch2_bkey_pick_read_device(struct bch_fs *, struct bkey_s_c,
 
 /* KEY_TYPE_btree_ptr: */
 
-int bch2_btree_ptr_invalid(const struct bch_fs *, struct bkey_s_c, unsigned, struct printbuf *);
+int bch2_btree_ptr_invalid(const struct bch_fs *, struct bkey_s_c,
+			   enum bkey_invalid_flags, struct printbuf *);
 void bch2_btree_ptr_to_text(struct printbuf *, struct bch_fs *,
 			    struct bkey_s_c);
 
-int bch2_btree_ptr_v2_invalid(const struct bch_fs *, struct bkey_s_c, unsigned, struct printbuf *);
+int bch2_btree_ptr_v2_invalid(const struct bch_fs *, struct bkey_s_c,
+			      enum bkey_invalid_flags, struct printbuf *);
 void bch2_btree_ptr_v2_to_text(struct printbuf *, struct bch_fs *, struct bkey_s_c);
 void bch2_btree_ptr_v2_compat(enum btree_id, unsigned, unsigned,
 			      int, struct bkey_s);
@@ -427,7 +429,7 @@ bool bch2_extent_merge(struct bch_fs *, struct bkey_s, struct bkey_s_c);
 /* KEY_TYPE_reservation: */
 
 int bch2_reservation_invalid(const struct bch_fs *, struct bkey_s_c,
-			     unsigned, struct printbuf *);
+			     enum bkey_invalid_flags, struct printbuf *);
 void bch2_reservation_to_text(struct printbuf *, struct bch_fs *, struct bkey_s_c);
 bool bch2_reservation_merge(struct bch_fs *, struct bkey_s, struct bkey_s_c);
 

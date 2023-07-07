@@ -234,7 +234,7 @@ enum {
 };
 
 struct bio *bio_alloc_bioset(struct block_device *, unsigned,
-			     unsigned, gfp_t, struct bio_set *);
+			     blk_opf_t, gfp_t, struct bio_set *);
 extern void bio_put(struct bio *);
 
 int bio_add_page(struct bio *, struct page *, unsigned, unsigned);

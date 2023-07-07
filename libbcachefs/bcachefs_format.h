@@ -488,8 +488,9 @@ struct bch_csum {
 	x(crc32,		1)		\
 	x(crc64,		2)		\
 	x(crc128,		3)		\
-	x(stripe_ptr,		4)
-#define BCH_EXTENT_ENTRY_MAX	5
+	x(stripe_ptr,		4)		\
+	x(rebalance,		5)
+#define BCH_EXTENT_ENTRY_MAX	6
 
 enum bch_extent_entry_type {
 #define x(f, n) BCH_EXTENT_ENTRY_##f = n,
@@ -621,6 +622,20 @@ struct bch_extent_reservation {
 				replicas:4,
 				unused:22,
 				type:6;
+#endif
+};
+
+struct bch_extent_rebalance {
+#if defined(__LITTLE_ENDIAN_BITFIELD)
+	__u64			type:7,
+				unused:33,
+				compression:8,
+				target:16;
+#elif defined (__BIG_ENDIAN_BITFIELD)
+	__u64			target:16,
+				compression:8,
+				unused:33,
+				type:7;
 #endif
 };
 
@@ -1356,19 +1371,19 @@ static inline bool data_type_is_hidden(enum bch_data_type type)
 struct bch_replicas_entry_v0 {
 	__u8			data_type;
 	__u8			nr_devs;
-	__u8			devs[];
+	__u8			devs[0];
 } __packed;
 
 struct bch_sb_field_replicas_v0 {
 	struct bch_sb_field	field;
-	struct bch_replicas_entry_v0 entries[];
+	struct bch_replicas_entry_v0 entries[0];
 } __packed __aligned(8);
 
 struct bch_replicas_entry {
 	__u8			data_type;
 	__u8			nr_devs;
 	__u8			nr_required;
-	__u8			devs[];
+	__u8			devs[0];
 } __packed;
 
 #define replicas_entry_bytes(_i)					\
@@ -1376,7 +1391,7 @@ struct bch_replicas_entry {
 
 struct bch_sb_field_replicas {
 	struct bch_sb_field	field;
-	struct bch_replicas_entry entries[];
+	struct bch_replicas_entry entries[0];
 } __packed __aligned(8);
 
 /* BCH_SB_FIELD_quota: */
@@ -1559,8 +1574,6 @@ struct bch_sb_field_journal_seq_blacklist {
  * One common version number for all on disk data structures - superblock, btree
  * nodes, journal entries
  */
-#define BCH_JSET_VERSION_OLD			2
-#define BCH_BSET_VERSION_OLD			3
 
 #define BCH_METADATA_VERSIONS()				\
 	x(bkey_renumber,		10)		\
@@ -2195,12 +2208,24 @@ struct btree_node {
 	};
 } __packed __aligned(8);
 
-LE64_BITMASK(BTREE_NODE_ID,	struct btree_node, flags,  0,  4);
+LE64_BITMASK(BTREE_NODE_ID_LO,	struct btree_node, flags,  0,  4);
 LE64_BITMASK(BTREE_NODE_LEVEL,	struct btree_node, flags,  4,  8);
 LE64_BITMASK(BTREE_NODE_NEW_EXTENT_OVERWRITE,
 				struct btree_node, flags,  8,  9);
-/* 9-32 unused */
+LE64_BITMASK(BTREE_NODE_ID_HI,	struct btree_node, flags,  9, 25);
+/* 25-32 unused */
 LE64_BITMASK(BTREE_NODE_SEQ,	struct btree_node, flags, 32, 64);
+
+static inline __u64 BTREE_NODE_ID(struct btree_node *n)
+{
+	return BTREE_NODE_ID_LO(n) | (BTREE_NODE_ID_HI(n) << 4);
+}
+
+static inline void SET_BTREE_NODE_ID(struct btree_node *n, u64 v)
+{
+	SET_BTREE_NODE_ID_LO(n, v);
+	SET_BTREE_NODE_ID_HI(n, v >> 4);
+}
 
 struct btree_node_entry {
 	struct bch_csum		csum;
@@ -2211,7 +2236,6 @@ struct btree_node_entry {
 		__u8		pad[22];
 		__le16		u64s;
 		__u64		_data[0];
-
 	};
 	};
 } __packed __aligned(8);

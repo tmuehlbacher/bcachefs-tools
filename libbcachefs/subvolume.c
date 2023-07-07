@@ -23,7 +23,8 @@ void bch2_snapshot_tree_to_text(struct printbuf *out, struct bch_fs *c,
 }
 
 int bch2_snapshot_tree_invalid(const struct bch_fs *c, struct bkey_s_c k,
-			       unsigned flags, struct printbuf *err)
+			       enum bkey_invalid_flags flags,
+			       struct printbuf *err)
 {
 	if (bkey_gt(k.k->p, POS(0, U32_MAX)) ||
 	    bkey_lt(k.k->p, POS(0, 1))) {
@@ -97,7 +98,8 @@ void bch2_snapshot_to_text(struct printbuf *out, struct bch_fs *c,
 }
 
 int bch2_snapshot_invalid(const struct bch_fs *c, struct bkey_s_c k,
-			  unsigned flags, struct printbuf *err)
+			  enum bkey_invalid_flags flags,
+			  struct printbuf *err)
 {
 	struct bkey_s_c_snapshot s;
 	u32 i, id;
@@ -825,7 +827,7 @@ static int bch2_snapshot_node_delete(struct btree_trans *trans, u32 id)
 			goto err;
 
 		if (s.v->children[0]) {
-			s_t->v.root_snapshot = cpu_to_le32(s.v->children[0]);
+			s_t->v.root_snapshot = s.v->children[0];
 		} else {
 			s_t->k.type = KEY_TYPE_deleted;
 			set_bkey_val_u64s(&s_t->k, 0);
@@ -1328,7 +1330,7 @@ static int bch2_subvolume_delete(struct btree_trans *trans, u32 subvolid)
 			  __bch2_subvolume_delete(trans, subvolid));
 }
 
-void bch2_subvolume_wait_for_pagecache_and_delete(struct work_struct *work)
+static void bch2_subvolume_wait_for_pagecache_and_delete(struct work_struct *work)
 {
 	struct bch_fs *c = container_of(work, struct bch_fs,
 				snapshot_wait_for_pagecache_and_delete_work);
@@ -1366,7 +1368,7 @@ struct subvolume_unlink_hook {
 	u32				subvol;
 };
 
-int bch2_subvolume_wait_for_pagecache_and_delete_hook(struct btree_trans *trans,
+static int bch2_subvolume_wait_for_pagecache_and_delete_hook(struct btree_trans *trans,
 						      struct btree_trans_commit_hook *_h)
 {
 	struct subvolume_unlink_hook *h = container_of(_h, struct subvolume_unlink_hook, h);
