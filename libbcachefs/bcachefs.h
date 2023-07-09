@@ -564,15 +564,11 @@ enum {
 
 	/* fsck passes: */
 	BCH_FS_TOPOLOGY_REPAIR_DONE,
-	BCH_FS_INITIAL_GC_DONE,		/* kill when we enumerate fsck passes */
-	BCH_FS_CHECK_ALLOC_DONE,
-	BCH_FS_CHECK_LRUS_DONE,
-	BCH_FS_CHECK_BACKPOINTERS_DONE,
-	BCH_FS_CHECK_ALLOC_TO_LRU_REFS_DONE,
 	BCH_FS_FSCK_DONE,
 	BCH_FS_INITIAL_GC_UNFIXED,	/* kill when we enumerate fsck errors */
 	BCH_FS_NEED_ANOTHER_GC,
 
+	BCH_FS_VERSION_UPGRADE,
 	BCH_FS_HAVE_DELETED_SNAPSHOTS,
 
 	/* errors: */
@@ -661,6 +657,48 @@ enum bch_write_ref {
 	BCH_WRITE_REF_NR,
 };
 
+#define PASS_SILENT		BIT(0)
+#define PASS_FSCK		BIT(1)
+#define PASS_UNCLEAN		BIT(2)
+#define PASS_ALWAYS		BIT(3)
+#define PASS_UPGRADE(v)		((v) << 4)
+
+#define BCH_RECOVERY_PASSES()									\
+	x(alloc_read,			PASS_ALWAYS)						\
+	x(stripes_read,			PASS_ALWAYS)						\
+	x(initialize_subvolumes,	PASS_UPGRADE(bcachefs_metadata_version_snapshot_2))	\
+	x(snapshots_read,		PASS_ALWAYS)						\
+	x(check_allocations,		PASS_FSCK)						\
+	x(set_may_go_rw,		PASS_ALWAYS|PASS_SILENT)				\
+	x(journal_replay,		PASS_ALWAYS)						\
+	x(check_alloc_info,		PASS_FSCK)						\
+	x(check_lrus,			PASS_FSCK)						\
+	x(check_btree_backpointers,	PASS_FSCK)						\
+	x(check_backpointers_to_extents,PASS_FSCK)						\
+	x(check_extents_to_backpointers,PASS_FSCK)						\
+	x(check_alloc_to_lru_refs,	PASS_FSCK)						\
+	x(fs_freespace_init,		PASS_ALWAYS|PASS_SILENT)				\
+	x(bucket_gens_init,		PASS_UPGRADE(bcachefs_metadata_version_bucket_gens))	\
+	x(fs_upgrade_for_subvolumes,	PASS_UPGRADE(bcachefs_metadata_version_snapshot_2))	\
+	x(check_snapshot_trees,		PASS_FSCK)						\
+	x(check_snapshots,		PASS_FSCK)						\
+	x(check_subvols,		PASS_FSCK)						\
+	x(delete_dead_snapshots,	PASS_FSCK|PASS_UNCLEAN|PASS_SILENT)			\
+	x(check_inodes,			PASS_FSCK|PASS_UNCLEAN)					\
+	x(check_extents,		PASS_FSCK)						\
+	x(check_dirents,		PASS_FSCK)						\
+	x(check_xattrs,			PASS_FSCK)						\
+	x(check_root,			PASS_FSCK)						\
+	x(check_directory_structure,	PASS_FSCK)						\
+	x(check_nlinks,			PASS_FSCK)						\
+	x(fix_reflink_p,		PASS_UPGRADE(bcachefs_metadata_version_reflink_p_fix))	\
+
+enum bch_recovery_pass {
+#define x(n, when)	BCH_RECOVERY_PASS_##n,
+	BCH_RECOVERY_PASSES()
+#undef x
+};
+
 struct bch_fs {
 	struct closure		cl;
 
@@ -712,6 +750,7 @@ struct bch_fs {
 
 		u16		version;
 		u16		version_min;
+		u16		version_upgrade_complete;
 
 		u8		nr_devices;
 		u8		clean;
@@ -991,6 +1030,11 @@ struct bch_fs {
 	/* QUOTAS */
 	struct bch_memquota_type quotas[QTYP_NR];
 
+	/* RECOVERY */
+	u64			journal_replay_seq_start;
+	u64			journal_replay_seq_end;
+	enum bch_recovery_pass	curr_recovery_pass;
+
 	/* DEBUG JUNK */
 	struct dentry		*fs_debug_dir;
 	struct dentry		*btree_debug_dir;
@@ -1132,6 +1176,12 @@ static inline s64 bch2_current_time(const struct bch_fs *c)
 static inline bool bch2_dev_exists2(const struct bch_fs *c, unsigned dev)
 {
 	return dev < c->sb.nr_devices && c->devs[dev];
+}
+
+static inline bool bch2_version_upgrading_to(const struct bch_fs *c, unsigned new_version)
+{
+	return c->sb.version_upgrade_complete < new_version &&
+		c->sb.version >= new_version;
 }
 
 #define BKEY_PADDED_ONSTACK(key, pad)				\

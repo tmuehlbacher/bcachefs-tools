@@ -192,6 +192,7 @@ static inline unsigned open_buckets_reserved(enum bch_watermark watermark)
 {
 	switch (watermark) {
 	case BCH_WATERMARK_reclaim:
+		return 0;
 	case BCH_WATERMARK_btree:
 	case BCH_WATERMARK_btree_copygc:
 		return OPEN_BUCKETS_COUNT / 4;
@@ -323,7 +324,7 @@ static struct open_bucket *try_alloc_bucket(struct btree_trans *trans, struct bc
 	a = bch2_alloc_to_v4(k, &a_convert);
 
 	if (a->data_type != BCH_DATA_free) {
-		if (!test_bit(BCH_FS_CHECK_ALLOC_DONE, &c->flags)) {
+		if (c->curr_recovery_pass <= BCH_RECOVERY_PASS_check_alloc_info) {
 			ob = NULL;
 			goto err;
 		}
@@ -339,7 +340,7 @@ static struct open_bucket *try_alloc_bucket(struct btree_trans *trans, struct bc
 	}
 
 	if (genbits != (alloc_freespace_genbits(*a) >> 56) &&
-	    test_bit(BCH_FS_CHECK_ALLOC_DONE, &c->flags)) {
+	    c->curr_recovery_pass > BCH_RECOVERY_PASS_check_alloc_info) {
 		prt_printf(&buf, "bucket in freespace btree with wrong genbits (got %u should be %llu)\n"
 		       "  freespace key ",
 		       genbits, alloc_freespace_genbits(*a) >> 56);
@@ -349,10 +350,9 @@ static struct open_bucket *try_alloc_bucket(struct btree_trans *trans, struct bc
 		bch2_trans_inconsistent(trans, "%s", buf.buf);
 		ob = ERR_PTR(-EIO);
 		goto err;
-
 	}
 
-	if (!test_bit(BCH_FS_CHECK_BACKPOINTERS_DONE, &c->flags)) {
+	if (c->curr_recovery_pass <= BCH_RECOVERY_PASS_check_extents_to_backpointers) {
 		struct bch_backpointer bp;
 		struct bpos bp_pos = POS_MIN;
 
@@ -555,7 +555,7 @@ alloc:
 	if (s.skipped_need_journal_commit * 2 > avail)
 		bch2_journal_flush_async(&c->journal, NULL);
 
-	if (!ob && freespace && !test_bit(BCH_FS_CHECK_ALLOC_DONE, &c->flags)) {
+	if (!ob && freespace && c->curr_recovery_pass <= BCH_RECOVERY_PASS_check_alloc_info) {
 		freespace = false;
 		goto alloc;
 	}
@@ -1193,6 +1193,7 @@ static bool try_decrease_writepoints(struct btree_trans *trans, unsigned old_nr)
 	bch2_trans_mutex_lock_norelock(trans, &wp->lock);
 	open_bucket_for_each(c, &wp->ptrs, ob, i)
 		open_bucket_free_unused(c, ob);
+	wp->ptrs.nr = 0;
 	mutex_unlock(&wp->lock);
 	return true;
 }

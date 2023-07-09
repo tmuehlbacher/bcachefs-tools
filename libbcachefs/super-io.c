@@ -445,6 +445,7 @@ static void bch2_sb_update(struct bch_fs *c)
 	c->sb.user_uuid		= src->user_uuid;
 	c->sb.version		= le16_to_cpu(src->version);
 	c->sb.version_min	= le16_to_cpu(src->version_min);
+	c->sb.version_upgrade_complete = BCH_SB_VERSION_UPGRADE_COMPLETE(src) ?: c->sb.version;
 	c->sb.nr_devices	= src->nr_devices;
 	c->sb.clean		= BCH_SB_CLEAN(src);
 	c->sb.encryption_type	= BCH_SB_ENCRYPTION_TYPE(src);
@@ -611,8 +612,6 @@ int bch2_read_super(const char *path, struct bch_opts *opts,
 	__le64 *i;
 	int ret;
 
-	pr_verbose_init(*opts, "");
-
 	memset(sb, 0, sizeof(*sb));
 	sb->mode	= FMODE_READ;
 	sb->have_bio	= true;
@@ -719,7 +718,6 @@ got_super:
 		goto err_no_print;
 	}
 out:
-	pr_verbose_init(*opts, "ret %i", ret);
 	printbuf_exit(&err);
 	return ret;
 err:
@@ -811,7 +809,7 @@ int bch2_write_super(struct bch_fs *c)
 	closure_init_stack(cl);
 	memset(&sb_written, 0, sizeof(sb_written));
 
-	if (c->opts.version_upgrade) {
+	if (test_bit(BCH_FS_VERSION_UPGRADE, &c->flags)) {
 		c->disk_sb.sb->magic = BCHFS_MAGIC;
 		c->disk_sb.sb->layout.magic = BCHFS_MAGIC;
 	}
@@ -1188,7 +1186,19 @@ int bch2_fs_mark_dirty(struct bch_fs *c)
 
 	mutex_lock(&c->sb_lock);
 	SET_BCH_SB_CLEAN(c->disk_sb.sb, false);
+
+	if (BCH_SB_VERSION_UPGRADE_COMPLETE(c->disk_sb.sb) > bcachefs_metadata_version_current)
+		SET_BCH_SB_VERSION_UPGRADE_COMPLETE(c->disk_sb.sb, bcachefs_metadata_version_current);
+
+	if (test_bit(BCH_FS_VERSION_UPGRADE, &c->flags) ||
+	    c->sb.version > bcachefs_metadata_version_current)
+		c->disk_sb.sb->version = cpu_to_le16(bcachefs_metadata_version_current);
+
+	if (test_bit(BCH_FS_VERSION_UPGRADE, &c->flags))
+		c->disk_sb.sb->features[0] |= cpu_to_le64(BCH_SB_FEATURES_ALL);
+
 	c->disk_sb.sb->features[0] |= cpu_to_le64(BCH_SB_FEATURES_ALWAYS);
+
 	c->disk_sb.sb->compat[0] &= cpu_to_le64((1ULL << BCH_COMPAT_NR) - 1);
 	ret = bch2_write_super(c);
 	mutex_unlock(&c->sb_lock);
@@ -1530,6 +1540,11 @@ void bch2_sb_to_text(struct printbuf *out, struct bch_sb *sb,
 	prt_str(out, "Version:");
 	prt_tab(out);
 	bch2_version_to_text(out, le16_to_cpu(sb->version));
+	prt_newline(out);
+
+	prt_str(out, "Version upgrade complete:");
+	prt_tab(out);
+	bch2_version_to_text(out, BCH_SB_VERSION_UPGRADE_COMPLETE(sb));
 	prt_newline(out);
 
 	prt_printf(out, "Oldest version on disk:");

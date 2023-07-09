@@ -624,11 +624,13 @@ static int journal_sort_seq_cmp(const void *_l, const void *_r)
 	return cmp_int(l->journal_seq, r->journal_seq);
 }
 
-static int bch2_journal_replay(struct bch_fs *c, u64 start_seq, u64 end_seq)
+static int bch2_journal_replay(struct bch_fs *c)
 {
 	struct journal_keys *keys = &c->journal_keys;
 	struct journal_key **keys_sorted, *k;
 	struct journal *j = &c->journal;
+	u64 start_seq	= c->journal_replay_seq_start;
+	u64 end_seq	= c->journal_replay_seq_start;
 	size_t i;
 	int ret;
 
@@ -1026,7 +1028,7 @@ fsck_err:
 	return ret;
 }
 
-static int bch2_fs_initialize_subvolumes(struct bch_fs *c)
+static int bch2_initialize_subvolumes(struct bch_fs *c)
 {
 	struct bkey_i_snapshot_tree	root_tree;
 	struct bkey_i_snapshot		root_snapshot;
@@ -1107,6 +1109,118 @@ static int bch2_fs_upgrade_for_subvolumes(struct bch_fs *c)
 	return ret;
 }
 
+static void check_version_upgrade(struct bch_fs *c)
+{
+	unsigned version = c->sb.version_upgrade_complete ?: c->sb.version;
+
+	if (version < bcachefs_metadata_required_upgrade_below ||
+	    (version < bcachefs_metadata_version_current &&
+	     c->opts.version_upgrade != BCH_VERSION_UPGRADE_none)) {
+		struct printbuf buf = PRINTBUF;
+
+		if (version != c->sb.version) {
+			prt_str(&buf, "version upgrade to ");
+			bch2_version_to_text(&buf, c->sb.version);
+			prt_str(&buf, " incomplete:\n");
+		}
+
+		prt_str(&buf, "version ");
+		bch2_version_to_text(&buf, version);
+		prt_str(&buf, " prior to ");
+		bch2_version_to_text(&buf, bcachefs_metadata_required_upgrade_below);
+		prt_str(&buf, ", upgrade and fsck required");
+
+		bch_info(c, "%s", buf.buf);
+		printbuf_exit(&buf);
+
+		c->opts.fsck		= true;
+		c->opts.fix_errors	= FSCK_OPT_YES;
+		set_bit(BCH_FS_VERSION_UPGRADE, &c->flags);
+	}
+}
+
+static int bch2_check_allocations(struct bch_fs *c)
+{
+	return bch2_gc(c, true, c->opts.norecovery);
+}
+
+static int bch2_set_may_go_rw(struct bch_fs *c)
+{
+	set_bit(BCH_FS_MAY_GO_RW, &c->flags);
+	return 0;
+}
+
+struct recovery_pass_fn {
+	int		(*fn)(struct bch_fs *);
+	const char	*name;
+	unsigned	when;
+};
+
+static struct recovery_pass_fn recovery_passes[] = {
+#define x(_fn, _when)	{ .fn = bch2_##_fn, .name = #_fn, .when = _when },
+	BCH_RECOVERY_PASSES()
+#undef x
+};
+
+static bool should_run_recovery_pass(struct bch_fs *c, enum bch_recovery_pass pass)
+{
+	struct recovery_pass_fn *p = recovery_passes + c->curr_recovery_pass;
+
+	if (c->opts.norecovery && pass > BCH_RECOVERY_PASS_snapshots_read)
+		return false;
+	if ((p->when & PASS_FSCK) && c->opts.fsck)
+		return true;
+	if ((p->when & PASS_UNCLEAN) && !c->sb.clean)
+		return true;
+	if (p->when & PASS_ALWAYS)
+		return true;
+	if (p->when >= PASS_UPGRADE(0) &&
+	    bch2_version_upgrading_to(c, p->when >> 4))
+		return true;
+	return false;
+}
+
+static int bch2_run_recovery_pass(struct bch_fs *c, enum bch_recovery_pass pass)
+{
+	int ret;
+
+	c->curr_recovery_pass = pass;
+
+	if (should_run_recovery_pass(c, pass)) {
+		struct recovery_pass_fn *p = recovery_passes + pass;
+
+		if (!(p->when & PASS_SILENT))
+			printk(KERN_INFO bch2_log_msg(c, "%s..."), p->name);
+		ret = p->fn(c);
+		if (ret)
+			return ret;
+		if (!(p->when & PASS_SILENT))
+			printk(KERN_CONT " done\n");
+	}
+
+	return 0;
+}
+
+static int bch2_run_recovery_passes(struct bch_fs *c)
+{
+	int ret = 0;
+again:
+	while (c->curr_recovery_pass < ARRAY_SIZE(recovery_passes)) {
+		ret = bch2_run_recovery_pass(c, c->curr_recovery_pass);
+		if (ret)
+			break;
+		c->curr_recovery_pass++;
+	}
+
+	if (bch2_err_matches(ret, BCH_ERR_need_snapshot_cleanup)) {
+		set_bit(BCH_FS_HAVE_DELETED_SNAPSHOTS, &c->flags);
+		c->curr_recovery_pass = BCH_RECOVERY_PASS_delete_dead_snapshots;
+		goto again;
+	}
+
+	return ret;
+}
+
 int bch2_fs_recovery(struct bch_fs *c)
 {
 	struct bch_sb_field_clean *clean = NULL;
@@ -1146,23 +1260,8 @@ int bch2_fs_recovery(struct bch_fs *c)
 		goto err;
 	}
 
-	if (!c->opts.nochanges &&
-	    c->sb.version < bcachefs_metadata_required_upgrade_below) {
-		struct printbuf buf = PRINTBUF;
-
-		prt_str(&buf, "version ");
-		bch2_version_to_text(&buf, c->sb.version);
-		prt_str(&buf, " prior to ");
-		bch2_version_to_text(&buf, bcachefs_metadata_required_upgrade_below);
-		prt_str(&buf, ", upgrade and fsck required");
-
-		bch_info(c, "%s", buf.buf);
-		printbuf_exit(&buf);
-
-		c->opts.version_upgrade	= true;
-		c->opts.fsck		= true;
-		c->opts.fix_errors	= FSCK_OPT_YES;
-	}
+	if (!c->opts.nochanges)
+		check_version_upgrade(c);
 
 	if (c->opts.fsck && c->opts.norecovery) {
 		bch_err(c, "cannot select both norecovery and fsck");
@@ -1241,6 +1340,9 @@ use_clean:
 		blacklist_seq = journal_seq = le64_to_cpu(clean->journal_seq) + 1;
 	}
 
+	c->journal_replay_seq_start	= last_seq;
+	c->journal_replay_seq_end	= blacklist_seq - 1;;
+
 	if (c->opts.reconstruct_alloc) {
 		c->sb.compat &= ~(1ULL << BCH_COMPAT_alloc_info);
 		drop_alloc_keys(&c->journal_keys);
@@ -1293,146 +1395,9 @@ use_clean:
 	if (ret)
 		goto err;
 
-	bch_verbose(c, "starting alloc read");
-	down_read(&c->gc_lock);
-	ret = c->sb.version < bcachefs_metadata_version_bucket_gens
-		? bch2_alloc_read(c)
-		: bch2_bucket_gens_read(c);
-	up_read(&c->gc_lock);
+	ret = bch2_run_recovery_passes(c);
 	if (ret)
 		goto err;
-	bch_verbose(c, "alloc read done");
-
-	bch_verbose(c, "starting stripes_read");
-	ret = bch2_stripes_read(c);
-	if (ret)
-		goto err;
-	bch_verbose(c, "stripes_read done");
-
-	if (c->sb.version < bcachefs_metadata_version_snapshot_2) {
-		ret = bch2_fs_initialize_subvolumes(c);
-		if (ret)
-			goto err;
-	}
-
-	bch_verbose(c, "reading snapshots table");
-	ret = bch2_fs_snapshots_start(c);
-	if (ret)
-		goto err;
-	bch_verbose(c, "reading snapshots done");
-
-	if (c->opts.fsck) {
-		bool metadata_only = c->opts.norecovery;
-
-		bch_info(c, "checking allocations");
-		ret = bch2_gc(c, true, metadata_only);
-		if (ret)
-			goto err;
-		bch_verbose(c, "done checking allocations");
-
-		set_bit(BCH_FS_INITIAL_GC_DONE, &c->flags);
-
-		set_bit(BCH_FS_MAY_GO_RW, &c->flags);
-
-		bch_info(c, "starting journal replay, %zu keys", c->journal_keys.nr);
-		ret = bch2_journal_replay(c, last_seq, blacklist_seq - 1);
-		if (ret)
-			goto err;
-		if (c->opts.verbose || !c->sb.clean)
-			bch_info(c, "journal replay done");
-
-		bch_info(c, "checking need_discard and freespace btrees");
-		ret = bch2_check_alloc_info(c);
-		if (ret)
-			goto err;
-		bch_verbose(c, "done checking need_discard and freespace btrees");
-
-		set_bit(BCH_FS_CHECK_ALLOC_DONE, &c->flags);
-
-		bch_info(c, "checking lrus");
-		ret = bch2_check_lrus(c);
-		if (ret)
-			goto err;
-		bch_verbose(c, "done checking lrus");
-		set_bit(BCH_FS_CHECK_LRUS_DONE, &c->flags);
-
-		bch_info(c, "checking backpointers to alloc keys");
-		ret = bch2_check_btree_backpointers(c);
-		if (ret)
-			goto err;
-		bch_verbose(c, "done checking backpointers to alloc keys");
-
-		bch_info(c, "checking backpointers to extents");
-		ret = bch2_check_backpointers_to_extents(c);
-		if (ret)
-			goto err;
-		bch_verbose(c, "done checking backpointers to extents");
-
-		bch_info(c, "checking extents to backpointers");
-		ret = bch2_check_extents_to_backpointers(c);
-		if (ret)
-			goto err;
-		bch_verbose(c, "done checking extents to backpointers");
-		set_bit(BCH_FS_CHECK_BACKPOINTERS_DONE, &c->flags);
-
-		bch_info(c, "checking alloc to lru refs");
-		ret = bch2_check_alloc_to_lru_refs(c);
-		if (ret)
-			goto err;
-		bch_verbose(c, "done checking alloc to lru refs");
-		set_bit(BCH_FS_CHECK_ALLOC_TO_LRU_REFS_DONE, &c->flags);
-	} else {
-		set_bit(BCH_FS_INITIAL_GC_DONE, &c->flags);
-		set_bit(BCH_FS_CHECK_ALLOC_DONE, &c->flags);
-		set_bit(BCH_FS_CHECK_LRUS_DONE, &c->flags);
-		set_bit(BCH_FS_CHECK_BACKPOINTERS_DONE, &c->flags);
-		set_bit(BCH_FS_CHECK_ALLOC_TO_LRU_REFS_DONE, &c->flags);
-		set_bit(BCH_FS_FSCK_DONE, &c->flags);
-
-		if (c->opts.norecovery)
-			goto out;
-
-		set_bit(BCH_FS_MAY_GO_RW, &c->flags);
-
-		bch_verbose(c, "starting journal replay, %zu keys", c->journal_keys.nr);
-		ret = bch2_journal_replay(c, last_seq, blacklist_seq - 1);
-		if (ret)
-			goto err;
-		if (c->opts.verbose || !c->sb.clean)
-			bch_info(c, "journal replay done");
-	}
-
-	ret = bch2_fs_freespace_init(c);
-	if (ret)
-		goto err;
-
-	if (c->sb.version < bcachefs_metadata_version_bucket_gens &&
-	    c->opts.version_upgrade) {
-		bch_info(c, "initializing bucket_gens");
-		ret = bch2_bucket_gens_init(c);
-		if (ret)
-			goto err;
-		bch_verbose(c, "bucket_gens init done");
-	}
-
-	if (c->sb.version < bcachefs_metadata_version_snapshot_2) {
-		ret = bch2_fs_upgrade_for_subvolumes(c);
-		if (ret)
-			goto err;
-	}
-
-	if (c->opts.fsck) {
-		ret = bch2_fsck_full(c);
-		if (ret)
-			goto err;
-		bch_verbose(c, "fsck done");
-	} else if (!c->sb.clean) {
-		bch_verbose(c, "checking for deleted inodes");
-		ret = bch2_fsck_walk_inodes_only(c);
-		if (ret)
-			goto err;
-		bch_verbose(c, "check inodes done");
-	}
 
 	if (enabled_qtypes(c)) {
 		bch_verbose(c, "reading quotas");
@@ -1443,9 +1408,8 @@ use_clean:
 	}
 
 	mutex_lock(&c->sb_lock);
-	if (c->opts.version_upgrade) {
-		c->disk_sb.sb->version = cpu_to_le16(bcachefs_metadata_version_current);
-		c->disk_sb.sb->features[0] |= cpu_to_le64(BCH_SB_FEATURES_ALL);
+	if (BCH_SB_VERSION_UPGRADE_COMPLETE(c->disk_sb.sb) != c->sb.version) {
+		SET_BCH_SB_VERSION_UPGRADE_COMPLETE(c->disk_sb.sb, c->sb.version);
 		write_sb = true;
 	}
 
@@ -1504,8 +1468,6 @@ out:
 
 	if (ret)
 		bch_err_fn(c, ret);
-	else
-		bch_verbose(c, "ret %s", bch2_err_str(ret));
 	return ret;
 err:
 fsck_err:
@@ -1528,20 +1490,15 @@ int bch2_fs_initialize(struct bch_fs *c)
 	c->disk_sb.sb->compat[0] |= cpu_to_le64(1ULL << BCH_COMPAT_extents_above_btree_updates_done);
 	c->disk_sb.sb->compat[0] |= cpu_to_le64(1ULL << BCH_COMPAT_bformat_overflow_done);
 
-	if (c->sb.version < bcachefs_metadata_version_inode_v3)
-		c->opts.version_upgrade	= true;
-
-	if (c->opts.version_upgrade) {
+	if (c->opts.version_upgrade != BCH_VERSION_UPGRADE_none) {
 		c->disk_sb.sb->version = cpu_to_le16(bcachefs_metadata_version_current);
+		SET_BCH_SB_VERSION_UPGRADE_COMPLETE(c->disk_sb.sb, bcachefs_metadata_version_current);
 		c->disk_sb.sb->features[0] |= cpu_to_le64(BCH_SB_FEATURES_ALL);
 		bch2_write_super(c);
 	}
 	mutex_unlock(&c->sb_lock);
 
-	set_bit(BCH_FS_INITIAL_GC_DONE, &c->flags);
-	set_bit(BCH_FS_CHECK_LRUS_DONE, &c->flags);
-	set_bit(BCH_FS_CHECK_BACKPOINTERS_DONE, &c->flags);
-	set_bit(BCH_FS_CHECK_ALLOC_TO_LRU_REFS_DONE, &c->flags);
+	c->curr_recovery_pass = ARRAY_SIZE(recovery_passes);
 	set_bit(BCH_FS_MAY_GO_RW, &c->flags);
 	set_bit(BCH_FS_FSCK_DONE, &c->flags);
 
@@ -1589,12 +1546,12 @@ int bch2_fs_initialize(struct bch_fs *c)
 	if (ret)
 		goto err;
 
-	ret = bch2_fs_initialize_subvolumes(c);
+	ret = bch2_initialize_subvolumes(c);
 	if (ret)
 		goto err;
 
 	bch_verbose(c, "reading snapshots table");
-	ret = bch2_fs_snapshots_start(c);
+	ret = bch2_snapshots_read(c);
 	if (ret)
 		goto err;
 	bch_verbose(c, "reading snapshots done");

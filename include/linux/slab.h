@@ -20,7 +20,7 @@
 #define ARCH_KMALLOC_MINALIGN		16
 #define KMALLOC_MAX_SIZE		SIZE_MAX
 
-static inline void *_kmalloc(size_t size, gfp_t flags)
+static inline void *kmalloc_noprof(size_t size, gfp_t flags)
 {
 	unsigned i;
 	void *p;
@@ -46,7 +46,7 @@ static inline void *_kmalloc(size_t size, gfp_t flags)
 
 	return p;
 }
-#define kmalloc		_kmalloc
+#define kmalloc		kmalloc_noprof
 
 static inline void *krealloc(void *old, size_t size, gfp_t flags)
 {
@@ -97,7 +97,7 @@ static inline void *krealloc_array(void *p, size_t new_n, size_t new_size, gfp_t
 #define kvzalloc(size, flags)		kzalloc(size, flags)
 #define kvfree(p)			kfree(p)
 
-static inline struct page *_alloc_pages(gfp_t flags, unsigned int order)
+static inline struct page *alloc_pages_noprof(gfp_t flags, unsigned int order)
 {
 	size_t size = PAGE_SIZE << order;
 	unsigned i;
@@ -117,12 +117,14 @@ static inline struct page *_alloc_pages(gfp_t flags, unsigned int order)
 
 	return p;
 }
-#define alloc_pages			_alloc_pages
+#define alloc_pages			alloc_pages_noprof
 
 #define alloc_page(gfp)			alloc_pages(gfp, 0)
 
 #define _get_free_pages(gfp, order)	((unsigned long) alloc_pages(gfp, order))
 #define __get_free_pages(gfp, order)	((unsigned long) alloc_pages(gfp, order))
+#define get_free_pages_noprof(gfp, order)				\
+					((unsigned long) alloc_pages(gfp, order))
 #define __get_free_page(gfp)		__get_free_pages(gfp, 0)
 
 #define __free_pages(page, order)			\

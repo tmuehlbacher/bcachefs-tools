@@ -104,7 +104,7 @@ static noinline int backpointer_mod_err(struct btree_trans *trans,
 		bch2_bkey_val_to_text(&buf, c, orig_k);
 
 		bch_err(c, "%s", buf.buf);
-	} else if (test_bit(BCH_FS_CHECK_BACKPOINTERS_DONE, &c->flags)) {
+	} else if (c->curr_recovery_pass > BCH_RECOVERY_PASS_check_extents_to_backpointers) {
 		prt_printf(&buf, "backpointer not found when deleting");
 		prt_newline(&buf);
 		printbuf_indent_add(&buf, 2);
@@ -125,7 +125,7 @@ static noinline int backpointer_mod_err(struct btree_trans *trans,
 
 	printbuf_exit(&buf);
 
-	if (test_bit(BCH_FS_CHECK_BACKPOINTERS_DONE, &c->flags)) {
+	if (c->curr_recovery_pass > BCH_RECOVERY_PASS_check_extents_to_backpointers) {
 		bch2_inconsistent_error(c);
 		return -EIO;
 	} else {
@@ -258,7 +258,7 @@ static void backpointer_not_found(struct btree_trans *trans,
 	bch2_backpointer_to_text(&buf, &bp);
 	prt_printf(&buf, "\n  ");
 	bch2_bkey_val_to_text(&buf, c, k);
-	if (!test_bit(BCH_FS_CHECK_BACKPOINTERS_DONE, &c->flags))
+	if (c->curr_recovery_pass >= BCH_RECOVERY_PASS_check_extents_to_backpointers)
 		bch_err_ratelimited(c, "%s", buf.buf);
 	else
 		bch2_trans_inconsistent(trans, "%s", buf.buf);
@@ -650,9 +650,6 @@ static int bch2_check_extents_to_backpointers_pass(struct btree_trans *trans,
 
 	for (btree_id = 0; btree_id < btree_id_nr_alive(c); btree_id++) {
 		unsigned depth = btree_type_has_ptrs(btree_id) ? 0 : 1;
-
-		if (!bch2_btree_id_root(c, btree_id)->alive)
-			continue;
 
 		bch2_trans_node_iter_init(trans, &iter, btree_id, POS_MIN, 0,
 					  depth,

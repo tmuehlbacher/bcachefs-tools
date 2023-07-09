@@ -1747,6 +1747,12 @@ LE64_BITMASK(BCH_SB_JOURNAL_RECLAIM_DELAY,struct bch_sb, flags[4], 0, 32);
 LE64_BITMASK(BCH_SB_JOURNAL_TRANSACTION_NAMES,struct bch_sb, flags[4], 32, 33);
 LE64_BITMASK(BCH_SB_NOCOW,		struct bch_sb, flags[4], 33, 34);
 LE64_BITMASK(BCH_SB_WRITE_BUFFER_SIZE,	struct bch_sb, flags[4], 34, 54);
+LE64_BITMASK(BCH_SB_VERSION_UPGRADE,	struct bch_sb, flags[4], 54, 56);
+
+/* flags[4] 56-64 unused: */
+
+LE64_BITMASK(BCH_SB_VERSION_UPGRADE_COMPLETE,
+					struct bch_sb, flags[5],  0, 16);
 
 /*
  * Features:
@@ -1813,6 +1819,17 @@ enum bch_sb_compat {
 };
 
 /* options: */
+
+#define BCH_VERSION_UPGRADE_OPTS()	\
+	x(compatible,		0)	\
+	x(incompatible,		1)	\
+	x(none,			2)
+
+enum bch_version_upgrade_opts {
+#define x(t, n) BCH_VERSION_UPGRADE_##t = n,
+	BCH_VERSION_UPGRADE_OPTS()
+#undef x
+};
 
 #define BCH_REPLICAS_MAX		4U
 

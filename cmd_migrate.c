@@ -229,11 +229,12 @@ static void copy_xattrs(struct bch_fs *c, struct bch_inode_unpacked *dst,
 			die("error getting xattr val: %m");
 
 		const struct xattr_handler *h = xattr_resolve_name(&attr);
+		struct bch_inode_unpacked inode_u;
 
 		int ret = bch2_trans_do(c, NULL, NULL, 0,
 				bch2_xattr_set(&trans,
 					       (subvol_inum) { 1, dst->bi_inum },
-					       &hash_info, attr,
+					       &inode_u, &hash_info, attr,
 					       val, val_size, h->flags, 0));
 		if (ret < 0)
 			die("error creating xattr: %s", bch2_err_str(ret));
