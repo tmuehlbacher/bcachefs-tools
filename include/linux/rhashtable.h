@@ -28,6 +28,7 @@
 #include <linux/bit_spinlock.h>
 
 #define BIT(nr)			(1UL << (nr))
+#define BIT_ULL(nr)		(1ULL << (nr))
 
 #include <linux/rhashtable-types.h>
 /*
