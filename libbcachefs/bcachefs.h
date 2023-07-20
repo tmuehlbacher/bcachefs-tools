@@ -1185,11 +1185,14 @@ static inline bool bch2_dev_exists2(const struct bch_fs *c, unsigned dev)
 static inline int bch2_run_explicit_recovery_pass(struct bch_fs *c,
 						  enum bch_recovery_pass pass)
 {
-	BUG_ON(c->curr_recovery_pass < pass);
-
 	c->recovery_passes_explicit |= BIT_ULL(pass);
-	c->curr_recovery_pass = pass;
-	return -BCH_ERR_restart_recovery;
+
+	if (c->curr_recovery_pass >= pass) {
+		c->curr_recovery_pass = pass;
+		return -BCH_ERR_restart_recovery;
+	} else {
+		return 0;
+	}
 }
 
 #define BKEY_PADDED_ONSTACK(key, pad)				\

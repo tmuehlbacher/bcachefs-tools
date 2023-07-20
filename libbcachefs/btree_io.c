@@ -612,7 +612,7 @@ static int __btree_err(enum btree_err_type type,
 	case BTREE_ERR_BAD_NODE:
 		bch2_print_string_as_lines(KERN_ERR, out.buf);
 		bch2_topology_error(c);
-		ret = bch2_run_explicit_recovery_pass(c, BCH_RECOVERY_PASS_check_topology);
+		ret = bch2_run_explicit_recovery_pass(c, BCH_RECOVERY_PASS_check_topology) ?: -EIO;
 		break;
 	case BTREE_ERR_INCOMPATIBLE:
 		bch2_print_string_as_lines(KERN_ERR, out.buf);
