@@ -45,10 +45,8 @@ int cmd_fsck(int argc, char *argv[])
 		switch (opt) {
 		case 'a': /* outdated alias for -p */
 		case 'p':
-			opt_set(opts, fix_errors, FSCK_FIX_yes);
-			break;
 		case 'y':
-			opt_set(opts, fix_errors, FSCK_FIX_no);
+			opt_set(opts, fix_errors, FSCK_FIX_yes);
 			break;
 		case 'n':
 			opt_set(opts, nochanges, true);
