@@ -72,6 +72,8 @@ int bch2_btree_delete_range_trans(struct btree_trans *, enum btree_id,
 int bch2_btree_delete_range(struct bch_fs *, enum btree_id,
 			    struct bpos, struct bpos, unsigned, u64 *);
 
+int bch2_btree_bit_mod(struct btree_trans *, enum btree_id, struct bpos, bool);
+
 int bch2_btree_node_rewrite(struct btree_trans *, struct btree_iter *,
 			    struct btree *, unsigned);
 void bch2_btree_node_rewrite_async(struct bch_fs *, struct btree *);
@@ -111,6 +113,8 @@ int bch2_bkey_get_empty_slot(struct btree_trans *, struct btree_iter *,
 
 int __must_check bch2_trans_update(struct btree_trans *, struct btree_iter *,
 				   struct bkey_i *, enum btree_update_flags);
+int __must_check bch2_trans_update_seq(struct btree_trans *, u64, struct btree_iter *,
+				       struct bkey_i *, enum btree_update_flags);
 int __must_check bch2_trans_update_buffered(struct btree_trans *,
 					    enum btree_id, struct bkey_i *);
 

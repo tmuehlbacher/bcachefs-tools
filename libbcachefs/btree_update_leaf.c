@@ -66,7 +66,8 @@ static void verify_update_old_key(struct btree_trans *trans, struct btree_insert
 
 static int __must_check
 bch2_trans_update_by_path(struct btree_trans *, struct btree_path *,
-			  struct bkey_i *, enum btree_update_flags);
+			  struct bkey_i *, enum btree_update_flags,
+			  unsigned long ip);
 
 static inline int btree_insert_entry_cmp(const struct btree_insert_entry *l,
 					 const struct btree_insert_entry *r)
@@ -288,12 +289,6 @@ inline void bch2_btree_insert_key_leaf(struct btree_trans *trans,
 	if (u64s_added > live_u64s_added &&
 	    bch2_maybe_compact_whiteouts(c, b))
 		bch2_trans_node_reinit_iter(trans, b);
-}
-
-static void btree_insert_key_leaf(struct btree_trans *trans,
-				  struct btree_insert_entry *insert)
-{
-	bch2_btree_insert_key_leaf(trans, insert->path, insert->k, trans->journal_res.seq);
 }
 
 /* Cached btree updates: */
@@ -752,9 +747,14 @@ bch2_trans_commit_write_locked(struct btree_trans *trans, unsigned flags,
 	trans_for_each_update(trans, i) {
 		i->k->k.needs_whiteout = false;
 
-		if (!i->cached)
-			btree_insert_key_leaf(trans, i);
-		else if (!i->key_cache_already_flushed)
+		if (!i->cached) {
+			u64 seq = trans->journal_res.seq;
+
+			if (i->flags & BTREE_UPDATE_PREJOURNAL)
+				seq = i->seq;
+
+			bch2_btree_insert_key_leaf(trans, i->path, i->k, seq);
+		} else if (!i->key_cache_already_flushed)
 			bch2_btree_insert_key_cached(trans, flags, i);
 		else {
 			bch2_btree_key_cache_drop(trans, i->path);
@@ -1495,7 +1495,7 @@ int bch2_trans_update_extent(struct btree_trans *trans,
 
 			ret = bch2_trans_update_by_path(trans, iter.path, update,
 						  BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE|
-						  flags);
+						  flags, _RET_IP_);
 			if (ret)
 				goto err;
 			goto out;
@@ -1533,11 +1533,6 @@ err:
 	return ret;
 }
 
-static int __must_check
-bch2_trans_update_by_path_trace(struct btree_trans *trans, struct btree_path *path,
-				struct bkey_i *k, enum btree_update_flags flags,
-				unsigned long ip);
-
 static noinline int flush_new_cached_update(struct btree_trans *trans,
 					    struct btree_path *path,
 					    struct btree_insert_entry *i,
@@ -1568,24 +1563,33 @@ static noinline int flush_new_cached_update(struct btree_trans *trans,
 	i->flags |= BTREE_TRIGGER_NORUN;
 
 	btree_path_set_should_be_locked(btree_path);
-	ret = bch2_trans_update_by_path_trace(trans, btree_path, i->k, flags, ip);
+	ret = bch2_trans_update_by_path(trans, btree_path, i->k, flags, ip);
 out:
 	bch2_path_put(trans, btree_path, true);
 	return ret;
 }
 
 static int __must_check
-bch2_trans_update_by_path_trace(struct btree_trans *trans, struct btree_path *path,
-				struct bkey_i *k, enum btree_update_flags flags,
-				unsigned long ip)
+bch2_trans_update_by_path(struct btree_trans *trans, struct btree_path *path,
+			  struct bkey_i *k, enum btree_update_flags flags,
+			  unsigned long ip)
 {
 	struct bch_fs *c = trans->c;
 	struct btree_insert_entry *i, n;
+	u64 seq = 0;
 	int cmp;
 
 	EBUG_ON(!path->should_be_locked);
 	EBUG_ON(trans->nr_updates >= BTREE_ITER_MAX);
 	EBUG_ON(!bpos_eq(k->k.p, path->pos));
+
+	/*
+	 * The transaction journal res hasn't been allocated at this point.
+	 * That occurs at commit time. Reuse the seq field to pass in the seq
+	 * of a prejournaled key.
+	 */
+	if (flags & BTREE_UPDATE_PREJOURNAL)
+		seq = trans->journal_res.seq;
 
 	n = (struct btree_insert_entry) {
 		.flags		= flags,
@@ -1595,6 +1599,7 @@ bch2_trans_update_by_path_trace(struct btree_trans *trans, struct btree_path *pa
 		.cached		= path->cached,
 		.path		= path,
 		.k		= k,
+		.seq		= seq,
 		.ip_allocated	= ip,
 	};
 
@@ -1622,6 +1627,7 @@ bch2_trans_update_by_path_trace(struct btree_trans *trans, struct btree_path *pa
 		i->cached	= n.cached;
 		i->k		= n.k;
 		i->path		= n.path;
+		i->seq		= n.seq;
 		i->ip_allocated	= n.ip_allocated;
 	} else {
 		array_insert_item(trans->updates, trans->nr_updates,
@@ -1654,13 +1660,6 @@ bch2_trans_update_by_path_trace(struct btree_trans *trans, struct btree_path *pa
 		return flush_new_cached_update(trans, path, i, flags, ip);
 
 	return 0;
-}
-
-static inline int __must_check
-bch2_trans_update_by_path(struct btree_trans *trans, struct btree_path *path,
-			  struct bkey_i *k, enum btree_update_flags flags)
-{
-	return bch2_trans_update_by_path_trace(trans, path, k, flags, _RET_IP_);
 }
 
 int __must_check bch2_trans_update(struct btree_trans *trans, struct btree_iter *iter,
@@ -1723,7 +1722,19 @@ int __must_check bch2_trans_update(struct btree_trans *trans, struct btree_iter 
 		path = iter->key_cache_path;
 	}
 
-	return bch2_trans_update_by_path(trans, path, k, flags);
+	return bch2_trans_update_by_path(trans, path, k, flags, _RET_IP_);
+}
+
+/*
+ * Add a transaction update for a key that has already been journaled.
+ */
+int __must_check bch2_trans_update_seq(struct btree_trans *trans, u64 seq,
+				       struct btree_iter *iter, struct bkey_i *k,
+				       enum btree_update_flags flags)
+{
+	trans->journal_res.seq = seq;
+	return bch2_trans_update(trans, iter, k, flags|BTREE_UPDATE_NOJOURNAL|
+						 BTREE_UPDATE_PREJOURNAL);
 }
 
 int __must_check bch2_trans_update_buffered(struct btree_trans *trans,
@@ -1983,6 +1994,24 @@ int bch2_btree_delete_range(struct bch_fs *c, enum btree_id id,
 	if (ret == -BCH_ERR_transaction_restart_nested)
 		ret = 0;
 	return ret;
+}
+
+int bch2_btree_bit_mod(struct btree_trans *trans, enum btree_id btree,
+		       struct bpos pos, bool set)
+{
+	struct bkey_i *k;
+	int ret = 0;
+
+	k = bch2_trans_kmalloc_nomemzero(trans, sizeof(*k));
+	ret = PTR_ERR_OR_ZERO(k);
+	if (unlikely(ret))
+		return ret;
+
+	bkey_init(&k->k);
+	k->k.type = set ? KEY_TYPE_set : KEY_TYPE_deleted;
+	k->k.p = pos;
+
+	return bch2_trans_update_buffered(trans, btree, k);
 }
 
 static int __bch2_trans_log_msg(darray_u64 *entries, const char *fmt, va_list args)

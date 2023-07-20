@@ -157,8 +157,7 @@
 	x(BCH_ERR_fsck,			fsck_errors_not_fixed)			\
 	x(BCH_ERR_fsck,			fsck_repair_unimplemented)		\
 	x(BCH_ERR_fsck,			fsck_repair_impossible)			\
-	x(0,				need_snapshot_cleanup)			\
-	x(0,				need_topology_repair)			\
+	x(0,				restart_recovery)			\
 	x(0,				unwritten_extent_update)		\
 	x(EINVAL,			device_state_not_allowed)		\
 	x(EINVAL,			member_info_missing)			\
@@ -171,6 +170,7 @@
 	x(EINVAL,			device_already_online)			\
 	x(EINVAL,			insufficient_devices_to_start)		\
 	x(EINVAL,			invalid)				\
+	x(EINVAL,			internal_fsck_err)			\
 	x(EROFS,			erofs_trans_commit)			\
 	x(EROFS,			erofs_no_writes)			\
 	x(EROFS,			erofs_journal_err)			\

@@ -42,6 +42,15 @@ static inline const struct snapshot_t *snapshot_t(struct bch_fs *c, u32 id)
 	return __snapshot_t(rcu_dereference(c->snapshots), id);
 }
 
+static inline u32 bch2_snapshot_tree(struct bch_fs *c, u32 id)
+{
+	rcu_read_lock();
+	id = snapshot_t(c, id)->tree;
+	rcu_read_unlock();
+
+	return id;
+}
+
 static inline u32 __bch2_snapshot_parent_early(struct bch_fs *c, u32 id)
 {
 	return snapshot_t(c, id)->parent;
@@ -157,7 +166,14 @@ static inline u32 bch2_snapshot_sibling(struct bch_fs *c, u32 id)
 	return 0;
 }
 
-bool bch2_snapshot_is_ancestor(struct bch_fs *, u32, u32);
+bool __bch2_snapshot_is_ancestor(struct bch_fs *, u32, u32);
+
+static inline bool bch2_snapshot_is_ancestor(struct bch_fs *c, u32 id, u32 ancestor)
+{
+	return id == ancestor
+		? true
+		: __bch2_snapshot_is_ancestor(c, id, ancestor);
+}
 
 static inline bool bch2_snapshot_has_children(struct bch_fs *c, u32 id)
 {

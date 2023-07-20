@@ -471,28 +471,6 @@ static inline void snapshots_seen_init(struct snapshots_seen *s)
 	memset(s, 0, sizeof(*s));
 }
 
-static int snapshots_seen_add(struct bch_fs *c, struct snapshots_seen *s, u32 id)
-{
-	struct snapshots_seen_entry *i, n = { id, id };
-	int ret;
-
-	darray_for_each(s->ids, i) {
-		if (n.equiv < i->equiv)
-			break;
-
-		if (i->equiv == n.equiv) {
-			bch_err(c, "%s(): adding duplicate snapshot", __func__);
-			return -EINVAL;
-		}
-	}
-
-	ret = darray_insert_item(&s->ids, i - s->ids.data, n);
-	if (ret)
-		bch_err(c, "error reallocating snapshots_seen table (size %zu)",
-			s->ids.size);
-	return ret;
-}
-
 static int snapshots_seen_update(struct bch_fs *c, struct snapshots_seen *s,
 				 enum btree_id btree_id, struct bpos pos)
 {
@@ -505,27 +483,31 @@ static int snapshots_seen_update(struct bch_fs *c, struct snapshots_seen *s,
 	if (!bkey_eq(s->pos, pos))
 		s->ids.nr = 0;
 
-	pos.snapshot = n.equiv;
 	s->pos = pos;
+	s->pos.snapshot = n.equiv;
 
-	darray_for_each(s->ids, i)
-		if (i->equiv == n.equiv) {
-			if (fsck_err_on(i->id != n.id, c,
-					"snapshot deletion did not run correctly:\n"
-					"  duplicate keys in btree %s at %llu:%llu snapshots %u, %u (equiv %u)\n",
-					bch2_btree_ids[btree_id],
-					pos.inode, pos.offset,
-					i->id, n.id, n.equiv))
-				return -BCH_ERR_need_snapshot_cleanup;
-
+	darray_for_each(s->ids, i) {
+		if (i->id == n.id)
 			return 0;
+
+		/*
+		 * We currently don't rigorously track for snapshot cleanup
+		 * needing to be run, so it shouldn't be a fsck error yet:
+		 */
+		if (i->equiv == n.equiv) {
+			bch_err(c, "snapshot deletion did not finish:\n"
+				"  duplicate keys in btree %s at %llu:%llu snapshots %u, %u (equiv %u)\n",
+				bch2_btree_ids[btree_id],
+				pos.inode, pos.offset,
+				i->id, n.id, n.equiv);
+			return bch2_run_explicit_recovery_pass(c, BCH_RECOVERY_PASS_delete_dead_snapshots);
 		}
+	}
 
 	ret = darray_push(&s->ids, n);
 	if (ret)
 		bch_err(c, "error reallocating snapshots_seen table (size %zu)",
 			s->ids.size);
-fsck_err:
 	return ret;
 }
 
@@ -541,13 +523,13 @@ static bool key_visible_in_snapshot(struct bch_fs *c, struct snapshots_seen *see
 	ssize_t i;
 	u32 top = seen->ids.nr ? seen->ids.data[seen->ids.nr - 1].equiv : 0;
 
-	BUG_ON(id > ancestor);
-	BUG_ON(!bch2_snapshot_is_equiv(c, id));
-	BUG_ON(!bch2_snapshot_is_equiv(c, ancestor));
+	EBUG_ON(id > ancestor);
+	EBUG_ON(!bch2_snapshot_is_equiv(c, id));
+	EBUG_ON(!bch2_snapshot_is_equiv(c, ancestor));
 
 	/* @ancestor should be the snapshot most recently added to @seen */
-	BUG_ON(ancestor != seen->pos.snapshot);
-	BUG_ON(ancestor != top);
+	EBUG_ON(ancestor != seen->pos.snapshot);
+	EBUG_ON(ancestor != top);
 
 	if (id == ancestor)
 		return true;
@@ -555,11 +537,20 @@ static bool key_visible_in_snapshot(struct bch_fs *c, struct snapshots_seen *see
 	if (!bch2_snapshot_is_ancestor(c, id, ancestor))
 		return false;
 
+	/*
+	 * We know that @id is a descendant of @ancestor, we're checking if
+	 * we've seen a key that overwrote @ancestor - i.e. also a descendent of
+	 * @ascestor and with @id as a descendent.
+	 *
+	 * But we already know that we're scanning IDs between @id and @ancestor
+	 * numerically, since snapshot ID lists are kept sorted, so if we find
+	 * an id that's an ancestor of @id we're done:
+	 */
+
 	for (i = seen->ids.nr - 2;
 	     i >= 0 && seen->ids.data[i].equiv >= id;
 	     --i)
-		if (bch2_snapshot_is_ancestor(c, id, seen->ids.data[i].equiv) &&
-		    bch2_snapshot_is_ancestor(c, seen->ids.data[i].equiv, ancestor))
+		if (bch2_snapshot_is_ancestor(c, id, seen->ids.data[i].equiv))
 			return false;
 
 	return true;
@@ -606,12 +597,14 @@ static int ref_visible2(struct bch_fs *c,
 struct inode_walker_entry {
 	struct bch_inode_unpacked inode;
 	u32			snapshot;
+	bool			seen_this_pos;
 	u64			count;
 };
 
 struct inode_walker {
 	bool				first_this_inode;
-	u64				cur_inum;
+	bool				recalculate_sums;
+	struct bpos			last_pos;
 
 	DARRAY(struct inode_walker_entry) inodes;
 };
@@ -648,9 +641,7 @@ static int get_inodes_all_snapshots(struct btree_trans *trans,
 	u32 restart_count = trans->restart_count;
 	int ret;
 
-	if (w->cur_inum == inum)
-		return 0;
-
+	w->recalculate_sums = false;
 	w->inodes.nr = 0;
 
 	for_each_btree_key(trans, iter, BTREE_ID_inodes, POS(0, inum),
@@ -666,8 +657,7 @@ static int get_inodes_all_snapshots(struct btree_trans *trans,
 	if (ret)
 		return ret;
 
-	w->cur_inum		= inum;
-	w->first_this_inode	= true;
+	w->first_this_inode = true;
 
 	if (trans_was_restarted(trans, restart_count))
 		return -BCH_ERR_transaction_restart_nested;
@@ -676,8 +666,8 @@ static int get_inodes_all_snapshots(struct btree_trans *trans,
 }
 
 static struct inode_walker_entry *
-lookup_inode_for_snapshot(struct bch_fs *c,
-			  struct inode_walker *w, u32 snapshot)
+lookup_inode_for_snapshot(struct bch_fs *c, struct inode_walker *w,
+			  u32 snapshot, bool is_whiteout)
 {
 	struct inode_walker_entry *i;
 
@@ -691,35 +681,50 @@ lookup_inode_for_snapshot(struct bch_fs *c,
 found:
 	BUG_ON(snapshot > i->snapshot);
 
-	if (snapshot != i->snapshot) {
+	if (snapshot != i->snapshot && !is_whiteout) {
 		struct inode_walker_entry new = *i;
+		size_t pos;
 		int ret;
 
 		new.snapshot = snapshot;
 		new.count = 0;
 
 		bch_info(c, "have key for inode %llu:%u but have inode in ancestor snapshot %u",
-			 w->cur_inum, snapshot, i->snapshot);
+			 w->last_pos.inode, snapshot, i->snapshot);
 
 		while (i > w->inodes.data && i[-1].snapshot > snapshot)
 			--i;
 
-		ret = darray_insert_item(&w->inodes, i - w->inodes.data, new);
+		pos = i - w->inodes.data;
+		ret = darray_insert_item(&w->inodes, pos, new);
 		if (ret)
 			return ERR_PTR(ret);
+
+		i = w->inodes.data + pos;
 	}
 
 	return i;
 }
 
 static struct inode_walker_entry *walk_inode(struct btree_trans *trans,
-					     struct inode_walker *w, struct bpos pos)
+					     struct inode_walker *w, struct bpos pos,
+					     bool is_whiteout)
 {
-	int ret = get_inodes_all_snapshots(trans, w, pos.inode);
-	if (ret)
-		return ERR_PTR(ret);
+	if (w->last_pos.inode != pos.inode) {
+		int ret = get_inodes_all_snapshots(trans, w, pos.inode);
+		if (ret)
+			return ERR_PTR(ret);
+	} else if (bkey_cmp(w->last_pos, pos)) {
+		struct inode_walker_entry *i;
 
-	return lookup_inode_for_snapshot(trans->c, w, pos.snapshot);
+		darray_for_each(w->inodes, i)
+			i->seen_this_pos = false;
+
+	}
+
+	w->last_pos = pos;
+
+	return lookup_inode_for_snapshot(trans->c, w, pos.snapshot, is_whiteout);
 }
 
 static int __get_visible_inodes(struct btree_trans *trans,
@@ -1034,47 +1039,6 @@ int bch2_check_inodes(struct bch_fs *c)
 	return ret;
 }
 
-/*
- * Checking for overlapping extents needs to be reimplemented
- */
-#if 0
-static int fix_overlapping_extent(struct btree_trans *trans,
-				       struct bkey_s_c k, struct bpos cut_at)
-{
-	struct btree_iter iter;
-	struct bkey_i *u;
-	int ret;
-
-	u = bch2_trans_kmalloc(trans, bkey_bytes(k.k));
-	ret = PTR_ERR_OR_ZERO(u);
-	if (ret)
-		return ret;
-
-	bkey_reassemble(u, k);
-	bch2_cut_front(cut_at, u);
-
-
-	/*
-	 * We don't want to go through the extent_handle_overwrites path:
-	 *
-	 * XXX: this is going to screw up disk accounting, extent triggers
-	 * assume things about extent overwrites - we should be running the
-	 * triggers manually here
-	 */
-	bch2_trans_iter_init(trans, &iter, BTREE_ID_extents, u->k.p,
-			     BTREE_ITER_INTENT|BTREE_ITER_NOT_EXTENTS);
-
-	BUG_ON(iter.flags & BTREE_ITER_IS_EXTENTS);
-	ret   = bch2_btree_iter_traverse(&iter) ?:
-		bch2_trans_update(trans, &iter, u, BTREE_TRIGGER_NORUN) ?:
-		bch2_trans_commit(trans, NULL, NULL,
-				  BTREE_INSERT_NOFAIL|
-				  BTREE_INSERT_LAZY_RW);
-	bch2_trans_iter_exit(trans, &iter);
-	return ret;
-}
-#endif
-
 static struct bkey_s_c_dirent dirent_get_by_pos(struct btree_trans *trans,
 						struct btree_iter *iter,
 						struct bpos pos)
@@ -1128,19 +1092,20 @@ static int check_i_sectors(struct btree_trans *trans, struct inode_walker *w)
 		if (i->inode.bi_sectors == i->count)
 			continue;
 
-		count2 = bch2_count_inode_sectors(trans, w->cur_inum, i->snapshot);
+		count2 = bch2_count_inode_sectors(trans, w->last_pos.inode, i->snapshot);
+
+		if (w->recalculate_sums)
+			i->count = count2;
 
 		if (i->count != count2) {
-			bch_err(c, "fsck counted i_sectors wrong: got %llu should be %llu",
-				i->count, count2);
-			i->count = count2;
-			if (i->inode.bi_sectors == i->count)
-				continue;
+			bch_err(c, "fsck counted i_sectors wrong for inode %llu:%u: got %llu should be %llu",
+				w->last_pos.inode, i->snapshot, i->count, count2);
+			return -BCH_ERR_internal_fsck_err;
 		}
 
 		if (fsck_err_on(!(i->inode.bi_flags & BCH_INODE_I_SECTORS_DIRTY), c,
 			    "inode %llu:%u has incorrect i_sectors: got %llu, should be %llu",
-			    w->cur_inum, i->snapshot,
+			    w->last_pos.inode, i->snapshot,
 			    i->inode.bi_sectors, i->count)) {
 			i->inode.bi_sectors = i->count;
 			ret = write_inode(trans, &i->inode, i->snapshot);
@@ -1162,85 +1127,40 @@ struct extent_end {
 	struct snapshots_seen	seen;
 };
 
-typedef DARRAY(struct extent_end) extent_ends;
+struct extent_ends {
+	struct bpos			last_pos;
+	DARRAY(struct extent_end)	e;
+};
 
-static int get_print_extent(struct btree_trans *trans, struct bpos pos, struct printbuf *out)
+static void extent_ends_reset(struct extent_ends *extent_ends)
 {
-	struct btree_iter iter;
-	struct bkey_s_c k;
-	int ret;
-
-	k = bch2_bkey_get_iter(trans, &iter, BTREE_ID_extents, pos,
-			       BTREE_ITER_SLOTS|
-			       BTREE_ITER_ALL_SNAPSHOTS|
-			       BTREE_ITER_NOT_EXTENTS);
-	ret = bkey_err(k);
-	if (ret)
-		return ret;
-
-	bch2_bkey_val_to_text(out, trans->c, k);
-	bch2_trans_iter_exit(trans, &iter);
-	return 0;
-}
-
-static int check_overlapping_extents(struct btree_trans *trans,
-			      struct snapshots_seen *seen,
-			      extent_ends *extent_ends,
-			      struct bkey_s_c k,
-			      struct btree_iter *iter)
-{
-	struct bch_fs *c = trans->c;
 	struct extent_end *i;
-	struct printbuf buf = PRINTBUF;
-	int ret = 0;
 
-	darray_for_each(*extent_ends, i) {
-		/* duplicate, due to transaction restart: */
-		if (i->offset	== k.k->p.offset &&
-		    i->snapshot == k.k->p.snapshot)
-			continue;
+	darray_for_each(extent_ends->e, i)
+		snapshots_seen_exit(&i->seen);
 
-		if (!ref_visible2(c,
-				  k.k->p.snapshot, seen,
-				  i->snapshot, &i->seen))
-			continue;
-
-		if (i->offset <= bkey_start_offset(k.k))
-			continue;
-
-		printbuf_reset(&buf);
-		prt_str(&buf, "overlapping extents:\n  ");
-		bch2_bkey_val_to_text(&buf, c, k);
-		prt_str(&buf, "\n  ");
-
-		ret = get_print_extent(trans, SPOS(k.k->p.inode, i->offset, i->snapshot), &buf);
-		if (ret)
-			break;
-
-		if (fsck_err(c, "%s", buf.buf)) {
-			struct bkey_i *update = bch2_trans_kmalloc(trans, bkey_bytes(k.k));
-			if ((ret = PTR_ERR_OR_ZERO(update)))
-				goto err;
-			bkey_reassemble(update, k);
-			ret = bch2_trans_update_extent(trans, iter, update,
-					    BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE);
-			if (ret)
-				goto err;
-		}
-	}
-err:
-fsck_err:
-	printbuf_exit(&buf);
-	return ret;
+	extent_ends->e.nr = 0;
 }
 
-static int extent_ends_at(extent_ends *extent_ends,
+static void extent_ends_exit(struct extent_ends *extent_ends)
+{
+	extent_ends_reset(extent_ends);
+	darray_exit(&extent_ends->e);
+}
+
+static void extent_ends_init(struct extent_ends *extent_ends)
+{
+	memset(extent_ends, 0, sizeof(*extent_ends));
+}
+
+static int extent_ends_at(struct bch_fs *c,
+			  struct extent_ends *extent_ends,
 			  struct snapshots_seen *seen,
 			  struct bkey_s_c k)
 {
 	struct extent_end *i, n = (struct extent_end) {
-		.snapshot	= k.k->p.snapshot,
 		.offset		= k.k->p.offset,
+		.snapshot	= k.k->p.snapshot,
 		.seen		= *seen,
 	};
 
@@ -1250,7 +1170,7 @@ static int extent_ends_at(extent_ends *extent_ends,
 	if (!n.seen.ids.data)
 		return -BCH_ERR_ENOMEM_fsck_extent_ends_at;
 
-	darray_for_each(*extent_ends, i) {
+	darray_for_each(extent_ends->e, i) {
 		if (i->snapshot == k.k->p.snapshot) {
 			snapshots_seen_exit(&i->seen);
 			*i = n;
@@ -1261,30 +1181,148 @@ static int extent_ends_at(extent_ends *extent_ends,
 			break;
 	}
 
-	return darray_insert_item(extent_ends, i - extent_ends->data, n);
+	return darray_insert_item(&extent_ends->e, i - extent_ends->e.data, n);
 }
 
-static void extent_ends_reset(extent_ends *extent_ends)
+static int overlapping_extents_found(struct btree_trans *trans,
+				     enum btree_id btree,
+				     struct bpos pos1, struct bkey pos2,
+				     bool *fixed)
 {
+	struct bch_fs *c = trans->c;
+	struct printbuf buf = PRINTBUF;
+	struct btree_iter iter;
+	struct bkey_s_c k;
+	u32 snapshot = min(pos1.snapshot, pos2.p.snapshot);
+	int ret;
+
+	BUG_ON(bkey_le(pos1, bkey_start_pos(&pos2)));
+
+	prt_str(&buf, "\n  ");
+	bch2_bpos_to_text(&buf, pos1);
+	prt_str(&buf, "\n  ");
+
+	bch2_bkey_to_text(&buf, &pos2);
+	prt_str(&buf, "\n  ");
+
+	bch2_trans_iter_init(trans, &iter, btree, SPOS(pos1.inode, pos1.offset - 1, snapshot), 0);
+	k = bch2_btree_iter_peek_upto(&iter, POS(pos1.inode, U64_MAX));
+	ret = bkey_err(k);
+	if (ret)
+		goto err;
+
+	bch2_bkey_val_to_text(&buf, c, k);
+
+	if (!bpos_eq(pos1, k.k->p)) {
+		bch_err(c, "%s: error finding first overlapping extent when repairing%s",
+			__func__, buf.buf);
+		ret = -BCH_ERR_internal_fsck_err;
+		goto err;
+	}
+
+	while (1) {
+		bch2_btree_iter_advance(&iter);
+
+		k = bch2_btree_iter_peek_upto(&iter, POS(pos1.inode, U64_MAX));
+		ret = bkey_err(k);
+		if (ret)
+			goto err;
+
+		if (bkey_ge(k.k->p, pos2.p))
+			break;
+
+	}
+
+	prt_str(&buf, "\n  ");
+	bch2_bkey_val_to_text(&buf, c, k);
+
+	if (bkey_gt(k.k->p, pos2.p) ||
+	    pos2.size != k.k->size) {
+		bch_err(c, "%s: error finding seconding overlapping extent when repairing%s",
+			__func__, buf.buf);
+		ret = -BCH_ERR_internal_fsck_err;
+		goto err;
+	}
+
+	if (fsck_err(c, "overlapping extents%s", buf.buf)) {
+		struct bpos update_pos = pos1.snapshot < pos2.p.snapshot ? pos1 : pos2.p;
+		struct btree_iter update_iter;
+
+		struct bkey_i *update = bch2_bkey_get_mut(trans, &update_iter,
+						btree, update_pos,
+						BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE);
+		bch2_trans_iter_exit(trans, &update_iter);
+		if ((ret = PTR_ERR_OR_ZERO(update)))
+			goto err;
+
+		*fixed = true;
+	}
+fsck_err:
+err:
+	bch2_trans_iter_exit(trans, &iter);
+	printbuf_exit(&buf);
+	return ret;
+}
+
+static int check_overlapping_extents(struct btree_trans *trans,
+			      struct snapshots_seen *seen,
+			      struct extent_ends *extent_ends,
+			      struct bkey_s_c k,
+			      u32 equiv,
+			      struct btree_iter *iter)
+{
+	struct bch_fs *c = trans->c;
 	struct extent_end *i;
+	bool fixed = false;
+	int ret = 0;
 
-	darray_for_each(*extent_ends, i)
-		snapshots_seen_exit(&i->seen);
+	/* transaction restart, running again */
+	if (bpos_eq(extent_ends->last_pos, k.k->p))
+		return 0;
 
-	extent_ends->nr = 0;
+	if (extent_ends->last_pos.inode != k.k->p.inode)
+		extent_ends_reset(extent_ends);
+
+	darray_for_each(extent_ends->e, i) {
+		if (i->offset <= bkey_start_offset(k.k))
+			continue;
+
+		if (!ref_visible2(c,
+				  k.k->p.snapshot, seen,
+				  i->snapshot, &i->seen))
+			continue;
+
+		ret = overlapping_extents_found(trans, iter->btree_id,
+						SPOS(iter->pos.inode,
+						     i->offset,
+						     i->snapshot),
+						*k.k, &fixed);
+		if (ret)
+			goto err;
+	}
+
+	ret = extent_ends_at(c, extent_ends, seen, k);
+	if (ret)
+		goto err;
+
+	extent_ends->last_pos = k.k->p;
+err:
+	return ret ?: fixed;
 }
 
 static int check_extent(struct btree_trans *trans, struct btree_iter *iter,
 			struct bkey_s_c k,
 			struct inode_walker *inode,
 			struct snapshots_seen *s,
-			extent_ends *extent_ends)
+			struct extent_ends *extent_ends)
 {
 	struct bch_fs *c = trans->c;
 	struct inode_walker_entry *i;
 	struct printbuf buf = PRINTBUF;
-	struct bpos equiv;
+	struct bpos equiv = k.k->p;
 	int ret = 0;
+
+	equiv.snapshot = bch2_snapshot_equiv(c, k.k->p.snapshot);
 
 	ret = check_key_has_snapshot(trans, iter, k);
 	if (ret) {
@@ -1292,105 +1330,89 @@ static int check_extent(struct btree_trans *trans, struct btree_iter *iter,
 		goto out;
 	}
 
-	equiv = k.k->p;
-	equiv.snapshot = bch2_snapshot_equiv(c, k.k->p.snapshot);
+	if (inode->last_pos.inode != k.k->p.inode) {
+		ret = check_i_sectors(trans, inode);
+		if (ret)
+			goto err;
+	}
+
+	i = walk_inode(trans, inode, equiv, k.k->type == KEY_TYPE_whiteout);
+	ret = PTR_ERR_OR_ZERO(i);
+	if (ret)
+		goto err;
 
 	ret = snapshots_seen_update(c, s, iter->btree_id, k.k->p);
 	if (ret)
 		goto err;
 
-	if (k.k->type == KEY_TYPE_whiteout)
-		goto out;
+	if (k.k->type != KEY_TYPE_whiteout) {
+		if (fsck_err_on(!i, c,
+				"extent in missing inode:\n  %s",
+				(printbuf_reset(&buf),
+				 bch2_bkey_val_to_text(&buf, c, k), buf.buf)))
+			goto delete;
 
-	if (inode->cur_inum != k.k->p.inode) {
-		ret = check_i_sectors(trans, inode);
-		if (ret)
+		if (fsck_err_on(i &&
+				!S_ISREG(i->inode.bi_mode) &&
+				!S_ISLNK(i->inode.bi_mode), c,
+				"extent in non regular inode mode %o:\n  %s",
+				i->inode.bi_mode,
+				(printbuf_reset(&buf),
+				 bch2_bkey_val_to_text(&buf, c, k), buf.buf)))
+			goto delete;
+
+		ret = check_overlapping_extents(trans, s, extent_ends, k,
+						equiv.snapshot, iter);
+		if (ret < 0)
 			goto err;
 
-		extent_ends_reset(extent_ends);
-	}
-
-	BUG_ON(!iter->path->should_be_locked);
-
-	ret = check_overlapping_extents(trans, s, extent_ends, k, iter);
-	if (ret)
-		goto err;
-
-	ret = extent_ends_at(extent_ends, s, k);
-	if (ret)
-		goto err;
-
-	i = walk_inode(trans, inode, equiv);
-	ret = PTR_ERR_OR_ZERO(i);
-	if (ret)
-		goto err;
-
-	if (fsck_err_on(!i, c,
-			"extent in missing inode:\n  %s",
-			(printbuf_reset(&buf),
-			 bch2_bkey_val_to_text(&buf, c, k), buf.buf))) {
-		ret = bch2_btree_delete_at(trans, iter,
-					    BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE);
-		goto out;
-	}
-
-	if (!i)
-		goto out;
-
-	if (fsck_err_on(!S_ISREG(i->inode.bi_mode) &&
-			!S_ISLNK(i->inode.bi_mode), c,
-			"extent in non regular inode mode %o:\n  %s",
-			i->inode.bi_mode,
-			(printbuf_reset(&buf),
-			 bch2_bkey_val_to_text(&buf, c, k), buf.buf))) {
-		ret = bch2_btree_delete_at(trans, iter,
-					    BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE);
-		goto out;
+		if (ret)
+			inode->recalculate_sums = true;
+		ret = 0;
 	}
 
 	/*
-	 * Check inodes in reverse order, from oldest snapshots to newest, so
-	 * that we emit the fewest number of whiteouts necessary:
+	 * Check inodes in reverse order, from oldest snapshots to newest,
+	 * starting from the inode that matches this extent's snapshot. If we
+	 * didn't have one, iterate over all inodes:
 	 */
-	for (i = inode->inodes.data + inode->inodes.nr - 1;
-	     i >= inode->inodes.data;
+	if (!i)
+		i = inode->inodes.data + inode->inodes.nr - 1;
+
+	for (;
+	     inode->inodes.data && i >= inode->inodes.data;
 	     --i) {
 		if (i->snapshot > equiv.snapshot ||
 		    !key_visible_in_snapshot(c, s, i->snapshot, equiv.snapshot))
 			continue;
 
-		if (fsck_err_on(!(i->inode.bi_flags & BCH_INODE_I_SIZE_DIRTY) &&
-				k.k->p.offset > round_up(i->inode.bi_size, block_bytes(c)) >> 9 &&
-				!bkey_extent_is_reservation(k), c,
-				"extent type past end of inode %llu:%u, i_size %llu\n  %s",
-				i->inode.bi_inum, i->snapshot, i->inode.bi_size,
-				(bch2_bkey_val_to_text(&buf, c, k), buf.buf))) {
-			struct btree_iter iter2;
+		if (k.k->type != KEY_TYPE_whiteout) {
+			if (fsck_err_on(!(i->inode.bi_flags & BCH_INODE_I_SIZE_DIRTY) &&
+					k.k->p.offset > round_up(i->inode.bi_size, block_bytes(c)) >> 9 &&
+					!bkey_extent_is_reservation(k), c,
+					"extent type past end of inode %llu:%u, i_size %llu\n  %s",
+					i->inode.bi_inum, i->snapshot, i->inode.bi_size,
+					(bch2_bkey_val_to_text(&buf, c, k), buf.buf))) {
+				struct btree_iter iter2;
 
-			bch2_trans_copy_iter(&iter2, iter);
-			bch2_btree_iter_set_snapshot(&iter2, i->snapshot);
-			ret =   bch2_btree_iter_traverse(&iter2) ?:
-				bch2_btree_delete_at(trans, &iter2,
-					BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE);
-			bch2_trans_iter_exit(trans, &iter2);
-			if (ret)
-				goto err;
-
-			if (i->snapshot != equiv.snapshot) {
-				ret = snapshots_seen_add(c, s, i->snapshot);
+				bch2_trans_copy_iter(&iter2, iter);
+				bch2_btree_iter_set_snapshot(&iter2, i->snapshot);
+				ret =   bch2_btree_iter_traverse(&iter2) ?:
+					bch2_btree_delete_at(trans, &iter2,
+						BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE);
+				bch2_trans_iter_exit(trans, &iter2);
 				if (ret)
 					goto err;
+
+				iter->k.type = KEY_TYPE_whiteout;
 			}
+
+			if (bkey_extent_is_allocation(k.k))
+				i->count += k.k->size;
 		}
+
+		i->seen_this_pos = true;
 	}
-
-	if (bkey_extent_is_allocation(k.k))
-		for_each_visible_inode(c, s, inode, equiv.snapshot, i)
-			i->count += k.k->size;
-#if 0
-	bch2_bkey_buf_reassemble(&prev, c, k);
-#endif
-
 out:
 err:
 fsck_err:
@@ -1399,6 +1421,9 @@ fsck_err:
 	if (ret && !bch2_err_matches(ret, BCH_ERR_transaction_restart))
 		bch_err_fn(c, ret);
 	return ret;
+delete:
+	ret = bch2_btree_delete_at(trans, iter, BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE);
+	goto out;
 }
 
 /*
@@ -1412,11 +1437,12 @@ int bch2_check_extents(struct bch_fs *c)
 	struct btree_trans trans;
 	struct btree_iter iter;
 	struct bkey_s_c k;
-	extent_ends extent_ends = { 0 };
+	struct extent_ends extent_ends;
 	struct disk_reservation res = { 0 };
 	int ret = 0;
 
 	snapshots_seen_init(&s);
+	extent_ends_init(&extent_ends);
 	bch2_trans_init(&trans, c, BTREE_ITER_MAX, 0);
 
 	ret = for_each_btree_key_commit(&trans, iter, BTREE_ID_extents,
@@ -1426,11 +1452,11 @@ int bch2_check_extents(struct bch_fs *c)
 			BTREE_INSERT_LAZY_RW|BTREE_INSERT_NOFAIL, ({
 		bch2_disk_reservation_put(c, &res);
 		check_extent(&trans, &iter, k, &w, &s, &extent_ends);
-	}));
+	})) ?:
+	check_i_sectors(&trans, &w);
 
 	bch2_disk_reservation_put(c, &res);
-	extent_ends_reset(&extent_ends);
-	darray_exit(&extent_ends);
+	extent_ends_exit(&extent_ends);
 	inode_walker_exit(&w);
 	bch2_trans_exit(&trans);
 	snapshots_seen_exit(&s);
@@ -1452,7 +1478,7 @@ static int check_subdir_count(struct btree_trans *trans, struct inode_walker *w)
 		if (i->inode.bi_nlink == i->count)
 			continue;
 
-		count2 = bch2_count_subdirs(trans, w->cur_inum, i->snapshot);
+		count2 = bch2_count_subdirs(trans, w->last_pos.inode, i->snapshot);
 		if (count2 < 0)
 			return count2;
 
@@ -1466,7 +1492,7 @@ static int check_subdir_count(struct btree_trans *trans, struct inode_walker *w)
 
 		if (fsck_err_on(i->inode.bi_nlink != i->count, c,
 				"directory %llu:%u with wrong i_nlink: got %u, should be %llu",
-				w->cur_inum, i->snapshot, i->inode.bi_nlink, i->count)) {
+				w->last_pos.inode, i->snapshot, i->inode.bi_nlink, i->count)) {
 			i->inode.bi_nlink = i->count;
 			ret = write_inode(trans, &i->inode, i->snapshot);
 			if (ret)
@@ -1630,7 +1656,7 @@ static int check_dirent(struct btree_trans *trans, struct btree_iter *iter,
 	if (k.k->type == KEY_TYPE_whiteout)
 		goto out;
 
-	if (dir->cur_inum != k.k->p.inode) {
+	if (dir->last_pos.inode != k.k->p.inode) {
 		ret = check_subdir_count(trans, dir);
 		if (ret)
 			goto err;
@@ -1638,7 +1664,7 @@ static int check_dirent(struct btree_trans *trans, struct btree_iter *iter,
 
 	BUG_ON(!iter->path->should_be_locked);
 
-	i = walk_inode(trans, dir, equiv);
+	i = walk_inode(trans, dir, equiv, k.k->type == KEY_TYPE_whiteout);
 	ret = PTR_ERR_OR_ZERO(i);
 	if (ret < 0)
 		goto err;
@@ -1815,7 +1841,7 @@ static int check_xattr(struct btree_trans *trans, struct btree_iter *iter,
 	if (ret)
 		return ret;
 
-	i = walk_inode(trans, inode, k.k->p);
+	i = walk_inode(trans, inode, k.k->p, k.k->type == KEY_TYPE_whiteout);
 	ret = PTR_ERR_OR_ZERO(i);
 	if (ret)
 		return ret;

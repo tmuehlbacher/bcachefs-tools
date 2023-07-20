@@ -25,20 +25,25 @@ static inline u32 get_ancestor_below(struct snapshot_table *t, u32 id, u32 ances
 	return s->parent;
 }
 
-bool bch2_snapshot_is_ancestor(struct bch_fs *c, u32 id, u32 ancestor)
+bool __bch2_snapshot_is_ancestor(struct bch_fs *c, u32 id, u32 ancestor)
 {
 	struct snapshot_table *t;
+	bool ret;
 
 	EBUG_ON(c->curr_recovery_pass <= BCH_RECOVERY_PASS_check_snapshots);
 
 	rcu_read_lock();
 	t = rcu_dereference(c->snapshots);
 
-	while (id && id < ancestor)
+	while (id && id < ancestor - IS_ANCESTOR_BITMAP)
 		id = get_ancestor_below(t, id, ancestor);
+
+	ret = id && id < ancestor
+		? test_bit(ancestor - id - 1, __snapshot_t(t, id)->is_ancestor)
+		: id == ancestor;
 	rcu_read_unlock();
 
-	return id == ancestor;
+	return ret;
 }
 
 static bool bch2_snapshot_is_ancestor_early(struct bch_fs *c, u32 id, u32 ancestor)
@@ -189,6 +194,13 @@ void bch2_snapshot_to_text(struct printbuf *out, struct bch_fs *c,
 	       le32_to_cpu(s.v->children[1]),
 	       le32_to_cpu(s.v->subvol),
 	       le32_to_cpu(s.v->tree));
+
+	if (bkey_val_bytes(k.k) > offsetof(struct bch_snapshot, depth))
+		prt_printf(out, " depth %u skiplist %u %u %u",
+			   le32_to_cpu(s.v->depth),
+			   le32_to_cpu(s.v->skip[0]),
+			   le32_to_cpu(s.v->skip[1]),
+			   le32_to_cpu(s.v->skip[2]));
 }
 
 int bch2_snapshot_invalid(const struct bch_fs *c, struct bkey_s_c k,
@@ -263,11 +275,12 @@ int bch2_mark_snapshot(struct btree_trans *trans,
 {
 	struct bch_fs *c = trans->c;
 	struct snapshot_t *t;
+	u32 id = new.k->p.offset;
 	int ret = 0;
 
 	mutex_lock(&c->snapshot_table_lock);
 
-	t = snapshot_t_mut(c, new.k->p.offset);
+	t = snapshot_t_mut(c, id);
 	if (!t) {
 		ret = -BCH_ERR_ENOMEM_mark_snapshot;
 		goto err;
@@ -275,25 +288,36 @@ int bch2_mark_snapshot(struct btree_trans *trans,
 
 	if (new.k->type == KEY_TYPE_snapshot) {
 		struct bkey_s_c_snapshot s = bkey_s_c_to_snapshot(new);
+		u32 parent = id;
 
 		t->parent	= le32_to_cpu(s.v->parent);
-		t->skip[0]	= le32_to_cpu(s.v->skip[0]);
-		t->skip[1]	= le32_to_cpu(s.v->skip[1]);
-		t->skip[2]	= le32_to_cpu(s.v->skip[2]);
-		t->depth	= le32_to_cpu(s.v->depth);
 		t->children[0]	= le32_to_cpu(s.v->children[0]);
 		t->children[1]	= le32_to_cpu(s.v->children[1]);
 		t->subvol	= BCH_SNAPSHOT_SUBVOL(s.v) ? le32_to_cpu(s.v->subvol) : 0;
 		t->tree		= le32_to_cpu(s.v->tree);
 
-		if (BCH_SNAPSHOT_DELETED(s.v))
+		if (bkey_val_bytes(s.k) > offsetof(struct bch_snapshot, depth)) {
+			t->depth	= le32_to_cpu(s.v->depth);
+			t->skip[0]	= le32_to_cpu(s.v->skip[0]);
+			t->skip[1]	= le32_to_cpu(s.v->skip[1]);
+			t->skip[2]	= le32_to_cpu(s.v->skip[2]);
+		} else {
+			t->depth	= 0;
+			t->skip[0]	= 0;
+			t->skip[1]	= 0;
+			t->skip[2]	= 0;
+		}
+
+		while ((parent = bch2_snapshot_parent_early(c, parent)) &&
+		       parent - id - 1 < IS_ANCESTOR_BITMAP)
+			__set_bit(parent - id - 1, t->is_ancestor);
+
+		if (BCH_SNAPSHOT_DELETED(s.v)) {
 			set_bit(BCH_FS_HAVE_DELETED_SNAPSHOTS, &c->flags);
+			c->recovery_passes_explicit |= BIT_ULL(BCH_RECOVERY_PASS_delete_dead_snapshots);
+		}
 	} else {
-		t->parent	= 0;
-		t->children[0]	= 0;
-		t->children[1]	= 0;
-		t->subvol	= 0;
-		t->tree		= 0;
+		memset(t, 0, sizeof(*t));
 	}
 err:
 	mutex_unlock(&c->snapshot_table_lock);
@@ -573,7 +597,7 @@ static int snapshot_tree_ptr_good(struct btree_trans *trans,
 	return bch2_snapshot_is_ancestor_early(trans->c, snap_id, le32_to_cpu(s_t.root_snapshot));
 }
 
-static u32 snapshot_rand_ancestor_get(struct bch_fs *c, u32 id)
+static u32 snapshot_skiplist_get(struct bch_fs *c, u32 id)
 {
 	const struct snapshot_t *s;
 
@@ -589,8 +613,7 @@ static u32 snapshot_rand_ancestor_get(struct bch_fs *c, u32 id)
 	return id;
 }
 
-static int snapshot_rand_ancestor_good(struct btree_trans *trans,
-				       struct bch_snapshot s)
+static int snapshot_skiplist_good(struct btree_trans *trans, struct bch_snapshot s)
 {
 	struct bch_snapshot a;
 	unsigned i;
@@ -778,10 +801,10 @@ static int check_snapshot(struct btree_trans *trans,
 
 	real_depth = bch2_snapshot_depth(c, parent_id);
 
-	if (fsck_err_on(le32_to_cpu(s.depth) != real_depth, c,
-			"snapshot with incorrect depth fields, should be %u:\n  %s",
-			real_depth,
-			(bch2_bkey_val_to_text(&buf, c, k), buf.buf))) {
+	if (le32_to_cpu(s.depth) != real_depth &&
+	    (c->sb.version_upgrade_complete < bcachefs_metadata_version_snapshot_skiplists ||
+	     fsck_err(c, "snapshot with incorrect depth field, should be %u:\n  %s",
+		      real_depth, (bch2_bkey_val_to_text(&buf, c, k), buf.buf)))) {
 		u = bch2_bkey_make_mut_typed(trans, iter, &k, 0, snapshot);
 		ret = PTR_ERR_OR_ZERO(u);
 		if (ret)
@@ -791,19 +814,21 @@ static int check_snapshot(struct btree_trans *trans,
 		s = u->v;
 	}
 
-	ret = snapshot_rand_ancestor_good(trans, s);
+	ret = snapshot_skiplist_good(trans, s);
 	if (ret < 0)
 		goto err;
 
-	if (fsck_err_on(!ret, c, "snapshot with bad rand_ancestor field:\n  %s",
-			(bch2_bkey_val_to_text(&buf, c, k), buf.buf))) {
+	if (!ret &&
+	    (c->sb.version_upgrade_complete < bcachefs_metadata_version_snapshot_skiplists ||
+	     fsck_err(c, "snapshot with bad skiplist field:\n  %s",
+		      (bch2_bkey_val_to_text(&buf, c, k), buf.buf)))) {
 		u = bch2_bkey_make_mut_typed(trans, iter, &k, 0, snapshot);
 		ret = PTR_ERR_OR_ZERO(u);
 		if (ret)
 			goto err;
 
 		for (i = 0; i < ARRAY_SIZE(u->v.skip); i++)
-			u->v.skip[i] = cpu_to_le32(snapshot_rand_ancestor_get(c, parent_id));
+			u->v.skip[i] = cpu_to_le32(snapshot_skiplist_get(c, parent_id));
 
 		bubble_sort(u->v.skip, ARRAY_SIZE(u->v.skip), cmp_int);
 		s = u->v;
@@ -1096,7 +1121,7 @@ static int create_snapids(struct btree_trans *trans, u32 parent, u32 tree,
 		n->v.depth	= cpu_to_le32(depth);
 
 		for (j = 0; j < ARRAY_SIZE(n->v.skip); j++)
-			n->v.skip[j] = cpu_to_le32(snapshot_rand_ancestor_get(c, parent));
+			n->v.skip[j] = cpu_to_le32(snapshot_skiplist_get(c, parent));
 
 		bubble_sort(n->v.skip, ARRAY_SIZE(n->v.skip), cmp_int);
 		SET_BCH_SNAPSHOT_SUBVOL(&n->v, true);
@@ -1255,9 +1280,6 @@ int bch2_delete_dead_snapshots(struct bch_fs *c)
 	u32 i, id;
 	int ret = 0;
 
-	if (!test_bit(BCH_FS_HAVE_DELETED_SNAPSHOTS, &c->flags))
-		return 0;
-
 	if (!test_bit(BCH_FS_STARTED, &c->flags)) {
 		ret = bch2_fs_read_write_early(c);
 		if (ret) {
@@ -1352,7 +1374,8 @@ static void bch2_delete_dead_snapshots_work(struct work_struct *work)
 {
 	struct bch_fs *c = container_of(work, struct bch_fs, snapshot_delete_work);
 
-	bch2_delete_dead_snapshots(c);
+	if (test_bit(BCH_FS_HAVE_DELETED_SNAPSHOTS, &c->flags))
+		bch2_delete_dead_snapshots(c);
 	bch2_write_ref_put(c, BCH_WRITE_REF_delete_dead_snapshots);
 }
 
