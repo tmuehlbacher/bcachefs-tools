@@ -16,7 +16,7 @@ Build dependencies:
  * zlib1g
 
 In addition a recent Rust toolchain is required (rustc, cargo), either by using
-[rustup](https://rustup.rs/) or make sure to use a distribution where rustc (>=1.64)
+[rustup](https://rustup.rs/) or make sure to use a distribution where rustc (>=1.65)
 is available.
 
 Debian (Bullseye or later) and Ubuntu (20.04 or later): you can install these with
