@@ -80,7 +80,13 @@ struct task_struct *kthread_create(int (*thread_fn)(void *data),
 	pthread_attr_init(&attr);
 	pthread_attr_setstacksize(&attr, 32 << 10);
 
-	ret = pthread_create(&p->thread, &attr, kthread_start_fn, p);
+	for (unsigned i = 0; i < 10; i++) {
+		ret = pthread_create(&p->thread, &attr, kthread_start_fn, p);
+		if (!ret)
+			break;
+
+		run_shrinkers(GFP_KERNEL, true);
+	}
 	if (ret)
 		return ERR_PTR(-ret);
 	pthread_setname_np(p->thread, p->comm);
