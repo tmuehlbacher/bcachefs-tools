@@ -61,14 +61,13 @@ static bool bkey_matches_filter(d_bbpos filter, struct jset_entry *entry, struct
 		if (i->btree != entry->btree_id)
 			continue;
 
-		if (!btree_node_type_is_extents(i->btree)) {
-			if (bkey_eq(i->pos, k->k.p))
-				return true;
-		} else {
-			if (bkey_ge(i->pos, bkey_start_pos(&k->k)) &&
-			    bkey_lt(i->pos, k->k.p))
-				return true;
-		}
+		if (bkey_eq(i->pos, k->k.p))
+			return true;
+
+		if (btree_node_type_is_extents(i->btree) &&
+		    bkey_ge(i->pos, bkey_start_pos(&k->k)) &&
+		    bkey_lt(i->pos, k->k.p))
+			return true;
 	}
 	return false;
 }
