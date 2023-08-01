@@ -605,6 +605,35 @@ int dev_mounted(char *dev)
 	return 2;
 }
 
+static int kstrtoull_symbolic(const char *s, unsigned int base, unsigned long long *res)
+{
+	if (!strcmp(s, "U64_MAX")) {
+		*res = U64_MAX;
+		return 0;
+	}
+
+	if (!strcmp(s, "U32_MAX")) {
+		*res = U32_MAX;
+		return 0;
+	}
+
+	return kstrtoull(s, base, res);
+}
+
+static int kstrtouint_symbolic(const char *s, unsigned int base, unsigned *res)
+{
+	unsigned long long tmp;
+	int rv;
+
+	rv = kstrtoull_symbolic(s, base, &tmp);
+	if (rv < 0)
+		return rv;
+	if (tmp != (unsigned long long)(unsigned int)tmp)
+		return -ERANGE;
+	*res = tmp;
+	return 0;
+}
+
 struct bpos bpos_parse(char *buf)
 {
 	char *orig = strdup(buf);
@@ -620,14 +649,14 @@ struct bpos bpos_parse(char *buf)
 
 	u64 inode_v = 0, offset_v = 0;
 	u32 snapshot_v = 0;
-	if (kstrtoull(inode_s, 10, &inode_v))
+	if (kstrtoull_symbolic(inode_s, 10, &inode_v))
 		die("invalid bpos.inode %s", inode_s);
 
-	if (kstrtoull(offset_s, 10, &offset_v))
+	if (kstrtoull_symbolic(offset_s, 10, &offset_v))
 		die("invalid bpos.offset %s", offset_s);
 
 	if (snapshot_s &&
-	    kstrtouint(snapshot_s, 10, &snapshot_v))
+	    kstrtouint_symbolic(snapshot_s, 10, &snapshot_v))
 		die("invalid bpos.snapshot %s", snapshot_s);
 
 	return (struct bpos) { .inode = inode_v, .offset = offset_v, .snapshot = snapshot_v };
