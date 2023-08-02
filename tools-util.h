@@ -115,8 +115,7 @@ static inline struct range hole_iter_next(struct hole_iter *iter)
 #include <linux/fiemap.h>
 
 struct fiemap_iter {
-	struct fiemap		f;
-	struct fiemap_extent	fe[1024];
+	struct fiemap		*f;
 	unsigned		idx;
 	int			fd;
 };
@@ -125,9 +124,18 @@ static inline void fiemap_iter_init(struct fiemap_iter *iter, int fd)
 {
 	memset(iter, 0, sizeof(*iter));
 
-	iter->f.fm_extent_count	= ARRAY_SIZE(iter->fe);
-	iter->f.fm_length	= FIEMAP_MAX_OFFSET;
+	iter->f = xmalloc(sizeof(struct fiemap) +
+			  sizeof(struct fiemap_extent) * 1024);
+
+	iter->f->fm_extent_count	= 1024;
+	iter->f->fm_length	= FIEMAP_MAX_OFFSET;
 	iter->fd		= fd;
+}
+
+static inline void fiemap_iter_exit(struct fiemap_iter *iter)
+{
+	free(iter->f);
+	memset(iter, 0, sizeof(*iter));
 }
 
 struct fiemap_extent fiemap_iter_next(struct fiemap_iter *);

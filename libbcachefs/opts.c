@@ -10,7 +10,7 @@
 #include "super-io.h"
 #include "util.h"
 
-#define x(t, n) [n] = #t,
+#define x(t, n, ...) [n] = #t,
 
 const char * const bch2_error_actions[] = {
 	BCH_ERROR_ACTIONS()
@@ -95,8 +95,8 @@ const char * const bch2_fs_usage_types[] = {
 
 #undef x
 
-int bch2_opt_fix_errors_parse(struct bch_fs *c, const char *val, u64 *res,
-			      struct printbuf *err)
+static int bch2_opt_fix_errors_parse(struct bch_fs *c, const char *val, u64 *res,
+				     struct printbuf *err)
 {
 	if (!val) {
 		*res = FSCK_FIX_yes;
@@ -113,18 +113,18 @@ int bch2_opt_fix_errors_parse(struct bch_fs *c, const char *val, u64 *res,
 	return 0;
 }
 
-void bch2_opt_fix_errors_to_text(struct printbuf *out,
-				 struct bch_fs *c,
-				 struct bch_sb *sb,
-				 u64 v)
+static void bch2_opt_fix_errors_to_text(struct printbuf *out,
+					struct bch_fs *c,
+					struct bch_sb *sb,
+					u64 v)
 {
 	prt_str(out, bch2_fsck_fix_opts[v]);
 }
 
-static const struct bch_opt_fn bch2_opt_fix_errors = {
-	.parse = bch2_opt_fix_errors_parse,
-	.to_text = bch2_opt_fix_errors_to_text,
-};
+#define bch2_opt_fix_errors (struct bch_opt_fn) {	\
+	.parse = bch2_opt_fix_errors_parse,		\
+	.to_text = bch2_opt_fix_errors_to_text,		\
+}
 
 const char * const bch2_d_types[BCH_DT_MAX] = {
 	[DT_UNKNOWN]	= "unknown",

@@ -80,9 +80,15 @@ static inline void *krealloc_array(void *p, size_t new_n, size_t new_size, gfp_t
 }
 
 #define kzalloc(size, flags)		kmalloc(size, flags|__GFP_ZERO)
-#define kmalloc_array(n, size, flags)					\
-	((size) != 0 && (n) > SIZE_MAX / (size)				\
-	 ? NULL : kmalloc((n) * (size), flags))
+
+static inline void *kmalloc_array(size_t n, size_t size, gfp_t flags)
+{
+	size_t bytes;
+
+	if (unlikely(check_mul_overflow(n, size, &bytes)))
+		return NULL;
+	return kmalloc(bytes, flags);
+}
 
 #define kvmalloc_array(n, size, flags)					\
 	((size) != 0 && (n) > SIZE_MAX / (size)				\

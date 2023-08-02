@@ -330,21 +330,21 @@ struct fiemap_extent fiemap_iter_next(struct fiemap_iter *iter)
 {
 	struct fiemap_extent e;
 
-	BUG_ON(iter->idx > iter->f.fm_mapped_extents);
+	BUG_ON(iter->idx > iter->f->fm_mapped_extents);
 
-	if (iter->idx == iter->f.fm_mapped_extents) {
-		xioctl(iter->fd, FS_IOC_FIEMAP, &iter->f);
+	if (iter->idx == iter->f->fm_mapped_extents) {
+		xioctl(iter->fd, FS_IOC_FIEMAP, iter->f);
 
-		if (!iter->f.fm_mapped_extents)
+		if (!iter->f->fm_mapped_extents)
 			return (struct fiemap_extent) { .fe_length = 0 };
 
 		iter->idx = 0;
 	}
 
-	e = iter->f.fm_extents[iter->idx++];
+	e = iter->f->fm_extents[iter->idx++];
 	BUG_ON(!e.fe_length);
 
-	iter->f.fm_start = e.fe_logical + e.fe_length;
+	iter->f->fm_start = e.fe_logical + e.fe_length;
 
 	return e;
 }
