@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <getopt.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -21,9 +22,9 @@ static void dump_usage(void)
 	     "\n"
 	     "Options:\n"
 	     "  -o output     Output qcow2 image(s)\n"
-	     "  -f            Force; overwrite when needed\n"
-	     "  -j            Dump entire journal, not just dirty entries\n"
-	     "  -h            Display this help and exit\n"
+	     "  -f, --force   Force; overwrite when needed\n"
+	     "  --nojournal   Don't dump entire journal, just dirty entries\n"
+	     "  -h, --help    Display this help and exit\n"
 	     "Report bugs to <linux-bcachefs@vger.kernel.org>");
 }
 
@@ -106,11 +107,18 @@ static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
 
 int cmd_dump(int argc, char *argv[])
 {
+	static const struct option longopts[] = {
+		{ "force",		no_argument,		NULL, 'f' },
+		{ "nojournal",		no_argument,		NULL, 'j' },
+		{ "verbose",		no_argument,		NULL, 'v' },
+		{ "help",		no_argument,		NULL, 'h' },
+		{ NULL }
+	};
 	struct bch_opts opts = bch2_opts_empty();
 	struct bch_dev *ca;
 	char *out = NULL;
 	unsigned i, nr_devices = 0;
-	bool force = false, entire_journal = false;
+	bool force = false, entire_journal = true;
 	int fd, opt;
 
 	opt_set(opts, nochanges,	true);
@@ -119,7 +127,8 @@ int cmd_dump(int argc, char *argv[])
 	opt_set(opts, errors,		BCH_ON_ERROR_continue);
 	opt_set(opts, fix_errors,	FSCK_FIX_no);
 
-	while ((opt = getopt(argc, argv, "o:fjvh")) != -1)
+	while ((opt = getopt_long(argc, argv, "o:fvh",
+				  longopts, NULL)) != -1)
 		switch (opt) {
 		case 'o':
 			out = optarg;
@@ -128,7 +137,7 @@ int cmd_dump(int argc, char *argv[])
 			force = true;
 			break;
 		case 'j':
-			entire_journal = true;
+			entire_journal = false;
 			break;
 		case 'v':
 			opt_set(opts, verbose, true);
