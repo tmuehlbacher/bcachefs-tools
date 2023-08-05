@@ -16,6 +16,7 @@
 #include "libbcachefs/bcachefs_ioctl.h"
 #include "libbcachefs/errcode.h"
 #include "libbcachefs/journal.h"
+#include "libbcachefs/sb-members.h"
 #include "libbcachefs/super-io.h"
 #include "cmds.h"
 #include "libbcachefs.h"

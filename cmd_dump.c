@@ -13,6 +13,7 @@
 #include "libbcachefs/btree_iter.h"
 #include "libbcachefs/error.h"
 #include "libbcachefs/extents.h"
+#include "libbcachefs/sb-members.h"
 #include "libbcachefs/super.h"
 
 static void dump_usage(void)

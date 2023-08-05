@@ -11,6 +11,7 @@
 #include "libbcachefs/btree_iter.h"
 #include "libbcachefs/errcode.h"
 #include "libbcachefs/error.h"
+#include "libbcachefs/sb-members.h"
 #include "libbcachefs/super.h"
 
 static void kill_btree_node_usage(void)

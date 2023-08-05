@@ -360,7 +360,7 @@ struct bch_csum bch2_checksum_merge(unsigned type, struct bch_csum a,
 
 	state.type = type;
 	bch2_checksum_init(&state);
-	state.seed = a.lo;
+	state.seed = (u64 __force) a.lo;
 
 	BUG_ON(!bch2_checksum_mergeable(type));
 
@@ -371,7 +371,7 @@ struct bch_csum bch2_checksum_merge(unsigned type, struct bch_csum a,
 				page_address(ZERO_PAGE(0)), b);
 		b_len -= b;
 	}
-	a.lo = bch2_checksum_final(&state);
+	a.lo = (__le64 __force) bch2_checksum_final(&state);
 	a.lo ^= b.lo;
 	a.hi ^= b.hi;
 	return a;
@@ -426,7 +426,7 @@ int bch2_rechecksum_bio(struct bch_fs *c, struct bio *bio,
 		merged = bch2_checksum_bio(c, crc_old.csum_type,
 				extent_nonce(version, crc_old), bio);
 
-	if (bch2_crc_cmp(merged, crc_old.csum)) {
+	if (bch2_crc_cmp(merged, crc_old.csum) && !c->opts.no_data_io) {
 		bch_err(c, "checksum error in bch2_rechecksum_bio() (memory corruption or bug?)\n"
 			"expected %0llx:%0llx got %0llx:%0llx (old type %s new type %s)",
 			crc_old.csum.hi,
@@ -457,6 +457,48 @@ int bch2_rechecksum_bio(struct bch_fs *c, struct bio *bio,
 
 	return 0;
 }
+
+/* BCH_SB_FIELD_crypt: */
+
+static int bch2_sb_crypt_validate(struct bch_sb *sb,
+				  struct bch_sb_field *f,
+				  struct printbuf *err)
+{
+	struct bch_sb_field_crypt *crypt = field_to_type(f, crypt);
+
+	if (vstruct_bytes(&crypt->field) < sizeof(*crypt)) {
+		prt_printf(err, "wrong size (got %zu should be %zu)",
+		       vstruct_bytes(&crypt->field), sizeof(*crypt));
+		return -BCH_ERR_invalid_sb_crypt;
+	}
+
+	if (BCH_CRYPT_KDF_TYPE(crypt)) {
+		prt_printf(err, "bad kdf type %llu", BCH_CRYPT_KDF_TYPE(crypt));
+		return -BCH_ERR_invalid_sb_crypt;
+	}
+
+	return 0;
+}
+
+static void bch2_sb_crypt_to_text(struct printbuf *out, struct bch_sb *sb,
+				  struct bch_sb_field *f)
+{
+	struct bch_sb_field_crypt *crypt = field_to_type(f, crypt);
+
+	prt_printf(out, "KFD:               %llu", BCH_CRYPT_KDF_TYPE(crypt));
+	prt_newline(out);
+	prt_printf(out, "scrypt n:          %llu", BCH_KDF_SCRYPT_N(crypt));
+	prt_newline(out);
+	prt_printf(out, "scrypt r:          %llu", BCH_KDF_SCRYPT_R(crypt));
+	prt_newline(out);
+	prt_printf(out, "scrypt p:          %llu", BCH_KDF_SCRYPT_P(crypt));
+	prt_newline(out);
+}
+
+const struct bch_sb_field_ops bch_sb_field_ops_crypt = {
+	.validate	= bch2_sb_crypt_validate,
+	.to_text	= bch2_sb_crypt_to_text,
+};
 
 #ifdef __KERNEL__
 static int __bch2_request_key(char *key_description, struct bch_key *key)
@@ -597,7 +639,7 @@ int bch2_disable_encryption(struct bch_fs *c)
 	if (ret)
 		goto out;
 
-	crypt->key.magic	= BCH_KEY_MAGIC;
+	crypt->key.magic	= cpu_to_le64(BCH_KEY_MAGIC);
 	crypt->key.key		= key;
 
 	SET_BCH_SB_ENCRYPTION_TYPE(c->disk_sb.sb, 0);
@@ -625,7 +667,7 @@ int bch2_enable_encryption(struct bch_fs *c, bool keyed)
 	if (ret)
 		goto err;
 
-	key.magic = BCH_KEY_MAGIC;
+	key.magic = cpu_to_le64(BCH_KEY_MAGIC);
 	get_random_bytes(&key.key, sizeof(key.key));
 
 	if (keyed) {

@@ -517,13 +517,13 @@ static void bch2_extent_crc_pack(union bch_extent_crc *dst,
 	switch (type) {
 	case BCH_EXTENT_ENTRY_crc32:
 		set_common_fields(dst->crc32, src);
-		memcpy(&dst->crc32.csum, &src.csum.lo, sizeof(dst->crc32.csum));
+		dst->crc32.csum	 	= (u32 __force) *((__le32 *) &src.csum.lo);
 		break;
 	case BCH_EXTENT_ENTRY_crc64:
 		set_common_fields(dst->crc64, src);
 		dst->crc64.nonce	= src.nonce;
-		dst->crc64.csum_lo	= src.csum.lo;
-		dst->crc64.csum_hi	= *((__le16 *) &src.csum.hi);
+		dst->crc64.csum_lo	= (u64 __force) src.csum.lo;
+		dst->crc64.csum_hi	= (u64 __force) *((__le16 *) &src.csum.hi);
 		break;
 	case BCH_EXTENT_ENTRY_crc128:
 		set_common_fields(dst->crc128, src);

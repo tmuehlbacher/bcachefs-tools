@@ -13,6 +13,7 @@
 #include "bkey_sort.h"
 #include "btree_cache.h"
 #include "btree_gc.h"
+#include "btree_journal_iter.h"
 #include "btree_key_cache.h"
 #include "btree_update_interior.h"
 #include "btree_io.h"
@@ -30,6 +31,8 @@
 #include "error.h"
 #include "fs.h"
 #include "fs-io.h"
+#include "fs-io-buffered.h"
+#include "fs-io-direct.h"
 #include "fsck.h"
 #include "inode.h"
 #include "io.h"
@@ -44,6 +47,7 @@
 #include "rebalance.h"
 #include "recovery.h"
 #include "replicas.h"
+#include "sb-clean.h"
 #include "subvolume.h"
 #include "super.h"
 #include "super-io.h"
@@ -469,6 +473,8 @@ static void __bch2_fs_free(struct bch_fs *c)
 	bch2_fs_counters_exit(c);
 	bch2_fs_snapshots_exit(c);
 	bch2_fs_quota_exit(c);
+	bch2_fs_fs_io_direct_exit(c);
+	bch2_fs_fs_io_buffered_exit(c);
 	bch2_fs_fsio_exit(c);
 	bch2_fs_ec_exit(c);
 	bch2_fs_encryption_exit(c);
@@ -844,7 +850,9 @@ static struct bch_fs *bch2_fs_alloc(struct bch_sb *sb, struct bch_opts opts)
 	    bch2_fs_encryption_init(c) ?:
 	    bch2_fs_compress_init(c) ?:
 	    bch2_fs_ec_init(c) ?:
-	    bch2_fs_fsio_init(c);
+	    bch2_fs_fsio_init(c) ?:
+	    bch2_fs_fs_io_buffered_init(c);
+	    bch2_fs_fs_io_direct_init(c);
 	if (ret)
 		goto err;
 
@@ -2000,6 +2008,7 @@ err:
 BCH_DEBUG_PARAMS()
 #undef BCH_DEBUG_PARAM
 
+__maybe_unused
 static unsigned bch2_metadata_version = bcachefs_metadata_version_current;
 module_param_named(version, bch2_metadata_version, uint, 0400);
 

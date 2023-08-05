@@ -294,8 +294,8 @@ do {									\
 
 #define bch_err_fn(_c, _ret)						\
 	 bch_err(_c, "%s(): error %s", __func__, bch2_err_str(_ret))
-#define bch_err_msg(_c, _ret, _msg)					\
-	 bch_err(_c, "%s(): error " _msg " %s", __func__, bch2_err_str(_ret))
+#define bch_err_msg(_c, _ret, _msg, ...)				\
+	 bch_err(_c, "%s(): error " _msg " %s", __func__, ##__VA_ARGS__, bch2_err_str(_ret))
 
 #define bch_verbose(c, fmt, ...)					\
 do {									\
@@ -995,6 +995,7 @@ struct bch_fs {
 	enum bch_recovery_pass	curr_recovery_pass;
 	/* bitmap of explicitly enabled recovery passes: */
 	u64			recovery_passes_explicit;
+	u64			recovery_passes_complete;
 
 	/* DEBUG JUNK */
 	struct dentry		*fs_debug_dir;
@@ -1137,22 +1138,6 @@ static inline s64 bch2_current_time(const struct bch_fs *c)
 static inline bool bch2_dev_exists2(const struct bch_fs *c, unsigned dev)
 {
 	return dev < c->sb.nr_devices && c->devs[dev];
-}
-
-/*
- * For when we need to rewind recovery passes and run a pass we skipped:
- */
-static inline int bch2_run_explicit_recovery_pass(struct bch_fs *c,
-						  enum bch_recovery_pass pass)
-{
-	c->recovery_passes_explicit |= BIT_ULL(pass);
-
-	if (c->curr_recovery_pass >= pass) {
-		c->curr_recovery_pass = pass;
-		return -BCH_ERR_restart_recovery;
-	} else {
-		return 0;
-	}
 }
 
 #define BKEY_PADDED_ONSTACK(key, pad)				\

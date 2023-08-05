@@ -348,6 +348,8 @@ int bch2_inode_peek(struct btree_trans *trans,
 	return 0;
 err:
 	bch2_trans_iter_exit(trans, iter);
+	if (!bch2_err_matches(ret, BCH_ERR_transaction_restart))
+		bch_err_msg(trans->c, ret, "looking up inum %u:%llu:", inum.subvol, inum.inum);
 	return ret;
 }
 
@@ -520,21 +522,23 @@ void bch2_inode_to_text(struct printbuf *out, struct bch_fs *c, struct bkey_s_c 
 	__bch2_inode_unpacked_to_text(out, &inode);
 }
 
-static inline bool bkey_is_deleted_inode(struct bkey_s_c k)
+static inline u64 bkey_inode_flags(struct bkey_s_c k)
 {
 	switch (k.k->type) {
 	case KEY_TYPE_inode:
-		return bkey_s_c_to_inode(k).v->bi_flags &
-			cpu_to_le32(BCH_INODE_UNLINKED);
+		return le32_to_cpu(bkey_s_c_to_inode(k).v->bi_flags);
 	case KEY_TYPE_inode_v2:
-		return bkey_s_c_to_inode_v2(k).v->bi_flags &
-			cpu_to_le32(BCH_INODE_UNLINKED);
+		return le64_to_cpu(bkey_s_c_to_inode_v2(k).v->bi_flags);
 	case KEY_TYPE_inode_v3:
-		return bkey_s_c_to_inode_v3(k).v->bi_flags &
-			cpu_to_le64(BCH_INODE_UNLINKED);
+		return le64_to_cpu(bkey_s_c_to_inode_v3(k).v->bi_flags);
 	default:
-		return false;
+		return 0;
 	}
+}
+
+static inline bool bkey_is_deleted_inode(struct bkey_s_c k)
+{
+	return bkey_inode_flags(k) & BCH_INODE_UNLINKED;
 }
 
 int bch2_trans_mark_inode(struct btree_trans *trans,
