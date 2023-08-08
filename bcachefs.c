@@ -84,6 +84,7 @@ static void usage(void)
 	     "\n"
 	     "Commands for operating on files in a bcachefs filesystem:\n"
 	     "  setattr                  Set various per file attributes\n"
+	     "\n"
 	     "Debug:\n"
 	     "These commands work on offline, unmounted filesystems\n"
 	     "  dump                     Dump filesystem metadata to a qcow2 image\n"
@@ -91,6 +92,9 @@ static void usage(void)
 	     "  list                     List filesystem metadata in textual form\n"
 #endif
 	     "  list_journal             List contents of journal\n"
+	     "\n"
+	     "FUSE:\n"
+	     "  fusemount                Mount a filesystem via FUSE\n"
 	     "\n"
 	     "Miscellaneous:\n"
 	     "  version                  Display the version of the invoked bcachefs tool\n");

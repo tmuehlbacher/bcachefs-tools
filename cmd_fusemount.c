@@ -33,9 +33,9 @@
 /* XXX cut and pasted from fsck.c */
 #define QSTR(n) { { { .len = strlen(n) } }, .name = n }
 
-static inline u64 map_root_ino(u64 ino)
+static inline subvol_inum map_root_ino(u64 ino)
 {
-	return ino == 1 ? 4096 : ino;
+	return (subvol_inum) { 1, ino == 1 ? 4096 : ino };
 }
 
 static inline u64 unmap_root_ino(u64 ino)
@@ -92,19 +92,18 @@ static void bcachefs_fuse_destroy(void *arg)
 	bch2_fs_stop(c);
 }
 
-static void bcachefs_fuse_lookup(fuse_req_t req, fuse_ino_t dir,
+static void bcachefs_fuse_lookup(fuse_req_t req, fuse_ino_t dir_ino,
 				 const char *name)
 {
+	subvol_inum dir = map_root_ino(dir_ino);
 	struct bch_fs *c = fuse_req_userdata(req);
 	struct bch_inode_unpacked bi;
 	struct qstr qstr = QSTR(name);
-	u64 inum;
+	subvol_inum inum;
 	int ret;
 
 	fuse_log(FUSE_LOG_DEBUG, "fuse_lookup(dir=%llu name=%s)\n",
-		 dir, name);
-
-	dir = map_root_ino(dir);
+		 dir.inum, name);
 
 	ret = bch2_inode_find_by_inum(c, dir, &bi);
 	if (ret) {
@@ -114,8 +113,8 @@ static void bcachefs_fuse_lookup(fuse_req_t req, fuse_ino_t dir,
 
 	struct bch_hash_info hash_info = bch2_hash_info_init(c, &bi);
 
-	inum = bch2_dirent_lookup(c, dir, &hash_info, &qstr);
-	if (!inum) {
+	ret = bch2_dirent_lookup(c, dir, &hash_info, &qstr, &inum);
+	if (ret) {
 		struct fuse_entry_param e = {
 			.attr_timeout	= DBL_MAX,
 			.entry_timeout	= DBL_MAX,
@@ -139,20 +138,17 @@ err:
 	fuse_reply_err(req, -ret);
 }
 
-static void bcachefs_fuse_getattr(fuse_req_t req, fuse_ino_t inum,
+static void bcachefs_fuse_getattr(fuse_req_t req, fuse_ino_t ino,
 				  struct fuse_file_info *fi)
 {
+	subvol_inum inum = map_root_ino(ino);
 	struct bch_fs *c = fuse_req_userdata(req);
 	struct bch_inode_unpacked bi;
 	struct stat attr;
-	int ret;
 
-	fuse_log(FUSE_LOG_DEBUG, "fuse_getattr(inum=%llu)\n",
-		 inum);
+	fuse_log(FUSE_LOG_DEBUG, "fuse_getattr(inum=%llu)\n", inum.inum);
 
-	inum = map_root_ino(inum);
-
-	ret = bch2_inode_find_by_inum(c, inum, &bi);
+	int ret = bch2_inode_find_by_inum(c, inum, &bi);
 	if (ret) {
 		fuse_log(FUSE_LOG_DEBUG, "fuse_getattr error %i\n", ret);
 		fuse_reply_err(req, -ret);
@@ -165,7 +161,7 @@ static void bcachefs_fuse_getattr(fuse_req_t req, fuse_ino_t inum,
 	fuse_reply_attr(req, &attr, DBL_MAX);
 }
 
-static void bcachefs_fuse_setattr(fuse_req_t req, fuse_ino_t inum,
+static void bcachefs_fuse_setattr(fuse_req_t req, fuse_ino_t ino,
 				  struct stat *attr, int to_set,
 				  struct fuse_file_info *fi)
 {
@@ -176,10 +172,9 @@ static void bcachefs_fuse_setattr(fuse_req_t req, fuse_ino_t inum,
 	u64 now;
 	int ret;
 
-	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_setattr(%llu, %x)\n",
-		 inum, to_set);
+	subvol_inum inum = map_root_ino(ino);
 
-	inum = map_root_ino(inum);
+	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_setattr(%llu, %x)\n", inum.inum, to_set);
 
 	bch2_trans_init(&trans, c, 0, 0);
 retry:
@@ -226,14 +221,14 @@ err:
 	}
 }
 
-static int do_create(struct bch_fs *c, u64 dir,
+static int do_create(struct bch_fs *c, subvol_inum dir,
 		     const char *name, mode_t mode, dev_t rdev,
 		     struct bch_inode_unpacked *new_inode)
 {
 	struct qstr qstr = QSTR(name);
 	struct bch_inode_unpacked dir_u;
-
-	dir = map_root_ino(dir);
+	uid_t uid = 0;
+	gid_t gid = 0;
 
 	bch2_inode_init_early(c, new_inode);
 
@@ -241,19 +236,22 @@ static int do_create(struct bch_fs *c, u64 dir,
 			bch2_create_trans(&trans,
 				dir, &dir_u,
 				new_inode, &qstr,
-				0, 0, mode, rdev, NULL, NULL));
+				uid, gid, mode, rdev, NULL, NULL,
+				(subvol_inum) { 0 }, 0));
 }
 
-static void bcachefs_fuse_mknod(fuse_req_t req, fuse_ino_t dir,
+static void bcachefs_fuse_mknod(fuse_req_t req, fuse_ino_t dir_ino,
 				const char *name, mode_t mode,
 				dev_t rdev)
 {
+	subvol_inum dir = map_root_ino(dir_ino);
 	struct bch_fs *c = fuse_req_userdata(req);
 	struct bch_inode_unpacked new_inode;
 	int ret;
 
 	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_mknod(%llu, %s, %x, %x)\n",
-		 dir, name, mode, rdev);
+		 dir.inum, name, mode, rdev);
+
 	ret = do_create(c, dir, name, mode, rdev, &new_inode);
 	if (ret)
 		goto err;
@@ -277,21 +275,19 @@ static void bcachefs_fuse_mkdir(fuse_req_t req, fuse_ino_t dir,
 	bcachefs_fuse_mknod(req, dir, name, mode, 0);
 }
 
-static void bcachefs_fuse_unlink(fuse_req_t req, fuse_ino_t dir,
+static void bcachefs_fuse_unlink(fuse_req_t req, fuse_ino_t dir_ino,
 				 const char *name)
 {
 	struct bch_fs *c = fuse_req_userdata(req);
 	struct bch_inode_unpacked dir_u, inode_u;
 	struct qstr qstr = QSTR(name);
-	int ret;
+	subvol_inum dir = map_root_ino(dir_ino);
 
-	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_unlink(%llu, %s)\n", dir, name);
+	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_unlink(%llu, %s)\n", dir.inum, name);
 
-	dir = map_root_ino(dir);
-
-	ret = bch2_trans_do(c, NULL, NULL, BTREE_INSERT_NOFAIL,
+	int ret = bch2_trans_do(c, NULL, NULL, BTREE_INSERT_NOFAIL,
 			    bch2_unlink_trans(&trans, dir, &dir_u,
-					      &inode_u, &qstr));
+					      &inode_u, &qstr, false));
 
 	fuse_reply_err(req, -ret);
 }
@@ -301,14 +297,12 @@ static void bcachefs_fuse_rmdir(fuse_req_t req, fuse_ino_t dir,
 {
 	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_rmdir(%llu, %s)\n", dir, name);
 
-	dir = map_root_ino(dir);
-
 	bcachefs_fuse_unlink(req, dir, name);
 }
 
 static void bcachefs_fuse_rename(fuse_req_t req,
-				 fuse_ino_t src_dir, const char *srcname,
-				 fuse_ino_t dst_dir, const char *dstname,
+				 fuse_ino_t src_dir_ino, const char *srcname,
+				 fuse_ino_t dst_dir_ino, const char *dstname,
 				 unsigned flags)
 {
 	struct bch_fs *c = fuse_req_userdata(req);
@@ -316,14 +310,13 @@ static void bcachefs_fuse_rename(fuse_req_t req,
 	struct bch_inode_unpacked src_inode_u, dst_inode_u;
 	struct qstr dst_name = QSTR(srcname);
 	struct qstr src_name = QSTR(dstname);
+	subvol_inum src_dir = map_root_ino(src_dir_ino);
+	subvol_inum dst_dir = map_root_ino(dst_dir_ino);
 	int ret;
 
 	fuse_log(FUSE_LOG_DEBUG,
 		 "bcachefs_fuse_rename(%llu, %s, %llu, %s, %x)\n",
-		 src_dir, srcname, dst_dir, dstname, flags);
-
-	src_dir = map_root_ino(src_dir);
-	dst_dir = map_root_ino(dst_dir);
+		 src_dir.inum, srcname, dst_dir.inum, dstname, flags);
 
 	/* XXX handle overwrites */
 	ret = bch2_trans_do(c, NULL, NULL, 0,
@@ -337,22 +330,22 @@ static void bcachefs_fuse_rename(fuse_req_t req,
 	fuse_reply_err(req, -ret);
 }
 
-static void bcachefs_fuse_link(fuse_req_t req, fuse_ino_t inum,
-			       fuse_ino_t newparent, const char *newname)
+static void bcachefs_fuse_link(fuse_req_t req, fuse_ino_t ino,
+			       fuse_ino_t newparent_ino, const char *newname)
 {
 	struct bch_fs *c = fuse_req_userdata(req);
 	struct bch_inode_unpacked dir_u, inode_u;
 	struct qstr qstr = QSTR(newname);
+	subvol_inum newparent	= map_root_ino(newparent_ino);
+	subvol_inum inum	= map_root_ino(ino);
 	int ret;
 
 	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_link(%llu, %llu, %s)\n",
-		 inum, newparent, newname);
-
-	newparent = map_root_ino(newparent);
+		 inum, newparent.inum, newname);
 
 	ret = bch2_trans_do(c, NULL, NULL, 0,
-			    bch2_link_trans(&trans, newparent,
-					    inum, &dir_u, &inode_u, &qstr));
+			    bch2_link_trans(&trans, newparent, &dir_u,
+					    inum, &inode_u, &qstr));
 
 	if (!ret) {
 		struct fuse_entry_param e = inode_to_entry(c, &inode_u);
@@ -375,22 +368,20 @@ static void bcachefs_fuse_open(fuse_req_t req, fuse_ino_t inum,
 static void userbio_init(struct bio *bio, struct bio_vec *bv,
 			 void *buf, size_t size)
 {
-	bio_init(bio, bv, 1);
+	bio_init(bio, NULL, bv, 1, 0);
 	bio->bi_iter.bi_size	= size;
 	bv->bv_page		= buf;
 	bv->bv_len		= size;
 	bv->bv_offset		= 0;
 }
 
-static int get_inode_io_opts(struct bch_fs *c, u64 inum,
-			     struct bch_io_opts *opts)
+static int get_inode_io_opts(struct bch_fs *c, subvol_inum inum, struct bch_io_opts *opts)
 {
 	struct bch_inode_unpacked inode;
 	if (bch2_inode_find_by_inum(c, inum, &inode))
 		return -EINVAL;
 
-	*opts = bch2_opts_to_inode_opts(c->opts);
-	bch2_io_opts_apply(opts, bch2_inode_opts_get(&inode));
+	bch2_inode_opts_get(opts, c, &inode);
 	return 0;
 }
 
@@ -448,7 +439,7 @@ static size_t align_fix_up_bytes(const struct fuse_align_io *align,
 /*
  * Read aligned data.
  */
-static int read_aligned(struct bch_fs *c, fuse_ino_t inum, size_t aligned_size,
+static int read_aligned(struct bch_fs *c, subvol_inum inum, size_t aligned_size,
 			off_t aligned_offset, void *buf)
 {
 	BUG_ON(aligned_size & (block_bytes(c) - 1));
@@ -478,10 +469,11 @@ static int read_aligned(struct bch_fs *c, fuse_ino_t inum, size_t aligned_size,
 	return -blk_status_to_errno(rbio.bio.bi_status);
 }
 
-static void bcachefs_fuse_read(fuse_req_t req, fuse_ino_t inum,
+static void bcachefs_fuse_read(fuse_req_t req, fuse_ino_t ino,
 			       size_t size, off_t offset,
 			       struct fuse_file_info *fi)
 {
+	subvol_inum inum = map_root_ino(ino);
 	struct bch_fs *c = fuse_req_userdata(req);
 
 	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_read(%llu, %zd, %lld)\n",
@@ -520,7 +512,7 @@ static void bcachefs_fuse_read(fuse_req_t req, fuse_ino_t inum,
 	free(buf);
 }
 
-static int inode_update_times(struct bch_fs *c, fuse_ino_t inum)
+static int inode_update_times(struct bch_fs *c, subvol_inum inum)
 {
 	struct btree_trans trans;
 	struct btree_iter iter;
@@ -556,7 +548,7 @@ err:
 	return ret;
 }
 
-static int write_aligned(struct bch_fs *c, fuse_ino_t inum,
+static int write_aligned(struct bch_fs *c, subvol_inum inum,
 			 struct bch_io_opts io_opts, void *buf,
 			 size_t aligned_size, off_t aligned_offset,
 			 off_t new_i_size, size_t *written_out)
@@ -576,7 +568,8 @@ static int write_aligned(struct bch_fs *c, fuse_ino_t inum,
 	op.write_point	= writepoint_hashed(0);
 	op.nr_replicas	= io_opts.data_replicas;
 	op.target	= io_opts.foreground_target;
-	op.pos		= POS(inum, aligned_offset >> 9);
+	op.subvol	= inum.subvol;
+	op.pos		= POS(inum.inum, aligned_offset >> 9);
 	op.new_i_size	= new_i_size;
 
 	userbio_init(&op.wbio.bio, &bv, buf, aligned_size);
@@ -597,11 +590,12 @@ static int write_aligned(struct bch_fs *c, fuse_ino_t inum,
 	return op.error;
 }
 
-static void bcachefs_fuse_write(fuse_req_t req, fuse_ino_t inum,
+static void bcachefs_fuse_write(fuse_req_t req, fuse_ino_t ino,
 				const char *buf, size_t size,
 				off_t offset,
 				struct fuse_file_info *fi)
 {
+	subvol_inum inum = map_root_ino(ino);
 	struct bch_fs *c	= fuse_req_userdata(req);
 	struct bch_io_opts	io_opts;
 	size_t			aligned_written;
@@ -686,24 +680,23 @@ err:
 }
 
 static void bcachefs_fuse_symlink(fuse_req_t req, const char *link,
-				  fuse_ino_t dir, const char *name)
+				  fuse_ino_t dir_ino, const char *name)
 {
+	subvol_inum dir = map_root_ino(dir_ino);
 	struct bch_fs *c = fuse_req_userdata(req);
 	struct bch_inode_unpacked new_inode;
 	size_t link_len = strlen(link);
 	int ret;
 
 	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_symlink(%s, %llu, %s)\n",
-		 link, dir, name);
-
-	dir = map_root_ino(dir);
+		 link, dir.inum, name);
 
 	ret = do_create(c, dir, name, S_IFLNK|S_IRWXUGO, 0, &new_inode);
 	if (ret)
 		goto err;
 
 	struct bch_io_opts io_opts;
-	ret = get_inode_io_opts(c, new_inode.bi_inum, &io_opts);
+	ret = get_inode_io_opts(c, dir, &io_opts);
 	if (ret)
 		goto err;
 
@@ -715,8 +708,10 @@ static void bcachefs_fuse_symlink(fuse_req_t req, const char *link,
 	memset(aligned_buf, 0, align.size);
 	memcpy(aligned_buf, link, link_len); /* already terminated */
 
+	subvol_inum inum = (subvol_inum) { dir.subvol, new_inode.bi_inum };
+
 	size_t aligned_written;
-	ret = write_aligned(c, new_inode.bi_inum, io_opts, aligned_buf,
+	ret = write_aligned(c, inum, io_opts, aligned_buf,
 			    align.size, align.start, link_len + 1,
 			    &aligned_written);
 	free(aligned_buf);
@@ -727,7 +722,7 @@ static void bcachefs_fuse_symlink(fuse_req_t req, const char *link,
 	size_t written = align_fix_up_bytes(&align, aligned_written);
 	BUG_ON(written != link_len + 1); // TODO: handle short
 
-	ret = inode_update_times(c, new_inode.bi_inum);
+	ret = inode_update_times(c, inum);
 	if (ret)
 		goto err;
 
@@ -741,12 +736,13 @@ err:
 	fuse_reply_err(req, -ret);
 }
 
-static void bcachefs_fuse_readlink(fuse_req_t req, fuse_ino_t inum)
+static void bcachefs_fuse_readlink(fuse_req_t req, fuse_ino_t ino)
 {
+	subvol_inum inum = map_root_ino(ino);
 	struct bch_fs *c = fuse_req_userdata(req);
 	char *buf = NULL;
 
-	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_readlink(%llu)\n", inum);
+	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_readlink(%llu)\n", inum.inum);
 
 	struct bch_inode_unpacked bi;
 	int ret = bch2_inode_find_by_inum(c, inum, &bi);
@@ -898,10 +894,11 @@ static bool handle_dots(struct fuse_dir_context *ctx, fuse_ino_t dir)
 	return true;
 }
 
-static void bcachefs_fuse_readdir(fuse_req_t req, fuse_ino_t dir,
+static void bcachefs_fuse_readdir(fuse_req_t req, fuse_ino_t dir_ino,
 				  size_t size, off_t off,
 				  struct fuse_file_info *fi)
 {
+	subvol_inum dir = map_root_ino(dir_ino);
 	struct bch_fs *c = fuse_req_userdata(req);
 	struct bch_inode_unpacked bi;
 	char *buf = calloc(size, 1);
@@ -915,9 +912,7 @@ static void bcachefs_fuse_readdir(fuse_req_t req, fuse_ino_t dir,
 	int ret = 0;
 
 	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_readdir(dir=%llu, size=%zu, "
-		 "off=%lld)\n", dir, size, off);
-
-	dir = map_root_ino(dir);
+		 "off=%lld)\n", dir.inum, size, off);
 
 	ret = bch2_inode_find_by_inum(c, dir, &bi);
 	if (ret)
@@ -928,7 +923,7 @@ static void bcachefs_fuse_readdir(fuse_req_t req, fuse_ino_t dir,
 		goto reply;
 	}
 
-	if (!handle_dots(&ctx, dir))
+	if (!handle_dots(&ctx, dir.inum))
 		goto reply;
 
 	ret = bch2_readdir(c, dir, &ctx.ctx);
@@ -1012,16 +1007,17 @@ static void bcachefs_fuse_removexattr(fuse_req_t req, fuse_ino_t inum,
 }
 #endif
 
-static void bcachefs_fuse_create(fuse_req_t req, fuse_ino_t dir,
+static void bcachefs_fuse_create(fuse_req_t req, fuse_ino_t dir_ino,
 				 const char *name, mode_t mode,
 				 struct fuse_file_info *fi)
 {
+	subvol_inum dir = map_root_ino(dir_ino);
 	struct bch_fs *c = fuse_req_userdata(req);
 	struct bch_inode_unpacked new_inode;
 	int ret;
 
 	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_create(%llu, %s, %x)\n",
-		 dir, name, mode);
+		 dir.inum, name, mode);
 
 	ret = do_create(c, dir, name, mode, 0, &new_inode);
 	if (ret)
@@ -1032,7 +1028,6 @@ static void bcachefs_fuse_create(fuse_req_t req, fuse_ino_t dir,
 	return;
 err:
 	fuse_reply_err(req, -ret);
-
 }
 
 #if 0
