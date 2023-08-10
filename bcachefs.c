@@ -254,8 +254,7 @@ int main(int argc, char *argv[])
 		return cmd_setattr(argc, argv);
 #ifndef BCACHEFS_NO_RUST
 	if (!strcmp(cmd, "mount")) {
-		cmd_mount(argc, argv);
-		return 0;
+		return cmd_mount(argc, argv);
 	}
 #endif
 

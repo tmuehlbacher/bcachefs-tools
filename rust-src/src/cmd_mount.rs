@@ -219,14 +219,14 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
 }
 
 #[no_mangle]
-pub extern "C" fn cmd_mount(argc: c_int, argv: *const *const c_char) {
+pub extern "C" fn cmd_mount(argc: c_int, argv: *const *const c_char) -> c_int {
     let argv: Vec<_> = (0..argc)
         .map(|i| unsafe { CStr::from_ptr(*argv.add(i as usize)) })
         .map(|i| OsStr::from_bytes(i.to_bytes()))
         .collect();
 
     let opt = Cli::parse_from(argv);
-    
+
     log::set_boxed_logger(Box::new(SimpleLogger)).unwrap();
 
     // @TODO : more granular log levels via mount option
@@ -239,7 +239,9 @@ pub extern "C" fn cmd_mount(argc: c_int, argv: *const *const c_char) {
     colored::control::set_override(opt.colorize);
     if let Err(e) = cmd_mount_inner(opt) {
         error!("Fatal error: {}", e);
+        1
     } else {
         info!("Successfully mounted");
+        0
     }
 }
