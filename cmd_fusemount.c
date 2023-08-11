@@ -1217,6 +1217,17 @@ int cmd_fusemount(int argc, char *argv[])
 	}
 	tokenize_devices(&ctx);
 
+	struct printbuf fsname = PRINTBUF;
+	prt_printf(&fsname, "fsname=");
+	for (i = 0; i < ctx.nr_devices; ++i) {
+		if (i)
+			prt_str(&fsname, ":");
+		prt_str(&fsname, ctx.devices[i]);
+	}
+
+	fuse_opt_add_arg(&args, "-o");
+	fuse_opt_add_arg(&args, fsname.buf);
+
 	/* Open bch */
 	printf("Opening bcachefs filesystem on:\n");
 	for (i = 0; i < ctx.nr_devices; ++i)

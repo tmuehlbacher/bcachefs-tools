@@ -45,10 +45,13 @@ rm -f %{buildroot}/%{_datadir}/initramfs-tools/scripts/local-premount/bcachefs
 rm -f %{buildroot}/usr/lib/libbcachefs.so
 
 %files
-%{_sbindir}/mount.bcachefs
 %{_sbindir}/bcachefs
+%{_sbindir}/mount.bcachefs
 %{_sbindir}/fsck.bcachefs
 %{_sbindir}/mkfs.bcachefs
+%{_sbindir}/mount.fuse.bcachefs
+%{_sbindir}/fsck.fuse.bcachefs
+%{_sbindir}/mkfs.fuse.bcachefs
 %{_mandir}/man8/bcachefs.8.gz
 
 %changelog
