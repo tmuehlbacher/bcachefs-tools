@@ -122,6 +122,7 @@ int cmd_dump(int argc, char *argv[])
 	bool force = false, entire_journal = true;
 	int fd, opt;
 
+	opt_set(opts, read_only,	true);
 	opt_set(opts, nochanges,	true);
 	opt_set(opts, norecovery,	true);
 	opt_set(opts, degraded,		true);
