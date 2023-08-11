@@ -18,7 +18,7 @@ jobs:
         run: sudo rm -f /var/lib/man-db/auto-update
       - name: Install build-deps
         run: |
-          sudo apt-get update && sudo apt-get -y install pkg-config libaio-dev libblkid-dev \
+          sudo apt-get update && sudo apt-get -y --no-install-recommends install pkg-config libaio-dev libblkid-dev \
               libkeyutils-dev liblz4-dev libsodium-dev liburcu-dev libzstd-dev \
               uuid-dev zlib1g-dev valgrind libudev-dev python3-docutils \
               debhelper llvm clang libclang-dev rustc cargo \
@@ -73,7 +73,7 @@ jobs:
         run: sudo rm -f /var/lib/man-db/auto-update
       - name: Install build-deps
         run: |
-          sudo apt-get update && sudo apt-get -y install pkg-config libaio-dev libblkid-dev \
+          sudo apt-get update && sudo apt-get -y --no-install-recommends install pkg-config libaio-dev libblkid-dev \
               libkeyutils-dev liblz4-dev libsodium-dev liburcu-dev libzstd-dev \
               uuid-dev zlib1g-dev valgrind libudev-dev python3-docutils libclang-dev
       - name: Extract MSRV
