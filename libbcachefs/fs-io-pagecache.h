@@ -83,6 +83,7 @@ static inline void bch2_folio_sector_set(struct folio *folio,
 static inline int folio_pos_to_s(struct folio *folio, loff_t pos)
 {
 	u64 f_offset = pos - folio_pos(folio);
+
 	BUG_ON(pos < folio_pos(folio) || pos >= folio_end_pos(folio));
 	return f_offset >> SECTOR_SHIFT;
 }

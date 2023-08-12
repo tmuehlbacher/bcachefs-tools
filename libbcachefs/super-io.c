@@ -198,8 +198,14 @@ int bch2_sb_realloc(struct bch_sb_handle *sb, unsigned u64s)
 	if (dynamic_fault("bcachefs:add:super_realloc"))
 		return -BCH_ERR_ENOMEM_sb_realloc_injected;
 
+	new_sb = krealloc(sb->sb, new_buffer_size, GFP_NOFS|__GFP_ZERO);
+	if (!new_sb)
+		return -BCH_ERR_ENOMEM_sb_buf_realloc;
+
+	sb->sb = new_sb;
+
 	if (sb->have_bio) {
-		unsigned nr_bvecs = DIV_ROUND_UP(new_buffer_size, PAGE_SIZE);
+		unsigned nr_bvecs = buf_pages(sb->sb, new_buffer_size);
 
 		bio = bio_kmalloc(nr_bvecs, GFP_KERNEL);
 		if (!bio)
@@ -211,11 +217,6 @@ int bch2_sb_realloc(struct bch_sb_handle *sb, unsigned u64s)
 		sb->bio = bio;
 	}
 
-	new_sb = krealloc(sb->sb, new_buffer_size, GFP_NOFS|__GFP_ZERO);
-	if (!new_sb)
-		return -BCH_ERR_ENOMEM_sb_buf_realloc;
-
-	sb->sb = new_sb;
 	sb->buffer_size = new_buffer_size;
 
 	return 0;
@@ -547,7 +548,9 @@ static int __copy_super(struct bch_sb_handle *dst_handle, struct bch_sb *src)
 		d = (src_f ? le32_to_cpu(src_f->u64s) : 0) -
 		    (dst_f ? le32_to_cpu(dst_f->u64s) : 0);
 		if (d > 0) {
-			int ret = bch2_sb_realloc(dst_handle, le32_to_cpu(dst_handle->sb->u64s) + d);
+			int ret = bch2_sb_realloc(dst_handle,
+					le32_to_cpu(dst_handle->sb->u64s) + d);
+
 			if (ret)
 				return ret;
 

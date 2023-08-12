@@ -3,7 +3,6 @@
 
 #include "bcachefs.h"
 #include "alloc_foreground.h"
-//#include "bkey_buf.h"
 #include "btree_update.h"
 #include "buckets.h"
 #include "clock.h"
@@ -13,7 +12,6 @@
 #include "fs.h"
 #include "fs-io.h"
 #include "fs-io-buffered.h"
-//#include "fs-io-direct.h"
 #include "fs-io-pagecache.h"
 #include "fsck.h"
 #include "inode.h"
@@ -264,7 +262,7 @@ static int __bch2_truncate_folio(struct bch_inode_info *inode,
 
 		folio = __filemap_get_folio(mapping, index,
 					    FGP_LOCK|FGP_CREAT, GFP_KERNEL);
-		if (unlikely(IS_ERR_OR_NULL(folio))) {
+		if (IS_ERR_OR_NULL(folio)) {
 			ret = -ENOMEM;
 			goto out;
 		}

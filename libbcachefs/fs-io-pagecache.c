@@ -219,8 +219,10 @@ retry:
 			struct folio *folio = folios[folio_idx];
 			u64 folio_start	= folio_sector(folio);
 			u64 folio_end	= folio_end_sector(folio);
-			unsigned folio_offset = max(bkey_start_offset(k.k), folio_start) - folio_start;
-			unsigned folio_len = min(k.k->p.offset, folio_end) - folio_offset - folio_start;
+			unsigned folio_offset = max(bkey_start_offset(k.k), folio_start) -
+				folio_start;
+			unsigned folio_len = min(k.k->p.offset, folio_end) -
+				folio_offset - folio_start;
 
 			BUG_ON(k.k->p.offset < folio_start);
 			BUG_ON(bkey_start_offset(k.k) > folio_end);
@@ -338,7 +340,8 @@ void bch2_mark_pagecache_reserved(struct bch_inode_info *inode,
 				spin_lock(&s->lock);
 				for (j = folio_offset; j < folio_offset + folio_len; j++) {
 					i_sectors_delta -= s->s[j].state == SECTOR_dirty;
-					bch2_folio_sector_set(folio, s, j, folio_sector_reserve(s->s[j].state));
+					bch2_folio_sector_set(folio, s, j,
+						folio_sector_reserve(s->s[j].state));
 				}
 				spin_unlock(&s->lock);
 			}

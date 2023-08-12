@@ -574,13 +574,6 @@ void __bch2_fs_stop(struct bch_fs *c)
 		cancel_work_sync(&ca->io_error_work);
 
 	cancel_work_sync(&c->read_only_work);
-
-	for (i = 0; i < c->sb.nr_devices; i++) {
-		struct bch_dev *ca = rcu_dereference_protected(c->devs[i], true);
-
-		if (ca)
-			bch2_free_super(&ca->disk_sb);
-	}
 }
 
 void bch2_fs_free(struct bch_fs *c)
@@ -594,9 +587,14 @@ void bch2_fs_free(struct bch_fs *c)
 	closure_sync(&c->cl);
 	closure_debug_destroy(&c->cl);
 
-	for (i = 0; i < c->sb.nr_devices; i++)
-		if (c->devs[i])
-			bch2_dev_free(rcu_dereference_protected(c->devs[i], 1));
+	for (i = 0; i < c->sb.nr_devices; i++) {
+		struct bch_dev *ca = rcu_dereference_protected(c->devs[i], true);
+
+		if (ca) {
+			bch2_free_super(&ca->disk_sb);
+			bch2_dev_free(ca);
+		}
+	}
 
 	bch_verbose(c, "shutdown complete");
 

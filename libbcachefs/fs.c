@@ -15,6 +15,7 @@
 #include "fs-io.h"
 #include "fs-ioctl.h"
 #include "fs-io-buffered.h"
+#include "fs-io-direct.h"
 #include "fs-io-pagecache.h"
 #include "fsck.h"
 #include "inode.h"

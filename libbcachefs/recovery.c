@@ -132,7 +132,7 @@ static int bch2_journal_replay(struct bch_fs *c)
 	move_gap(keys->d, keys->nr, keys->size, keys->gap, keys->nr);
 	keys->gap = keys->nr;
 
-	keys_sorted = kvmalloc_array(sizeof(*keys_sorted), keys->nr, GFP_KERNEL);
+	keys_sorted = kvmalloc_array(keys->nr, sizeof(*keys_sorted), GFP_KERNEL);
 	if (!keys_sorted)
 		return -BCH_ERR_ENOMEM_journal_replay;
 
@@ -507,7 +507,7 @@ static struct recovery_pass_fn recovery_pass_fns[] = {
 
 static void check_version_upgrade(struct bch_fs *c)
 {
-	unsigned latest_compatible = bch2_version_compatible(c->sb.version);
+	unsigned latest_compatible = bch2_latest_compatible_version(c->sb.version);
 	unsigned latest_version	= bcachefs_metadata_version_current;
 	unsigned old_version = c->sb.version_upgrade_complete ?: c->sb.version;
 	unsigned new_version = 0;
@@ -759,7 +759,7 @@ use_clean:
 	}
 
 	c->journal_replay_seq_start	= last_seq;
-	c->journal_replay_seq_end	= blacklist_seq - 1;;
+	c->journal_replay_seq_end	= blacklist_seq - 1;
 
 	if (c->opts.reconstruct_alloc) {
 		c->sb.compat &= ~(1ULL << BCH_COMPAT_alloc_info);

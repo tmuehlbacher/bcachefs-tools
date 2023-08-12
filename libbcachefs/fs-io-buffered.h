@@ -15,7 +15,6 @@ int bch2_write_begin(struct file *, struct address_space *, loff_t,
 int bch2_write_end(struct file *, struct address_space *, loff_t,
 		   unsigned, unsigned, struct page *, void *);
 
-ssize_t bch2_read_iter(struct kiocb *, struct iov_iter *);
 ssize_t bch2_write_iter(struct kiocb *, struct iov_iter *);
 
 void bch2_fs_fs_io_buffered_exit(struct bch_fs *);
