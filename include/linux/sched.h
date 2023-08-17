@@ -107,7 +107,12 @@ extern __thread struct task_struct *current;
 #define set_current_state(state_value)			\
 	smp_store_mb(current->state, (state_value))
 
-#define get_task_struct(tsk) do { atomic_inc(&(tsk)->usage); } while(0)
+static inline struct task_struct *get_task_struct(struct task_struct *task)
+{
+	atomic_inc(&task->usage);
+	return task;
+
+}
 
 extern void __put_task_struct(struct task_struct *t);
 

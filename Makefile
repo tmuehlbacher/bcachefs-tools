@@ -199,10 +199,6 @@ update-bcachefs-sources:
 	git add include/linux/xxhash.h
 	cp $(LINUX_DIR)/lib/xxhash.c linux/
 	git add linux/xxhash.c
-	cp $(LINUX_DIR)/kernel/locking/six.c linux/
-	git add linux/six.c
-	cp $(LINUX_DIR)/include/linux/six.h include/linux/
-	git add include/linux/six.h
 	cp $(LINUX_DIR)/include/linux/list_nulls.h include/linux/
 	git add include/linux/list_nulls.h
 	cp $(LINUX_DIR)/include/linux/poison.h include/linux/
