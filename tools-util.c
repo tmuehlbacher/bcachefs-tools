@@ -671,6 +671,10 @@ struct bbpos bbpos_parse(char *buf)
 		die("invalid bbpos %s", buf);
 
 	ret.btree = read_string_list_or_die(field, bch2_btree_ids, "btree id");
+
+	if (!s)
+		die("invalid bbpos %s", buf);
+
 	ret.pos = bpos_parse(s);
 	return ret;
 }
