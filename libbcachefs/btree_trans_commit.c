@@ -97,6 +97,7 @@ bool bch2_btree_bset_insert_key(struct btree_trans *trans,
 	EBUG_ON(bpos_gt(insert->k.p, b->data->max_key));
 	EBUG_ON(insert->k.u64s >
 		bch_btree_keys_u64s_remaining(trans->c, b));
+	EBUG_ON(!b->c.level && !bpos_eq(insert->k.p, path->pos));
 
 	k = bch2_btree_node_iter_peek_all(node_iter, b);
 	if (k && bkey_cmp_left_packed(b, k, &insert->k.p))
@@ -800,7 +801,6 @@ static noinline int bch2_trans_commit_bkey_invalid(struct btree_trans *trans, un
 
 	bch2_inconsistent_error(c);
 	bch2_dump_trans_updates(trans);
-	printbuf_exit(err);
 
 	return -EINVAL;
 }
@@ -816,25 +816,6 @@ static inline int do_bch2_trans_commit(struct btree_trans *trans, unsigned flags
 	struct bch_fs *c = trans->c;
 	struct btree_insert_entry *i;
 	int ret = 0, u64s_delta = 0;
-
-#ifdef CONFIG_BCACHEFS_DEBUG
-	trans_for_each_update(trans, i) {
-		struct printbuf buf = PRINTBUF;
-		enum bkey_invalid_flags invalid_flags = 0;
-
-		if (!(flags & BTREE_INSERT_JOURNAL_REPLAY))
-			invalid_flags |= BKEY_INVALID_WRITE|BKEY_INVALID_COMMIT;
-
-		if (unlikely(bch2_bkey_invalid(c, bkey_i_to_s_c(i->k),
-					       i->bkey_type, invalid_flags, &buf)))
-			ret = bch2_trans_commit_bkey_invalid(trans, flags, i, &buf);
-		btree_insert_entry_checks(trans, i);
-		printbuf_exit(&buf);
-
-		if (ret)
-			return ret;
-	}
-#endif
 
 	trans_for_each_update(trans, i) {
 		if (i->cached)
@@ -1047,6 +1028,25 @@ int __bch2_trans_commit(struct btree_trans *trans, unsigned flags)
 	ret = bch2_trans_commit_run_triggers(trans);
 	if (ret)
 		goto out_reset;
+
+#ifdef CONFIG_BCACHEFS_DEBUG
+	trans_for_each_update(trans, i) {
+		struct printbuf buf = PRINTBUF;
+		enum bkey_invalid_flags invalid_flags = 0;
+
+		if (!(flags & BTREE_INSERT_JOURNAL_REPLAY))
+			invalid_flags |= BKEY_INVALID_WRITE|BKEY_INVALID_COMMIT;
+
+		if (unlikely(bch2_bkey_invalid(c, bkey_i_to_s_c(i->k),
+					       i->bkey_type, invalid_flags, &buf)))
+			ret = bch2_trans_commit_bkey_invalid(trans, flags, i, &buf);
+		btree_insert_entry_checks(trans, i);
+		printbuf_exit(&buf);
+
+		if (ret)
+			return ret;
+	}
+#endif
 
 	if (unlikely(!test_bit(BCH_FS_MAY_GO_RW, &c->flags))) {
 		ret = do_bch2_trans_commit_to_journal_replay(trans);
