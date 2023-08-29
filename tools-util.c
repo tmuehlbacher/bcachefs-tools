@@ -17,6 +17,7 @@
 #include <blkid.h>
 #include <uuid/uuid.h>
 
+#include "libbcachefs.h"
 #include "libbcachefs/bcachefs_ioctl.h"
 #include "linux/sort.h"
 #include "tools-util.h"
@@ -212,22 +213,24 @@ unsigned get_blocksize(int fd)
 }
 
 /* Open a block device, do magic blkid stuff to probe for existing filesystems: */
-int open_for_format(const char *dev, bool force)
+int open_for_format(struct dev_opts *dev, bool force)
 {
 	blkid_probe pr;
 	const char *fs_type = NULL, *fs_label = NULL;
 	size_t fs_type_len, fs_label_len;
 
-	int fd = open(dev, O_RDWR|O_EXCL);
-	if (fd < 0)
-		die("Error opening device to format %s: %m", dev);
+	dev->bdev = blkdev_get_by_path(dev->path, BLK_OPEN_READ|BLK_OPEN_WRITE|BLK_OPEN_EXCL,
+				       dev, NULL);
+	int ret = PTR_ERR_OR_ZERO(dev->bdev);
+	if (ret < 0)
+		die("Error opening device to format %s: %s", dev->path, strerror(-ret));
 
 	if (force)
-		return fd;
+		return 0;
 
 	if (!(pr = blkid_new_probe()))
 		die("blkid error 1");
-	if (blkid_probe_set_device(pr, fd, 0, 0))
+	if (blkid_probe_set_device(pr, dev->bdev->bd_buffered_fd, 0, 0))
 		die("blkid error 2");
 	if (blkid_probe_enable_partitions(pr, true))
 		die("blkid error 3");
@@ -240,19 +243,19 @@ int open_for_format(const char *dev, bool force)
 	if (fs_type) {
 		if (fs_label)
 			printf("%s contains a %s filesystem labelled '%s'\n",
-			       dev, fs_type, fs_label);
+			       dev->path, fs_type, fs_label);
 		else
 			printf("%s contains a %s filesystem\n",
-			       dev, fs_type);
+			       dev->path, fs_type);
 		fputs("Proceed anyway?", stdout);
 		if (!ask_yn())
 			exit(EXIT_FAILURE);
 		while (blkid_do_probe(pr) == 0)
-    			blkid_do_wipe(pr, 0);
+			blkid_do_wipe(pr, 0);
 	}
 
 	blkid_free_probe(pr);
-	return fd;
+	return ret;
 }
 
 bool ask_yn(void)

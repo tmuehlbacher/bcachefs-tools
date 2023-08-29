@@ -230,8 +230,11 @@ int cmd_format(int argc, char *argv[])
 		initialize = false;
 	}
 
-	darray_for_each(devices, dev)
-		dev->fd = open_for_format(dev->path, force);
+	darray_for_each(devices, dev) {
+		int ret = open_for_format(dev, force);
+		if (ret)
+			die("Error opening %s: %s", dev_opts.path, strerror(-ret));
+	}
 
 	struct bch_sb *sb =
 		bch2_format(fs_opt_strs,

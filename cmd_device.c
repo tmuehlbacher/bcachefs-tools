@@ -113,7 +113,9 @@ int cmd_device_add(int argc, char *argv[])
 
 	struct bchfs_handle fs = bcache_fs_open(fs_path);
 
-	dev_opts.fd = open_for_format(dev_opts.path, force);
+	int ret = open_for_format(&dev_opts, force);
+	if (ret)
+		die("Error opening %s: %s", dev_opts.path, strerror(-ret));
 
 	struct bch_opt_strs fs_opt_strs;
 	memset(&fs_opt_strs, 0, sizeof(fs_opt_strs));
@@ -130,8 +132,8 @@ int cmd_device_add(int argc, char *argv[])
 					format_opts,
 					&dev_opts, 1);
 	free(sb);
-	fsync(dev_opts.fd);
-	close(dev_opts.fd);
+	fsync(dev_opts.bdev->bd_buffered_fd);
+	close(dev_opts.bdev->bd_buffered_fd);
 
 	bchu_disk_add(fs, dev_opts.path);
 	return 0;

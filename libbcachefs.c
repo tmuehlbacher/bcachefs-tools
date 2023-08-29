@@ -67,7 +67,7 @@ static u64 min_size(unsigned bucket_size)
 void bch2_pick_bucket_size(struct bch_opts opts, struct dev_opts *dev)
 {
 	if (!dev->size)
-		dev->size = get_size(dev->fd);
+		dev->size = get_size(dev->bdev->bd_buffered_fd);
 
 	if (!dev->bucket_size) {
 		if (dev->size < min_size(opts.block_size))
@@ -154,8 +154,7 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 	unsigned opt_id;
 
 	for (i = devs; i < devs + nr_devs; i++)
-		max_dev_block_size = max(max_dev_block_size,
-					 get_blocksize(i->fd));
+		max_dev_block_size = max(max_dev_block_size, get_blocksize(i->bdev->bd_buffered_fd));
 
 	/* calculate block size: */
 	if (!opt_defined(fs_opts, block_size)) {
@@ -312,12 +311,12 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 			/* Zero start of disk */
 			static const char zeroes[BCH_SB_SECTOR << 9];
 
-			xpwrite(i->fd, zeroes, BCH_SB_SECTOR << 9, 0,
+			xpwrite(i->bdev->bd_buffered_fd, zeroes, BCH_SB_SECTOR << 9, 0,
 				"zeroing start of disk");
 		}
 
-		bch2_super_write(i->fd, sb.sb);
-		close(i->fd);
+		bch2_super_write(i->bdev->bd_buffered_fd, sb.sb);
+		close(i->bdev->bd_buffered_fd);
 	}
 
 	return sb.sb;
