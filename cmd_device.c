@@ -484,7 +484,7 @@ int cmd_device_resize(int argc, char *argv[])
 
 	char *size_arg = arg_pop();
 	if (!size_arg)
-		size = get_size(dev, dev_fd);
+		size = get_size(dev_fd);
 	else if (bch2_strtoull_h(size_arg, &size))
 		die("invalid size");
 

@@ -72,7 +72,7 @@ static void add_l2(struct qcow2_image *img, u64 src_blk, u64 dst_offset)
 void qcow2_write_image(int infd, int outfd, ranges *data,
 		       unsigned block_size)
 {
-	u64 image_size = get_size(NULL, infd);
+	u64 image_size = get_size(infd);
 	unsigned l2_size = block_size / sizeof(u64);
 	unsigned l1_size = DIV_ROUND_UP(image_size, (u64) block_size * l2_size);
 	struct qcow2_hdr hdr = { 0 };

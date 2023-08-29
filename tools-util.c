@@ -186,7 +186,7 @@ ssize_t read_string_list_or_die(const char *opt, const char * const list[],
 }
 
 /* Returns size of file or block device: */
-u64 get_size(const char *path, int fd)
+u64 get_size(int fd)
 {
 	struct stat statbuf = xfstat(fd);
 
@@ -199,7 +199,7 @@ u64 get_size(const char *path, int fd)
 }
 
 /* Returns blocksize, in bytes: */
-unsigned get_blocksize(const char *path, int fd)
+unsigned get_blocksize(int fd)
 {
 	struct stat statbuf = xfstat(fd);
 

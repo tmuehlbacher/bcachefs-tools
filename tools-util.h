@@ -62,8 +62,8 @@ u64 read_file_u64(int, const char *);
 ssize_t read_string_list_or_die(const char *, const char * const[],
 				const char *);
 
-u64 get_size(const char *, int);
-unsigned get_blocksize(const char *, int);
+u64 get_size(int);
+unsigned get_blocksize(int);
 int open_for_format(const char *, bool);
 
 bool ask_yn(void);

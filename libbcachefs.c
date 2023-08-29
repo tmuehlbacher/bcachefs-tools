@@ -67,7 +67,7 @@ static u64 min_size(unsigned bucket_size)
 void bch2_pick_bucket_size(struct bch_opts opts, struct dev_opts *dev)
 {
 	if (!dev->size)
-		dev->size = get_size(dev->path, dev->fd);
+		dev->size = get_size(dev->fd);
 
 	if (!dev->bucket_size) {
 		if (dev->size < min_size(opts.block_size))
@@ -155,7 +155,7 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 
 	for (i = devs; i < devs + nr_devs; i++)
 		max_dev_block_size = max(max_dev_block_size,
-					 get_blocksize(i->path, i->fd));
+					 get_blocksize(i->fd));
 
 	/* calculate block size: */
 	if (!opt_defined(fs_opts, block_size)) {
