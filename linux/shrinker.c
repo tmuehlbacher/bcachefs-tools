@@ -131,7 +131,21 @@ void run_shrinkers(gfp_t gfp_mask, bool allocation_failed)
 static int shrinker_thread(void *arg)
 {
 	while (!kthread_should_stop()) {
-		sleep(1);
+		struct timespec to;
+		int v;
+
+		clock_gettime(CLOCK_MONOTONIC, &to);
+		to.tv_sec += 1;
+		__set_current_state(TASK_INTERRUPTIBLE);
+		errno = 0;
+		while ((v = READ_ONCE(current->state)) != TASK_RUNNING &&
+		       errno != ETIMEDOUT)
+			futex(&current->state, FUTEX_WAIT_BITSET|FUTEX_PRIVATE_FLAG,
+			      v, &to, NULL, (uint32_t)~0);
+		if (kthread_should_stop())
+			break;
+		if (v != TASK_RUNNING)
+			__set_current_state(TASK_RUNNING);
 		run_shrinkers(GFP_KERNEL, false);
 	}
 
