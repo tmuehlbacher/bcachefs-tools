@@ -111,6 +111,7 @@ int cmd_set_passphrase(int argc, char *argv[])
 		die("error encrypting key");
 	crypt->key = new_key;
 
+	bch2_revoke_key(c->disk_sb.sb);
 	bch2_write_super(c);
 	bch2_fs_stop(c);
 	return 0;

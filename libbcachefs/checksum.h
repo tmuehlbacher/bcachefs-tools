@@ -48,6 +48,7 @@ struct bch_csum bch2_checksum(struct bch_fs *, unsigned, struct nonce,
 
 int bch2_chacha_encrypt_key(struct bch_key *, struct nonce, void *, size_t);
 int bch2_request_key(struct bch_sb *, struct bch_key *);
+int bch2_revoke_key(struct bch_sb *);
 
 int bch2_encrypt(struct bch_fs *, unsigned, struct nonce,
 		 void *data, size_t);
