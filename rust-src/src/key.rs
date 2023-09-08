@@ -41,10 +41,11 @@ fn check_for_key(key_name: &std::ffi::CStr) -> anyhow::Result<bool> {
     if key_id > 0 {
         info!("Key has became available");
         Ok(true)
-    } else if errno::errno().0 != libc::ENOKEY {
-        Err(crate::ErrnoError(errno::errno()).into())
     } else {
-        Ok(false)
+        match errno::errno().0 {
+            libc::ENOKEY | libc::EKEYREVOKED => Ok(false),
+            _ => Err(crate::ErrnoError(errno::errno()).into()),
+        }
     }
 }
 
