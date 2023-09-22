@@ -188,6 +188,24 @@ int main(int argc, char *argv[])
 
 	full_cmd = argv[0];
 
+	/* Are we being called via a symlink? */
+
+	if (strstr(full_cmd, "mkfs"))
+		return cmd_format(argc, argv);
+
+	if (strstr(full_cmd, "fsck"))
+		return cmd_fsck(argc, argv);
+
+#ifdef BCACHEFS_FUSE
+	if (strstr(full_cmd, "mount.fuse"))
+		return cmd_fusemount(argc, argv);
+#endif
+
+#ifndef BCACHEFS_NO_RUST
+	if (strstr(full_cmd, "mount"))
+		return cmd_mount(argc, argv);
+#endif
+
 	setvbuf(stdout, NULL, _IOLBF, 0);
 
 	char *cmd = pop_cmd(&argc, argv);
@@ -253,9 +271,8 @@ int main(int argc, char *argv[])
 	if (!strcmp(cmd, "setattr"))
 		return cmd_setattr(argc, argv);
 #ifndef BCACHEFS_NO_RUST
-	if (!strcmp(cmd, "mount")) {
+	if (!strcmp(cmd, "mount"))
 		return cmd_mount(argc, argv);
-	}
 #endif
 
 #ifdef BCACHEFS_FUSE
