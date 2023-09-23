@@ -86,10 +86,9 @@ static long bch2_ioctl_assemble(struct bch_ioctl_assemble __user *user_arg)
 		devs[i] = strndup_user((const char __user *)(unsigned long)
 				       user_devs[i],
 				       PATH_MAX);
-		if (!devs[i]) {
-			ret = -ENOMEM;
+		ret= PTR_ERR_OR_ZERO(devs[i]);
+		if (ret)
 			goto err;
-		}
 	}
 
 	c = bch2_fs_open(devs, arg.nr_devs, bch2_opts_empty());
@@ -117,8 +116,9 @@ static long bch2_ioctl_incremental(struct bch_ioctl_incremental __user *user_arg
 		return -EINVAL;
 
 	path = strndup_user((const char __user *)(unsigned long) arg.dev, PATH_MAX);
-	if (!path)
-		return -ENOMEM;
+	ret = PTR_ERR_OR_ZERO(path);
+	if (ret)
+		return ret;
 
 	err = bch2_fs_open_incremental(path);
 	kfree(path);
@@ -149,9 +149,10 @@ static long bch2_global_ioctl(unsigned cmd, void __user *arg)
 static long bch2_ioctl_query_uuid(struct bch_fs *c,
 			struct bch_ioctl_query_uuid __user *user_arg)
 {
-	return copy_to_user(&user_arg->uuid,
-			    &c->sb.user_uuid,
-			    sizeof(c->sb.user_uuid));
+	if (copy_to_user(&user_arg->uuid, &c->sb.user_uuid,
+			 sizeof(c->sb.user_uuid)))
+		return -EFAULT;
+	return 0;
 }
 
 #if 0
@@ -188,8 +189,9 @@ static long bch2_ioctl_disk_add(struct bch_fs *c, struct bch_ioctl_disk arg)
 		return -EINVAL;
 
 	path = strndup_user((const char __user *)(unsigned long) arg.dev, PATH_MAX);
-	if (!path)
-		return -ENOMEM;
+	ret = PTR_ERR_OR_ZERO(path);
+	if (ret)
+		return ret;
 
 	ret = bch2_dev_add(c, path);
 	kfree(path);
@@ -230,8 +232,9 @@ static long bch2_ioctl_disk_online(struct bch_fs *c, struct bch_ioctl_disk arg)
 		return -EINVAL;
 
 	path = strndup_user((const char __user *)(unsigned long) arg.dev, PATH_MAX);
-	if (!path)
-		return -ENOMEM;
+	ret = PTR_ERR_OR_ZERO(path);
+	if (ret)
+		return ret;
 
 	ret = bch2_dev_online(c, path);
 	kfree(path);
@@ -338,7 +341,10 @@ static ssize_t bch2_data_job_read(struct file *file, char __user *buf,
 	if (len < sizeof(e))
 		return -EINVAL;
 
-	return copy_to_user(buf, &e, sizeof(e)) ?: sizeof(e);
+	if (copy_to_user(buf, &e, sizeof(e)))
+		return -EFAULT;
+
+	return sizeof(e);
 }
 
 static const struct file_operations bcachefs_data_ops = {
@@ -417,7 +423,7 @@ static long bch2_ioctl_fs_usage(struct bch_fs *c,
 	if (get_user(replica_entries_bytes, &user_arg->replica_entries_bytes))
 		return -EFAULT;
 
-	arg = kzalloc(sizeof(*arg) + replica_entries_bytes, GFP_KERNEL);
+	arg = kzalloc(size_add(sizeof(*arg), replica_entries_bytes), GFP_KERNEL);
 	if (!arg)
 		return -ENOMEM;
 
@@ -466,9 +472,11 @@ static long bch2_ioctl_fs_usage(struct bch_fs *c,
 	percpu_up_read(&c->mark_lock);
 	kfree(src);
 
-	if (!ret)
-		ret = copy_to_user(user_arg, arg,
-			sizeof(*arg) + arg->replica_entries_bytes);
+	if (ret)
+		goto err;
+	if (copy_to_user(user_arg, arg,
+			 sizeof(*arg) + arg->replica_entries_bytes))
+		ret = -EFAULT;
 err:
 	kfree(arg);
 	return ret;
@@ -513,7 +521,10 @@ static long bch2_ioctl_dev_usage(struct bch_fs *c,
 
 	percpu_ref_put(&ca->ref);
 
-	return copy_to_user(user_arg, &arg, sizeof(arg));
+	if (copy_to_user(user_arg, &arg, sizeof(arg)))
+		return -EFAULT;
+
+	return 0;
 }
 
 static long bch2_ioctl_read_super(struct bch_fs *c,
@@ -550,8 +561,9 @@ static long bch2_ioctl_read_super(struct bch_fs *c,
 		goto err;
 	}
 
-	ret = copy_to_user((void __user *)(unsigned long)arg.sb,
-			   sb, vstruct_bytes(sb));
+	if (copy_to_user((void __user *)(unsigned long)arg.sb, sb,
+			 vstruct_bytes(sb)))
+		ret = -EFAULT;
 err:
 	if (!IS_ERR_OR_NULL(ca))
 		percpu_ref_put(&ca->ref);
@@ -615,6 +627,9 @@ static long bch2_ioctl_disk_resize_journal(struct bch_fs *c,
 
 	if ((arg.flags & ~BCH_BY_INDEX) ||
 	    arg.pad)
+		return -EINVAL;
+
+	if (arg.nbuckets > U32_MAX)
 		return -EINVAL;
 
 	ca = bch2_device_lookup(c, arg.dev, arg.flags);

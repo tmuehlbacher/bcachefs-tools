@@ -10,6 +10,7 @@
 #include "error.h"
 #include "extents.h"
 #include "inode.h"
+#include "io_misc.h"
 #include "lru.h"
 #include "quota.h"
 #include "reflink.h"
@@ -25,7 +26,7 @@ const char * const bch2_bkey_types[] = {
 };
 
 static int deleted_key_invalid(const struct bch_fs *c, struct bkey_s_c k,
-			       unsigned flags, struct printbuf *err)
+			       enum bkey_invalid_flags flags, struct printbuf *err)
 {
 	return 0;
 }
@@ -39,7 +40,7 @@ static int deleted_key_invalid(const struct bch_fs *c, struct bkey_s_c k,
 })
 
 static int empty_val_key_invalid(const struct bch_fs *c, struct bkey_s_c k,
-				 unsigned flags, struct printbuf *err)
+				 enum bkey_invalid_flags flags, struct printbuf *err)
 {
 	if (bkey_val_bytes(k.k)) {
 		prt_printf(err, "incorrect value size (%zu != 0)",
@@ -55,7 +56,7 @@ static int empty_val_key_invalid(const struct bch_fs *c, struct bkey_s_c k,
 })
 
 static int key_type_cookie_invalid(const struct bch_fs *c, struct bkey_s_c k,
-				   unsigned flags, struct printbuf *err)
+				   enum bkey_invalid_flags flags, struct printbuf *err)
 {
 	return 0;
 }
@@ -70,7 +71,7 @@ static int key_type_cookie_invalid(const struct bch_fs *c, struct bkey_s_c k,
 })
 
 static int key_type_inline_data_invalid(const struct bch_fs *c, struct bkey_s_c k,
-					unsigned flags, struct printbuf *err)
+					enum bkey_invalid_flags flags, struct printbuf *err)
 {
 	return 0;
 }
@@ -91,7 +92,7 @@ static void key_type_inline_data_to_text(struct printbuf *out, struct bch_fs *c,
 })
 
 static int key_type_set_invalid(const struct bch_fs *c, struct bkey_s_c k,
-				unsigned flags, struct printbuf *err)
+				enum bkey_invalid_flags flags, struct printbuf *err)
 {
 	if (bkey_val_bytes(k.k)) {
 		prt_printf(err, "incorrect value size (%zu != %zu)",
@@ -368,7 +369,6 @@ void __bch2_bkey_compat(unsigned level, enum btree_id btree_id,
 {
 	const struct bkey_ops *ops;
 	struct bkey uk;
-	struct bkey_s u;
 	unsigned nr_compat = 5;
 	int i;
 
@@ -433,7 +433,9 @@ void __bch2_bkey_compat(unsigned level, enum btree_id btree_id,
 		}
 
 		break;
-	case 4:
+	case 4: {
+		struct bkey_s u;
+
 		if (!bkey_packed(k)) {
 			u = bkey_i_to_s(packed_to_bkey(k));
 		} else {
@@ -450,6 +452,7 @@ void __bch2_bkey_compat(unsigned level, enum btree_id btree_id,
 		if (ops->compat)
 			ops->compat(btree_id, version, big_endian, write, u);
 		break;
+	}
 	default:
 		BUG();
 	}

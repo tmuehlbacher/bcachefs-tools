@@ -6,7 +6,7 @@
 
 #include "buckets.h"
 #include "fs.h"
-#include "io_types.h"
+#include "io_write_types.h"
 #include "quota.h"
 
 #include <linux/uio.h>
@@ -165,7 +165,7 @@ int __must_check bch2_write_inode_size(struct bch_fs *,
 
 int bch2_fsync(struct file *, loff_t, loff_t, int);
 
-int bch2_truncate(struct mnt_idmap *,
+int bchfs_truncate(struct mnt_idmap *,
 		  struct bch_inode_info *, struct iattr *);
 long bch2_fallocate_dispatch(struct file *, int, loff_t, loff_t);
 

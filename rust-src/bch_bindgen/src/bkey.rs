@@ -47,6 +47,8 @@ pub enum BkeyValC<'a> {
     inode_v3(&'a c::bch_inode_v3),
     bucket_gens(&'a c::bch_bucket_gens),
     snapshot_tree(&'a c::bch_snapshot_tree),
+    logged_op_truncate(&'a c::bch_logged_op_truncate),
+    logged_op_finsert(&'a c::bch_logged_op_finsert),
 }
 
 impl<'a, 'b> BkeySC<'a> {
@@ -96,6 +98,8 @@ impl<'a, 'b> BkeySC<'a> {
             KEY_TYPE_inode_v3               => inode_v3(unsafe { transmute(self.v) }),
             KEY_TYPE_bucket_gens            => bucket_gens(unsafe { transmute(self.v) }),
             KEY_TYPE_snapshot_tree          => snapshot_tree(unsafe { transmute(self.v) }),
+            KEY_TYPE_logged_op_truncate     => logged_op_truncate(unsafe { transmute(self.v) }),
+            KEY_TYPE_logged_op_finsert      => logged_op_finsert(unsafe { transmute(self.v) }),
             KEY_TYPE_MAX                    => unreachable!(),
         }
     }

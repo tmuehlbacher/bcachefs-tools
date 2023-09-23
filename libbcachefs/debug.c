@@ -19,7 +19,6 @@
 #include "extents.h"
 #include "fsck.h"
 #include "inode.h"
-#include "io.h"
 #include "super.h"
 
 #include <linux/console.h>
@@ -154,10 +153,8 @@ void __bch2_btree_verify(struct bch_fs *c, struct btree *b)
 	BUG_ON(b->nsets != 1);
 
 	for (k = inmemory->start; k != vstruct_last(inmemory); k = bkey_p_next(k))
-		if (k->type == KEY_TYPE_btree_ptr_v2) {
-			struct bch_btree_ptr_v2 *v = (void *) bkeyp_val(&b->format, k);
-			v->mem_ptr = 0;
-		}
+		if (k->type == KEY_TYPE_btree_ptr_v2)
+			((struct bch_btree_ptr_v2 *) bkeyp_val(&b->format, k))->mem_ptr = 0;
 
 	v = c->verify_data;
 	bkey_copy(&v->key, &b->key);
@@ -322,16 +319,16 @@ static ssize_t flush_buf(struct dump_iter *i)
 {
 	if (i->buf.pos) {
 		size_t bytes = min_t(size_t, i->buf.pos, i->size);
-		int err = copy_to_user(i->ubuf, i->buf.buf, bytes);
+		int copied = bytes - copy_to_user(i->ubuf, i->buf.buf, bytes);
 
-		if (err)
-			return err;
+		i->ret	 += copied;
+		i->ubuf	 += copied;
+		i->size	 -= copied;
+		i->buf.pos -= copied;
+		memmove(i->buf.buf, i->buf.buf + copied, i->buf.pos);
 
-		i->ret	 += bytes;
-		i->ubuf	 += bytes;
-		i->size	 -= bytes;
-		i->buf.pos -= bytes;
-		memmove(i->buf.buf, i->buf.buf + bytes, i->buf.pos);
+		if (copied != bytes)
+			return -EFAULT;
 	}
 
 	return i->size ? 0 : i->ret;
@@ -369,7 +366,7 @@ static ssize_t bch2_read_btree(struct file *file, char __user *buf,
 			       size_t size, loff_t *ppos)
 {
 	struct dump_iter *i = file->private_data;
-	struct btree_trans trans;
+	struct btree_trans *trans;
 	struct btree_iter iter;
 	struct bkey_s_c k;
 	ssize_t ret;
@@ -382,17 +379,17 @@ static ssize_t bch2_read_btree(struct file *file, char __user *buf,
 	if (ret)
 		return ret;
 
-	bch2_trans_init(&trans, i->c, 0, 0);
-	ret = for_each_btree_key2(&trans, iter, i->id, i->from,
+	trans = bch2_trans_get(i->c);
+	ret = for_each_btree_key2(trans, iter, i->id, i->from,
 				  BTREE_ITER_PREFETCH|
 				  BTREE_ITER_ALL_SNAPSHOTS, k, ({
 		bch2_bkey_val_to_text(&i->buf, i->c, k);
 		prt_newline(&i->buf);
-		drop_locks_do(&trans, flush_buf(i));
+		drop_locks_do(trans, flush_buf(i));
 	}));
 	i->from = iter.pos;
 
-	bch2_trans_exit(&trans);
+	bch2_trans_put(trans);
 
 	if (!ret)
 		ret = flush_buf(i);
@@ -411,7 +408,7 @@ static ssize_t bch2_read_btree_formats(struct file *file, char __user *buf,
 				       size_t size, loff_t *ppos)
 {
 	struct dump_iter *i = file->private_data;
-	struct btree_trans trans;
+	struct btree_trans *trans;
 	struct btree_iter iter;
 	struct btree *b;
 	ssize_t ret;
@@ -427,26 +424,26 @@ static ssize_t bch2_read_btree_formats(struct file *file, char __user *buf,
 	if (bpos_eq(SPOS_MAX, i->from))
 		return i->ret;
 
-	bch2_trans_init(&trans, i->c, 0, 0);
+	trans = bch2_trans_get(i->c);
 retry:
-	bch2_trans_begin(&trans);
+	bch2_trans_begin(trans);
 
-	for_each_btree_node(&trans, iter, i->id, i->from, 0, b, ret) {
+	for_each_btree_node(trans, iter, i->id, i->from, 0, b, ret) {
 		bch2_btree_node_to_text(&i->buf, i->c, b);
 		i->from = !bpos_eq(SPOS_MAX, b->key.k.p)
 			? bpos_successor(b->key.k.p)
 			: b->key.k.p;
 
-		ret = drop_locks_do(&trans, flush_buf(i));
+		ret = drop_locks_do(trans, flush_buf(i));
 		if (ret)
 			break;
 	}
-	bch2_trans_iter_exit(&trans, &iter);
+	bch2_trans_iter_exit(trans, &iter);
 
 	if (bch2_err_matches(ret, BCH_ERR_transaction_restart))
 		goto retry;
 
-	bch2_trans_exit(&trans);
+	bch2_trans_put(trans);
 
 	if (!ret)
 		ret = flush_buf(i);
@@ -465,7 +462,7 @@ static ssize_t bch2_read_bfloat_failed(struct file *file, char __user *buf,
 				       size_t size, loff_t *ppos)
 {
 	struct dump_iter *i = file->private_data;
-	struct btree_trans trans;
+	struct btree_trans *trans;
 	struct btree_iter iter;
 	struct bkey_s_c k;
 	ssize_t ret;
@@ -478,9 +475,9 @@ static ssize_t bch2_read_bfloat_failed(struct file *file, char __user *buf,
 	if (ret)
 		return ret;
 
-	bch2_trans_init(&trans, i->c, 0, 0);
+	trans = bch2_trans_get(i->c);
 
-	ret = for_each_btree_key2(&trans, iter, i->id, i->from,
+	ret = for_each_btree_key2(trans, iter, i->id, i->from,
 				  BTREE_ITER_PREFETCH|
 				  BTREE_ITER_ALL_SNAPSHOTS, k, ({
 		struct btree_path_level *l = &iter.path->l[0];
@@ -493,11 +490,11 @@ static ssize_t bch2_read_bfloat_failed(struct file *file, char __user *buf,
 		}
 
 		bch2_bfloat_to_text(&i->buf, l->b, _k);
-		drop_locks_do(&trans, flush_buf(i));
+		drop_locks_do(trans, flush_buf(i));
 	}));
 	i->from = iter.pos;
 
-	bch2_trans_exit(&trans);
+	bch2_trans_put(trans);
 
 	if (!ret)
 		ret = flush_buf(i);

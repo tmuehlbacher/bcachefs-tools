@@ -9,7 +9,7 @@
 #include "ec.h"
 #include "error.h"
 #include "extents.h"
-#include "io.h"
+#include "io_write.h"
 #include "keylist.h"
 #include "move.h"
 #include "nocow_locking.h"
@@ -49,10 +49,6 @@ static void trace_move_extent_fail2(struct data_update *m,
 	if (insert) {
 		i = 0;
 		bkey_for_each_ptr_decode(old.k, bch2_bkey_ptrs_c(old), p, entry) {
-			struct bkey_s new_s;
-			new_s.k = (void *) new.k;
-			new_s.v = (void *) new.v;
-
 			if (((1U << i) & m->data_opts.rewrite_ptrs) &&
 			    (ptr = bch2_extent_has_ptr(old, p, bkey_i_to_s(insert))) &&
 			    !ptr->cached)
@@ -307,7 +303,7 @@ out:
 
 int bch2_data_update_index_update(struct bch_write_op *op)
 {
-	return bch2_trans_run(op->c, __bch2_data_update_index_update(&trans, op));
+	return bch2_trans_run(op->c, __bch2_data_update_index_update(trans, op));
 }
 
 void bch2_data_update_read_done(struct data_update *m,

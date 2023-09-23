@@ -132,13 +132,21 @@ journal_error_check_stuck(struct journal *j, int error, unsigned flags)
 	return stuck;
 }
 
-/* journal entry close/open: */
-
-void __bch2_journal_buf_put(struct journal *j)
+/*
+ * Final processing when the last reference of a journal buffer has been
+ * dropped. Drop the pin list reference acquired at journal entry open and write
+ * the buffer, if requested.
+ */
+void bch2_journal_buf_put_final(struct journal *j, u64 seq, bool write)
 {
 	struct bch_fs *c = container_of(j, struct bch_fs, journal);
 
-	closure_call(&j->io, bch2_journal_write, c->io_complete_wq, NULL);
+	lockdep_assert_held(&j->lock);
+
+	if (__bch2_journal_pin_put(j, seq))
+		bch2_journal_reclaim_fast(j);
+	if (write)
+		closure_call(&j->io, bch2_journal_write, c->io_complete_wq, NULL);
 }
 
 /*
@@ -204,13 +212,11 @@ static void __journal_entry_close(struct journal *j, unsigned closed_val)
 	buf->data->last_seq	= cpu_to_le64(buf->last_seq);
 	BUG_ON(buf->last_seq > le64_to_cpu(buf->data->seq));
 
-	__bch2_journal_pin_put(j, le64_to_cpu(buf->data->seq));
-
 	cancel_delayed_work(&j->write_work);
 
 	bch2_journal_space_available(j);
 
-	bch2_journal_buf_put(j, old.idx);
+	__bch2_journal_buf_put(j, old.idx, le64_to_cpu(buf->data->seq));
 }
 
 void bch2_journal_halt(struct journal *j)
@@ -588,8 +594,13 @@ out:
 
 /**
  * bch2_journal_flush_seq_async - wait for a journal entry to be written
+ * @j:		journal object
+ * @seq:	seq to flush
+ * @parent:	closure object to wait with
+ * Returns:	1 if @seq has already been flushed, 0 if @seq is being flushed,
+ *		-EIO if @seq will never be flushed
  *
- * like bch2_journal_wait_on_seq, except that it triggers a write immediately if
+ * Like bch2_journal_wait_on_seq, except that it triggers a write immediately if
  * necessary
  */
 int bch2_journal_flush_seq_async(struct journal *j, u64 seq,
@@ -829,12 +840,12 @@ static int __bch2_set_nr_journal_buckets(struct bch_dev *ca, unsigned nr,
 				break;
 
 			ret = bch2_trans_run(c,
-				bch2_trans_mark_metadata_bucket(&trans, ca,
+				bch2_trans_mark_metadata_bucket(trans, ca,
 						ob[nr_got]->bucket, BCH_DATA_journal,
 						ca->mi.bucket_size));
 			if (ret) {
 				bch2_open_bucket_put(c, ob[nr_got]);
-				bch_err(c, "error marking new journal buckets: %s", bch2_err_str(ret));
+				bch_err_msg(c, ret, "marking new journal buckets");
 				break;
 			}
 
@@ -910,7 +921,7 @@ err_unblock:
 	if (ret && !new_fs)
 		for (i = 0; i < nr_got; i++)
 			bch2_trans_run(c,
-				bch2_trans_mark_metadata_bucket(&trans, ca,
+				bch2_trans_mark_metadata_bucket(trans, ca,
 						bu[i], BCH_DATA_free, 0));
 err_free:
 	if (!new_fs)
@@ -944,7 +955,7 @@ int bch2_set_nr_journal_buckets(struct bch_fs *c, struct bch_dev *ca,
 		goto unlock;
 
 	while (ja->nr < nr) {
-		struct disk_reservation disk_res = { 0, 0 };
+		struct disk_reservation disk_res = { 0, 0, 0 };
 
 		/*
 		 * note: journal buckets aren't really counted as _sectors_ used yet, so

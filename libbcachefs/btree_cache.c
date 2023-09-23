@@ -795,7 +795,7 @@ static noinline struct btree *bch2_btree_node_fill(struct btree_trans *trans,
 	six_unlock_intent(&b->c.lock);
 
 	/* Unlock before doing IO: */
-	if (trans && sync)
+	if (path && sync)
 		bch2_trans_unlock_noassert(trans);
 
 	bch2_btree_node_read(c, b, sync);
@@ -934,7 +934,7 @@ retry:
 	}
 
 	if (unlikely(need_relock)) {
-		int ret = bch2_trans_relock(trans) ?:
+		ret = bch2_trans_relock(trans) ?:
 			bch2_btree_path_relock_intent(trans, path);
 		if (ret) {
 			six_unlock_type(&b->c.lock, lock_type);
@@ -965,11 +965,20 @@ retry:
 }
 
 /**
- * bch_btree_node_get - find a btree node in the cache and lock it, reading it
+ * bch2_btree_node_get - find a btree node in the cache and lock it, reading it
  * in from disk if necessary.
+ *
+ * @trans:	btree transaction object
+ * @path:	btree_path being traversed
+ * @k:		pointer to btree node (generally KEY_TYPE_btree_ptr_v2)
+ * @level:	level of btree node being looked up (0 == leaf node)
+ * @lock_type:	SIX_LOCK_read or SIX_LOCK_intent
+ * @trace_ip:	ip of caller of btree iterator code (i.e. caller of bch2_btree_iter_peek())
  *
  * The btree node will have either a read or a write lock held, depending on
  * the @write parameter.
+ *
+ * Returns: btree node or ERR_PTR()
  */
 struct btree *bch2_btree_node_get(struct btree_trans *trans, struct btree_path *path,
 				  const struct bkey_i *k, unsigned level,
@@ -1016,28 +1025,8 @@ struct btree *bch2_btree_node_get(struct btree_trans *trans, struct btree_path *
 	}
 
 	if (unlikely(btree_node_read_in_flight(b))) {
-		u32 seq = six_lock_seq(&b->c.lock);
-
 		six_unlock_type(&b->c.lock, lock_type);
-		bch2_trans_unlock(trans);
-
-		bch2_btree_node_wait_on_read(b);
-
-		/*
-		 * should_be_locked is not set on this path yet, so we need to
-		 * relock it specifically:
-		 */
-		if (trans) {
-			int ret = bch2_trans_relock(trans) ?:
-				bch2_btree_path_relock_intent(trans, path);
-			if (ret) {
-				BUG_ON(!trans->restarted);
-				return ERR_PTR(ret);
-			}
-		}
-
-		if (!six_relock_type(&b->c.lock, lock_type, seq))
-			return __bch2_btree_node_get(trans, path, k, level, lock_type, trace_ip);
+		return __bch2_btree_node_get(trans, path, k, level, lock_type, trace_ip);
 	}
 
 	prefetch(b->aux_data);

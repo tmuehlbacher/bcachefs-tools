@@ -61,13 +61,11 @@ static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
 	for (i = 0; i < BTREE_ID_NR; i++) {
 		const struct bch_extent_ptr *ptr;
 		struct bkey_ptrs_c ptrs;
-		struct btree_trans trans;
+		struct btree_trans *trans = bch2_trans_get(c);
 		struct btree_iter iter;
 		struct btree *b;
 
-		bch2_trans_init(&trans, c, 0, 0);
-
-		__for_each_btree_node(&trans, iter, i, POS_MIN, 0, 1, 0, b, ret) {
+		__for_each_btree_node(trans, iter, i, POS_MIN, 0, 1, 0, b, ret) {
 			struct btree_node_iter iter;
 			struct bkey u;
 			struct bkey_s_c k;
@@ -97,8 +95,8 @@ static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
 						  btree_bytes(c));
 		}
 
-		bch2_trans_iter_exit(&trans, &iter);
-		bch2_trans_exit(&trans);
+		bch2_trans_iter_exit(trans, &iter);
+		bch2_trans_put(trans);
 	}
 
 	qcow2_write_image(ca->disk_sb.bdev->bd_buffered_fd, fd, &data,

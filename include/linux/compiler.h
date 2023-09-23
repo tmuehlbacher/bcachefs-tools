@@ -65,6 +65,7 @@
 #define unreachable()		__builtin_unreachable()
 #define __same_type(a, b)	__builtin_types_compatible_p(typeof(a), typeof(b))
 #define fallthrough		__attribute__((__fallthrough__))
+#define __noreturn		__attribute__((__noreturn__))
 
 #define ___PASTE(a,b) a##b
 #define __PASTE(a,b) ___PASTE(a,b)

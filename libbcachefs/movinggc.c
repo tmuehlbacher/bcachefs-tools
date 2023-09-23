@@ -13,25 +13,17 @@
 #include "btree_write_buffer.h"
 #include "buckets.h"
 #include "clock.h"
-#include "disk_groups.h"
 #include "errcode.h"
 #include "error.h"
-#include "extents.h"
-#include "eytzinger.h"
-#include "io.h"
-#include "keylist.h"
 #include "lru.h"
 #include "move.h"
 #include "movinggc.h"
-#include "super-io.h"
 #include "trace.h"
 
-#include <linux/bsearch.h>
 #include <linux/freezer.h>
 #include <linux/kthread.h>
 #include <linux/math64.h>
 #include <linux/sched/task.h>
-#include <linux/sort.h>
 #include <linux/wait.h>
 
 struct buckets_in_flight {
@@ -156,7 +148,7 @@ static int bch2_copygc_get_buckets(struct btree_trans *trans,
 	struct bch_fs *c = trans->c;
 	struct btree_iter iter;
 	struct bkey_s_c k;
-	size_t nr_to_get = max(16UL, buckets_in_flight->nr / 4);
+	size_t nr_to_get = max_t(size_t, 16U, buckets_in_flight->nr / 4);
 	size_t saw = 0, in_flight = 0, not_movable = 0, sectors = 0;
 	int ret;
 
@@ -172,7 +164,7 @@ static int bch2_copygc_get_buckets(struct btree_trans *trans,
 				  lru_pos(BCH_LRU_FRAGMENTATION_START, U64_MAX, LRU_TIME_MAX),
 				  0, k, ({
 		struct move_bucket b = { .k.bucket = u64_to_bucket(k.k->p.offset) };
-		int ret = 0;
+		int ret2 = 0;
 
 		saw++;
 
@@ -181,11 +173,11 @@ static int bch2_copygc_get_buckets(struct btree_trans *trans,
 		else if (bucket_in_flight(buckets_in_flight, b.k))
 			in_flight++;
 		else {
-			ret = darray_push(buckets, b) ?: buckets->nr >= nr_to_get;
-			if (ret >= 0)
+			ret2 = darray_push(buckets, b) ?: buckets->nr >= nr_to_get;
+			if (ret2 >= 0)
 				sectors += b.sectors;
 		}
-		ret;
+		ret2;
 	}));
 
 	pr_debug("have: %zu (%zu) saw %zu in flight %zu not movable %zu got %zu (%zu)/%zu buckets ret %i",
@@ -242,7 +234,7 @@ err:
 		ret = 0;
 
 	if (ret < 0 && !bch2_err_matches(ret, EROFS))
-		bch_err(c, "error from bch2_move_data() in copygc: %s", bch2_err_str(ret));
+		bch_err_msg(c, ret, "from bch2_move_data()");
 
 	moved = atomic64_read(&ctxt->stats->sectors_moved) - moved;
 	trace_and_count(c, copygc, c, moved, 0, 0, 0);
@@ -308,25 +300,24 @@ void bch2_copygc_wait_to_text(struct printbuf *out, struct bch_fs *c)
 static int bch2_copygc_thread(void *arg)
 {
 	struct bch_fs *c = arg;
-	struct btree_trans trans;
+	struct btree_trans *trans;
 	struct moving_context ctxt;
 	struct bch_move_stats move_stats;
 	struct io_clock *clock = &c->io_clock[WRITE];
-	struct buckets_in_flight move_buckets;
+	struct buckets_in_flight buckets;
 	u64 last, wait;
 	int ret = 0;
 
-	memset(&move_buckets, 0, sizeof(move_buckets));
+	memset(&buckets, 0, sizeof(buckets));
 
-	ret = rhashtable_init(&move_buckets.table, &bch_move_bucket_params);
+	ret = rhashtable_init(&buckets.table, &bch_move_bucket_params);
 	if (ret) {
-		bch_err(c, "error allocating copygc buckets in flight: %s",
-			bch2_err_str(ret));
+		bch_err_msg(c, ret, "allocating copygc buckets in flight");
 		return ret;
 	}
 
 	set_freezable();
-	bch2_trans_init(&trans, c, 0, 0);
+	trans = bch2_trans_get(c);
 
 	bch2_move_stats_init(&move_stats, "copygc");
 	bch2_moving_ctxt_init(&ctxt, c, NULL, &move_stats,
@@ -334,16 +325,16 @@ static int bch2_copygc_thread(void *arg)
 			      false);
 
 	while (!ret && !kthread_should_stop()) {
-		bch2_trans_unlock(&trans);
+		bch2_trans_unlock(trans);
 		cond_resched();
 
 		if (!c->copy_gc_enabled) {
-			move_buckets_wait(&trans, &ctxt, &move_buckets, true);
+			move_buckets_wait(trans, &ctxt, &buckets, true);
 			kthread_wait_freezable(c->copy_gc_enabled);
 		}
 
 		if (unlikely(freezing(current))) {
-			move_buckets_wait(&trans, &ctxt, &move_buckets, true);
+			move_buckets_wait(trans, &ctxt, &buckets, true);
 			__refrigerator(false);
 			continue;
 		}
@@ -354,7 +345,7 @@ static int bch2_copygc_thread(void *arg)
 		if (wait > clock->max_slop) {
 			c->copygc_wait_at = last;
 			c->copygc_wait = last + wait;
-			move_buckets_wait(&trans, &ctxt, &move_buckets, true);
+			move_buckets_wait(trans, &ctxt, &buckets, true);
 			trace_and_count(c, copygc_wait, c, wait, last + wait);
 			bch2_kthread_io_clock_wait(clock, last + wait,
 					MAX_SCHEDULE_TIMEOUT);
@@ -364,15 +355,15 @@ static int bch2_copygc_thread(void *arg)
 		c->copygc_wait = 0;
 
 		c->copygc_running = true;
-		ret = bch2_copygc(&trans, &ctxt, &move_buckets);
+		ret = bch2_copygc(trans, &ctxt, &buckets);
 		c->copygc_running = false;
 
 		wake_up(&c->copygc_running_wq);
 	}
 
-	move_buckets_wait(&trans, &ctxt, &move_buckets, true);
-	rhashtable_destroy(&move_buckets.table);
-	bch2_trans_exit(&trans);
+	move_buckets_wait(trans, &ctxt, &buckets, true);
+	rhashtable_destroy(&buckets.table);
+	bch2_trans_put(trans);
 	bch2_moving_ctxt_exit(&ctxt);
 
 	return 0;
@@ -404,7 +395,7 @@ int bch2_copygc_start(struct bch_fs *c)
 	t = kthread_create(bch2_copygc_thread, c, "bch-copygc/%s", c->name);
 	ret = PTR_ERR_OR_ZERO(t);
 	if (ret) {
-		bch_err(c, "error creating copygc thread: %s", bch2_err_str(ret));
+		bch_err_msg(c, ret, "creating copygc thread");
 		return ret;
 	}
 

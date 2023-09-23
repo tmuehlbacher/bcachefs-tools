@@ -290,9 +290,8 @@ void bch2_journal_do_discards(struct journal *j)
  * entry, holding it open to ensure it gets replayed during recovery:
  */
 
-static void bch2_journal_reclaim_fast(struct journal *j)
+void bch2_journal_reclaim_fast(struct journal *j)
 {
-	struct journal_entry_pin_list temp;
 	bool popped = false;
 
 	lockdep_assert_held(&j->lock);
@@ -303,7 +302,7 @@ static void bch2_journal_reclaim_fast(struct journal *j)
 	 */
 	while (!fifo_empty(&j->pin) &&
 	       !atomic_read(&fifo_peek_front(&j->pin).count)) {
-		fifo_pop(&j->pin, temp);
+		j->pin.front++;
 		popped = true;
 	}
 
@@ -311,19 +310,16 @@ static void bch2_journal_reclaim_fast(struct journal *j)
 		bch2_journal_space_available(j);
 }
 
-void __bch2_journal_pin_put(struct journal *j, u64 seq)
+bool __bch2_journal_pin_put(struct journal *j, u64 seq)
 {
 	struct journal_entry_pin_list *pin_list = journal_seq_pin(j, seq);
 
-	if (atomic_dec_and_test(&pin_list->count))
-		bch2_journal_reclaim_fast(j);
+	return atomic_dec_and_test(&pin_list->count);
 }
 
 void bch2_journal_pin_put(struct journal *j, u64 seq)
 {
-	struct journal_entry_pin_list *pin_list = journal_seq_pin(j, seq);
-
-	if (atomic_dec_and_test(&pin_list->count)) {
+	if (__bch2_journal_pin_put(j, seq)) {
 		spin_lock(&j->lock);
 		bch2_journal_reclaim_fast(j);
 		spin_unlock(&j->lock);
@@ -419,6 +415,8 @@ void bch2_journal_pin_set(struct journal *j, u64 seq,
 
 /**
  * bch2_journal_pin_flush: ensure journal pin callback is no longer running
+ * @j:		journal object
+ * @pin:	pin to flush
  */
 void bch2_journal_pin_flush(struct journal *j, struct journal_entry_pin *pin)
 {
@@ -579,7 +577,11 @@ static u64 journal_seq_to_flush(struct journal *j)
 }
 
 /**
- * bch2_journal_reclaim - free up journal buckets
+ * __bch2_journal_reclaim - free up journal buckets
+ * @j:		journal object
+ * @direct:	direct or background reclaim?
+ * @kicked:	requested to run since we last ran?
+ * Returns:	0 on success, or -EIO if the journal has been shutdown
  *
  * Background journal reclaim writes out btree nodes. It should be run
  * early enough so that we never completely run out of journal buckets.
@@ -758,7 +760,7 @@ int bch2_journal_reclaim_start(struct journal *j)
 			   "bch-reclaim/%s", c->name);
 	ret = PTR_ERR_OR_ZERO(p);
 	if (ret) {
-		bch_err(c, "error creating journal reclaim thread: %s", bch2_err_str(ret));
+		bch_err_msg(c, ret, "creating journal reclaim thread");
 		return ret;
 	}
 

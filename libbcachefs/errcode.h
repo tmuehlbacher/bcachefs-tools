@@ -99,6 +99,7 @@
 	x(ENOENT,			ENOENT_str_hash_set_must_replace)	\
 	x(ENOENT,			ENOENT_inode)				\
 	x(ENOENT,			ENOENT_not_subvol)			\
+	x(ENOENT,			ENOENT_not_directory)			\
 	x(ENOENT,			ENOENT_directory_dead)			\
 	x(ENOENT,			ENOENT_subvolume)			\
 	x(ENOENT,			ENOENT_snapshot_tree)			\
@@ -218,7 +219,14 @@
 	x(BCH_ERR_btree_node_read_err,	btree_node_read_err_want_retry)		\
 	x(BCH_ERR_btree_node_read_err,	btree_node_read_err_must_retry)		\
 	x(BCH_ERR_btree_node_read_err,	btree_node_read_err_bad_node)		\
-	x(BCH_ERR_btree_node_read_err,	btree_node_read_err_incompatible)
+	x(BCH_ERR_btree_node_read_err,	btree_node_read_err_incompatible)	\
+	x(0,				nopromote)				\
+	x(BCH_ERR_nopromote,		nopromote_may_not)			\
+	x(BCH_ERR_nopromote,		nopromote_already_promoted)		\
+	x(BCH_ERR_nopromote,		nopromote_unwritten)			\
+	x(BCH_ERR_nopromote,		nopromote_congested)			\
+	x(BCH_ERR_nopromote,		nopromote_in_flight)			\
+	x(BCH_ERR_nopromote,		nopromote_enomem)
 
 enum bch_errcode {
 	BCH_ERR_START		= 2048,
@@ -248,5 +256,9 @@ static inline long bch2_err_class(long err)
 {
 	return err < 0 ? __bch2_err_class(err) : err;
 }
+
+#define BLK_STS_REMOVED		((__force blk_status_t)128)
+
+const char *bch2_blk_status_to_str(blk_status_t);
 
 #endif /* _BCACHFES_ERRCODE_H */

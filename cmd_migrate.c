@@ -33,7 +33,7 @@
 #include "libbcachefs/errcode.h"
 #include "libbcachefs/fs-common.h"
 #include "libbcachefs/inode.h"
-#include "libbcachefs/io.h"
+#include "libbcachefs/io_write.h"
 #include "libbcachefs/replicas.h"
 #include "libbcachefs/str_hash.h"
 #include "libbcachefs/super.h"
@@ -126,7 +126,7 @@ static void update_inode(struct bch_fs *c,
 	bch2_inode_pack(&packed, inode);
 	packed.inode.k.p.snapshot = U32_MAX;
 	ret = bch2_btree_insert(c, BTREE_ID_inodes, &packed.inode.k_i,
-				NULL, NULL, 0);
+				NULL, 0);
 	if (ret)
 		die("error updating inode: %s", bch2_err_str(ret));
 }
@@ -140,7 +140,7 @@ static void create_link(struct bch_fs *c,
 	struct bch_inode_unpacked inode;
 
 	int ret = bch2_trans_do(c, NULL, NULL, 0,
-		bch2_link_trans(&trans,
+		bch2_link_trans(trans,
 				(subvol_inum) { 1, parent->bi_inum }, &parent_u,
 				(subvol_inum) { 1, inum }, &inode, &qstr));
 	if (ret)
@@ -159,7 +159,7 @@ static struct bch_inode_unpacked create_file(struct bch_fs *c,
 	bch2_inode_init_early(c, &new_inode);
 
 	int ret = bch2_trans_do(c, NULL, NULL, 0,
-		bch2_create_trans(&trans,
+		bch2_create_trans(trans,
 				  (subvol_inum) { 1, parent->bi_inum }, parent,
 				  &new_inode, &qstr,
 				  uid, gid, mode, rdev, NULL, NULL,
@@ -232,7 +232,7 @@ static void copy_xattrs(struct bch_fs *c, struct bch_inode_unpacked *dst,
 		struct bch_inode_unpacked inode_u;
 
 		int ret = bch2_trans_do(c, NULL, NULL, 0,
-				bch2_xattr_set(&trans,
+				bch2_xattr_set(trans,
 					       (subvol_inum) { 1, dst->bi_inum },
 					       &inode_u, &hash_info, attr,
 					       val, val_size, h->flags, 0));
@@ -339,8 +339,7 @@ static void link_data(struct bch_fs *c, struct bch_inode_unpacked *dst,
 			die("error reserving space in new filesystem: %s",
 			    bch2_err_str(ret));
 
-		ret = bch2_btree_insert(c, BTREE_ID_extents, &e->k_i,
-					&res, NULL, 0);
+		ret = bch2_btree_insert(c, BTREE_ID_extents, &e->k_i, &res, 0);
 		if (ret)
 			die("btree insert error %s", bch2_err_str(ret));
 

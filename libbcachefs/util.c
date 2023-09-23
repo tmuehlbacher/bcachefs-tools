@@ -112,10 +112,10 @@ got_unit:
 
 #define parse_or_ret(cp, _f)			\
 do {						\
-	int ret = _f;				\
-	if (ret < 0)				\
-		return ret;			\
-	cp += ret;				\
+	int _ret = _f;				\
+	if (_ret < 0)				\
+		return _ret;			\
+	cp += _ret;				\
 } while (0)
 
 static int __bch2_strtou64_h(const char *cp, u64 *res)
@@ -605,11 +605,9 @@ void bch2_time_stats_init(struct bch2_time_stats *stats)
 
 /**
  * bch2_ratelimit_delay() - return how long to delay until the next time to do
- * some work
- *
- * @d - the struct bch_ratelimit to update
- *
- * Returns the amount of time to delay by, in jiffies
+ *		some work
+ * @d:		the struct bch_ratelimit to update
+ * Returns:	the amount of time to delay by, in jiffies
  */
 u64 bch2_ratelimit_delay(struct bch_ratelimit *d)
 {
@@ -622,9 +620,8 @@ u64 bch2_ratelimit_delay(struct bch_ratelimit *d)
 
 /**
  * bch2_ratelimit_increment() - increment @d by the amount of work done
- *
- * @d - the struct bch_ratelimit to update
- * @done - the amount of work done, in arbitrary units
+ * @d:		the struct bch_ratelimit to update
+ * @done:	the amount of work done, in arbitrary units
  */
 void bch2_ratelimit_increment(struct bch_ratelimit *d, u64 done)
 {
@@ -761,10 +758,10 @@ void bch2_bio_map(struct bio *bio, void *base, size_t size)
 	}
 }
 
-int bch2_bio_alloc_pages_noprof(struct bio *bio, size_t size, gfp_t gfp_mask)
+int bch2_bio_alloc_pages(struct bio *bio, size_t size, gfp_t gfp_mask)
 {
 	while (size) {
-		struct page *page = alloc_pages_noprof(gfp_mask, 0);
+		struct page *page = alloc_pages(gfp_mask, 0);
 		unsigned len = min_t(size_t, PAGE_SIZE, size);
 
 		if (!page)

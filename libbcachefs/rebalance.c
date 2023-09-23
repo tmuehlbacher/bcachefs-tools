@@ -8,8 +8,6 @@
 #include "compress.h"
 #include "disk_groups.h"
 #include "errcode.h"
-#include "extents.h"
-#include "io.h"
 #include "move.h"
 #include "rebalance.h"
 #include "super-io.h"
@@ -350,7 +348,7 @@ int bch2_rebalance_start(struct bch_fs *c)
 	p = kthread_create(bch2_rebalance_thread, c, "bch-rebalance/%s", c->name);
 	ret = PTR_ERR_OR_ZERO(p);
 	if (ret) {
-		bch_err(c, "error creating rebalance thread: %s", bch2_err_str(ret));
+		bch_err_msg(c, ret, "creating rebalance thread");
 		return ret;
 	}
 

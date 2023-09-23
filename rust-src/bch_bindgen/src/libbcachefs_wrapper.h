@@ -13,8 +13,8 @@
 #include "../include/linux/blkdev.h"
 
 
-#define MARK_FIX_753(req_name) const fmode_t Fix753_##req_name = req_name;
+#define MARK_FIX_753(req_name) const blk_mode_t Fix753_##req_name = req_name;
 
-MARK_FIX_753(FMODE_READ);
-MARK_FIX_753(FMODE_WRITE);
-MARK_FIX_753(FMODE_EXCL);
+MARK_FIX_753(BLK_OPEN_READ);
+MARK_FIX_753(BLK_OPEN_WRITE);
+MARK_FIX_753(BLK_OPEN_EXCL);

@@ -20,6 +20,7 @@
 #include "journal_reclaim.h"
 #include "journal_seq_blacklist.h"
 #include "lru.h"
+#include "logged_ops.h"
 #include "move.h"
 #include "quota.h"
 #include "recovery.h"
@@ -164,7 +165,7 @@ static int bch2_journal_replay(struct bch_fs *c)
 				    (!k->allocated
 				     ? BTREE_INSERT_JOURNAL_REPLAY|BCH_WATERMARK_reclaim
 				     : 0),
-			     bch2_journal_replay_key(&trans, k));
+			     bch2_journal_replay_key(trans, k));
 		if (ret) {
 			bch_err(c, "journal replay: error while replaying key at btree %s level %u: %s",
 				bch2_btree_ids[k->btree_id], k->level, bch2_err_str(ret));
@@ -422,15 +423,9 @@ static int bch2_initialize_subvolumes(struct bch_fs *c)
 	root_volume.v.snapshot	= cpu_to_le32(U32_MAX);
 	root_volume.v.inode	= cpu_to_le64(BCACHEFS_ROOT_INO);
 
-	ret =   bch2_btree_insert(c, BTREE_ID_snapshot_trees,
-				  &root_tree.k_i,
-				  NULL, NULL, 0) ?:
-		bch2_btree_insert(c, BTREE_ID_snapshots,
-				  &root_snapshot.k_i,
-				  NULL, NULL, 0) ?:
-		bch2_btree_insert(c, BTREE_ID_subvolumes,
-				  &root_volume.k_i,
-				  NULL, NULL, 0);
+	ret =   bch2_btree_insert(c, BTREE_ID_snapshot_trees,	&root_tree.k_i, NULL, 0) ?:
+		bch2_btree_insert(c, BTREE_ID_snapshots,	&root_snapshot.k_i, NULL, 0) ?:
+		bch2_btree_insert(c, BTREE_ID_subvolumes,	&root_volume.k_i, NULL, 0);
 	if (ret)
 		bch_err_fn(c, ret);
 	return ret;
@@ -471,7 +466,7 @@ noinline_for_stack
 static int bch2_fs_upgrade_for_subvolumes(struct bch_fs *c)
 {
 	int ret = bch2_trans_do(c, NULL, NULL, BTREE_INSERT_LAZY_RW,
-				__bch2_fs_upgrade_for_subvolumes(&trans));
+				__bch2_fs_upgrade_for_subvolumes(trans));
 	if (ret)
 		bch_err_fn(c, ret);
 	return ret;
@@ -561,7 +556,7 @@ static void check_version_upgrade(struct bch_fs *c)
 			if ((recovery_passes & RECOVERY_PASS_ALL_FSCK) == RECOVERY_PASS_ALL_FSCK)
 				prt_str(&buf, "fsck required");
 			else {
-				prt_str(&buf, "running recovery passses: ");
+				prt_str(&buf, "running recovery passes: ");
 				prt_bitflags(&buf, bch2_recovery_passes, recovery_passes);
 			}
 
@@ -1009,9 +1004,7 @@ int bch2_fs_initialize(struct bch_fs *c)
 	bch2_inode_pack(&packed_inode, &root_inode);
 	packed_inode.inode.k.p.snapshot = U32_MAX;
 
-	ret = bch2_btree_insert(c, BTREE_ID_inodes,
-				&packed_inode.inode.k_i,
-				NULL, NULL, 0);
+	ret = bch2_btree_insert(c, BTREE_ID_inodes, &packed_inode.inode.k_i, NULL, 0);
 	if (ret) {
 		bch_err_msg(c, ret, "creating root directory");
 		goto err;
@@ -1020,7 +1013,7 @@ int bch2_fs_initialize(struct bch_fs *c)
 	bch2_inode_init_early(c, &lostfound_inode);
 
 	ret = bch2_trans_do(c, NULL, NULL, 0,
-		bch2_create_trans(&trans,
+		bch2_create_trans(trans,
 				  BCACHEFS_ROOT_SUBVOL_INUM,
 				  &root_inode, &lostfound_inode,
 				  &lostfound,

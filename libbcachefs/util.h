@@ -60,13 +60,12 @@ static inline void vpfree(void *p, size_t size)
 		free_pages((unsigned long) p, get_order(size));
 }
 
-static inline void *vpmalloc_noprof(size_t size, gfp_t gfp_mask)
+static inline void *vpmalloc(size_t size, gfp_t gfp_mask)
 {
-	return (void *) get_free_pages_noprof(gfp_mask|__GFP_NOWARN,
-					      get_order(size)) ?:
-		__vmalloc_noprof(size, gfp_mask);
+	return (void *) __get_free_pages(gfp_mask|__GFP_NOWARN,
+					 get_order(size)) ?:
+		__vmalloc(size, gfp_mask);
 }
-#define vpmalloc(_size, _gfp)	alloc_hooks(vpmalloc_noprof(_size, _gfp))
 
 static inline void kvpfree(void *p, size_t size)
 {
@@ -76,13 +75,12 @@ static inline void kvpfree(void *p, size_t size)
 		vpfree(p, size);
 }
 
-static inline void *kvpmalloc_noprof(size_t size, gfp_t gfp_mask)
+static inline void *kvpmalloc(size_t size, gfp_t gfp_mask)
 {
 	return size < PAGE_SIZE
-		? kmalloc_noprof(size, gfp_mask)
-		: vpmalloc_noprof(size, gfp_mask);
+		? kmalloc(size, gfp_mask)
+		: vpmalloc(size, gfp_mask);
 }
-#define kvpmalloc(_size, _gfp)	alloc_hooks(kvpmalloc_noprof(_size, _gfp))
 
 int mempool_init_kvpmalloc_pool(mempool_t *, int, size_t);
 
@@ -534,9 +532,7 @@ static inline unsigned fract_exp_two(unsigned x, unsigned fract_bits)
 }
 
 void bch2_bio_map(struct bio *bio, void *base, size_t);
-int bch2_bio_alloc_pages_noprof(struct bio *, size_t, gfp_t);
-#define bch2_bio_alloc_pages(_bio, _size, _gfp)				\
-	alloc_hooks(bch2_bio_alloc_pages_noprof(_bio, _size, _gfp))
+int bch2_bio_alloc_pages(struct bio *, size_t, gfp_t);
 
 static inline sector_t bdev_sectors(struct block_device *bdev)
 {
@@ -779,12 +775,12 @@ static inline void __move_gap(void *array, size_t element_size,
 
 #define bubble_sort(_base, _nr, _cmp)					\
 do {									\
-	ssize_t _i, _end;						\
+	ssize_t _i, _last;						\
 	bool _swapped = true;						\
 									\
-	for (_end = (ssize_t) (_nr) - 1; _end > 0 && _swapped; --_end) {\
+	for (_last= (ssize_t) (_nr) - 1; _last > 0 && _swapped; --_last) {\
 		_swapped = false;					\
-		for (_i = 0; _i < _end; _i++)				\
+		for (_i = 0; _i < _last; _i++)				\
 			if (_cmp((_base)[_i], (_base)[_i + 1]) > 0) {	\
 				swap((_base)[_i], (_base)[_i + 1]);	\
 				_swapped = true;			\

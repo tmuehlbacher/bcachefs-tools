@@ -680,7 +680,7 @@ static int check_bucket_ref(struct btree_trans *trans,
 	struct bch_fs *c = trans->c;
 	struct bch_dev *ca = bch_dev_bkey_exists(c, ptr->dev);
 	size_t bucket_nr = PTR_BUCKET_NR(ca, ptr);
-	u16 bucket_sectors = !ptr->cached
+	u32 bucket_sectors = !ptr->cached
 		? dirty_sectors
 		: cached_sectors;
 	struct printbuf buf = PRINTBUF;
@@ -752,9 +752,9 @@ static int check_bucket_ref(struct btree_trans *trans,
 		goto err;
 	}
 
-	if ((unsigned) (bucket_sectors + sectors) > U32_MAX) {
+	if ((u64) bucket_sectors + sectors > U32_MAX) {
 		bch2_fsck_err(c, FSCK_CAN_IGNORE|FSCK_NEED_FSCK,
-			"bucket %u:%zu gen %u data type %s sector count overflow: %u + %lli > U16_MAX\n"
+			"bucket %u:%zu gen %u data type %s sector count overflow: %u + %lli > U32_MAX\n"
 			"while marking %s",
 			ptr->dev, bucket_nr, b_gen,
 			bch2_data_types[bucket_data_type ?: ptr_data_type],
@@ -1201,7 +1201,7 @@ not_found:
 		new->k.p		= bkey_start_pos(p.k);
 		new->k.p.offset += *idx - start;
 		bch2_key_resize(&new->k, next_idx - *idx);
-		ret = __bch2_btree_insert(trans, BTREE_ID_extents, &new->k_i,
+		ret = bch2_btree_insert_trans(trans, BTREE_ID_extents, &new->k_i,
 					  BTREE_TRIGGER_NORUN);
 	}
 
@@ -1300,7 +1300,7 @@ int bch2_trans_fs_usage_apply(struct btree_trans *trans,
 	static int warned_disk_usage = 0;
 	bool warn = false;
 	unsigned disk_res_sectors = trans->disk_res ? trans->disk_res->sectors : 0;
-	struct replicas_delta *d = deltas->d, *d2;
+	struct replicas_delta *d, *d2;
 	struct replicas_delta *top = (void *) deltas->d + deltas->used;
 	struct bch_fs_usage *dst;
 	s64 added = 0, should_not_have_added;
@@ -1923,7 +1923,7 @@ static int __bch2_trans_mark_dev_sb(struct btree_trans *trans,
 
 int bch2_trans_mark_dev_sb(struct bch_fs *c, struct bch_dev *ca)
 {
-	int ret = bch2_trans_run(c, __bch2_trans_mark_dev_sb(&trans, ca));
+	int ret = bch2_trans_run(c, __bch2_trans_mark_dev_sb(trans, ca));
 
 	if (ret)
 		bch_err_fn(c, ret);

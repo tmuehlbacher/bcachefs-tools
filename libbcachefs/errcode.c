@@ -12,8 +12,6 @@ static const char * const bch2_errcode_strs[] = {
 	NULL
 };
 
-#define BCH_ERR_0	0
-
 static unsigned bch2_errcode_parents[] = {
 #define x(class, err) [BCH_ERR_##err - BCH_ERR_START] = class,
 	BCH_ERRCODES()
@@ -60,4 +58,11 @@ int __bch2_err_class(int err)
 		err = bch2_errcode_parents[err - BCH_ERR_START];
 
 	return -err;
+}
+
+const char *bch2_blk_status_to_str(blk_status_t status)
+{
+	if (status == BLK_STS_REMOVED)
+		return "device removed";
+	return blk_status_to_str(status);
 }

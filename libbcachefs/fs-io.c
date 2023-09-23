@@ -3,6 +3,7 @@
 
 #include "bcachefs.h"
 #include "alloc_foreground.h"
+#include "bkey_buf.h"
 #include "btree_update.h"
 #include "buckets.h"
 #include "clock.h"
@@ -16,7 +17,7 @@
 #include "fsck.h"
 #include "inode.h"
 #include "journal.h"
-#include "io.h"
+#include "io_misc.h"
 #include "keylist.h"
 #include "quota.h"
 #include "reflink.h"
@@ -164,7 +165,6 @@ void __bch2_i_sectors_acct(struct bch_fs *c, struct bch_inode_info *inode,
 #endif
 }
 
-
 /* fsync: */
 
 /*
@@ -207,31 +207,29 @@ static inline int range_has_data(struct bch_fs *c, u32 subvol,
 				 struct bpos start,
 				 struct bpos end)
 {
-	struct btree_trans trans;
+	struct btree_trans *trans = bch2_trans_get(c);
 	struct btree_iter iter;
 	struct bkey_s_c k;
 	int ret = 0;
-
-	bch2_trans_init(&trans, c, 0, 0);
 retry:
-	bch2_trans_begin(&trans);
+	bch2_trans_begin(trans);
 
-	ret = bch2_subvolume_get_snapshot(&trans, subvol, &start.snapshot);
+	ret = bch2_subvolume_get_snapshot(trans, subvol, &start.snapshot);
 	if (ret)
 		goto err;
 
-	for_each_btree_key_upto_norestart(&trans, iter, BTREE_ID_extents, start, end, 0, k, ret)
+	for_each_btree_key_upto_norestart(trans, iter, BTREE_ID_extents, start, end, 0, k, ret)
 		if (bkey_extent_is_data(k.k) && !bkey_extent_is_unwritten(k)) {
 			ret = 1;
 			break;
 		}
 	start = iter.pos;
-	bch2_trans_iter_exit(&trans, &iter);
+	bch2_trans_iter_exit(trans, &iter);
 err:
 	if (bch2_err_matches(ret, BCH_ERR_transaction_restart))
 		goto retry;
 
-	bch2_trans_exit(&trans);
+	bch2_trans_put(trans);
 	return ret;
 }
 
@@ -241,8 +239,8 @@ static int __bch2_truncate_folio(struct bch_inode_info *inode,
 	struct bch_fs *c = inode->v.i_sb->s_fs_info;
 	struct address_space *mapping = inode->v.i_mapping;
 	struct bch_folio *s;
-	unsigned start_offset = start & (PAGE_SIZE - 1);
-	unsigned end_offset = ((end - 1) & (PAGE_SIZE - 1)) + 1;
+	unsigned start_offset;
+	unsigned end_offset;
 	unsigned i;
 	struct folio *folio;
 	s64 i_sectors_delta = 0;
@@ -391,33 +389,12 @@ static int bch2_extend(struct mnt_idmap *idmap,
 	return bch2_setattr_nonsize(idmap, inode, iattr);
 }
 
-static int bch2_truncate_finish_fn(struct btree_trans *trans,
-				   struct bch_inode_info *inode,
-				   struct bch_inode_unpacked *bi,
-				   void *p)
-{
-	bi->bi_flags &= ~BCH_INODE_I_SIZE_DIRTY;
-	return 0;
-}
-
-static int bch2_truncate_start_fn(struct btree_trans *trans,
-				  struct bch_inode_info *inode,
-				  struct bch_inode_unpacked *bi, void *p)
-{
-	u64 *new_i_size = p;
-
-	bi->bi_flags |= BCH_INODE_I_SIZE_DIRTY;
-	bi->bi_size = *new_i_size;
-	return 0;
-}
-
-int bch2_truncate(struct mnt_idmap *idmap,
+int bchfs_truncate(struct mnt_idmap *idmap,
 		  struct bch_inode_info *inode, struct iattr *iattr)
 {
 	struct bch_fs *c = inode->v.i_sb->s_fs_info;
 	struct address_space *mapping = inode->v.i_mapping;
 	struct bch_inode_unpacked inode_u;
-	u64 new_i_size = iattr->ia_size;
 	s64 i_sectors_delta = 0;
 	int ret = 0;
 
@@ -466,6 +443,8 @@ int bch2_truncate(struct mnt_idmap *idmap,
 	if (unlikely(ret < 0))
 		goto err;
 
+	truncate_setsize(&inode->v, iattr->ia_size);
+
 	/*
 	 * When extending, we're going to write the new i_size to disk
 	 * immediately so we need to flush anything above the current on disk
@@ -487,32 +466,22 @@ int bch2_truncate(struct mnt_idmap *idmap,
 	if (ret)
 		goto err;
 
-	mutex_lock(&inode->ei_update_lock);
-	ret = bch2_write_inode(c, inode, bch2_truncate_start_fn,
-			       &new_i_size, 0);
-	mutex_unlock(&inode->ei_update_lock);
-
-	if (unlikely(ret))
-		goto err;
-
-	truncate_setsize(&inode->v, iattr->ia_size);
-
-	ret = bch2_fpunch(c, inode_inum(inode),
-			round_up(iattr->ia_size, block_bytes(c)) >> 9,
-			U64_MAX, &i_sectors_delta);
+	ret = bch2_truncate(c, inode_inum(inode), iattr->ia_size, &i_sectors_delta);
 	bch2_i_sectors_acct(c, inode, NULL, i_sectors_delta);
+
+	if (unlikely(ret)) {
+		/*
+		 * If we error here, VFS caches are now inconsistent with btree
+		 */
+		set_bit(EI_INODE_ERROR, &inode->ei_flags);
+		goto err;
+	}
 
 	bch2_fs_inconsistent_on(!inode->v.i_size && inode->v.i_blocks &&
 				!bch2_journal_error(&c->journal), c,
 				"inode %lu truncated to 0 but i_blocks %llu (ondisk %lli)",
 				inode->v.i_ino, (u64) inode->v.i_blocks,
 				inode->ei_inode.bi_sectors);
-	if (unlikely(ret))
-		goto err;
-
-	mutex_lock(&inode->ei_update_lock);
-	ret = bch2_write_inode(c, inode, bch2_truncate_finish_fn, NULL, 0);
-	mutex_unlock(&inode->ei_update_lock);
 
 	ret = bch2_setattr_nonsize(idmap, inode, iattr);
 err:
@@ -577,175 +546,33 @@ static long bchfs_fcollapse_finsert(struct bch_inode_info *inode,
 {
 	struct bch_fs *c = inode->v.i_sb->s_fs_info;
 	struct address_space *mapping = inode->v.i_mapping;
-	struct bkey_buf copy;
-	struct btree_trans trans;
-	struct btree_iter src, dst, del;
-	loff_t shift, new_size;
-	u64 src_start;
+	s64 i_sectors_delta = 0;
 	int ret = 0;
 
 	if ((offset | len) & (block_bytes(c) - 1))
 		return -EINVAL;
 
 	if (insert) {
-		if (inode->v.i_sb->s_maxbytes - inode->v.i_size < len)
-			return -EFBIG;
-
 		if (offset >= inode->v.i_size)
 			return -EINVAL;
-
-		src_start	= U64_MAX;
-		shift		= len;
 	} else {
 		if (offset + len >= inode->v.i_size)
 			return -EINVAL;
-
-		src_start	= offset + len;
-		shift		= -len;
 	}
-
-	new_size = inode->v.i_size + shift;
 
 	ret = bch2_write_invalidate_inode_pages_range(mapping, offset, LLONG_MAX);
 	if (ret)
 		return ret;
 
-	if (insert) {
-		i_size_write(&inode->v, new_size);
-		mutex_lock(&inode->ei_update_lock);
-		ret = bch2_write_inode_size(c, inode, new_size,
-					    ATTR_MTIME|ATTR_CTIME);
-		mutex_unlock(&inode->ei_update_lock);
-	} else {
-		s64 i_sectors_delta = 0;
+	if (insert)
+		i_size_write(&inode->v, inode->v.i_size + len);
 
-		ret = bch2_fpunch(c, inode_inum(inode),
-				  offset >> 9, (offset + len) >> 9,
-				  &i_sectors_delta);
-		bch2_i_sectors_acct(c, inode, NULL, i_sectors_delta);
+	ret = bch2_fcollapse_finsert(c, inode_inum(inode), offset >> 9, len >> 9,
+				     insert, &i_sectors_delta);
+	if (!ret && !insert)
+		i_size_write(&inode->v, inode->v.i_size - len);
+	bch2_i_sectors_acct(c, inode, NULL, i_sectors_delta);
 
-		if (ret)
-			return ret;
-	}
-
-	bch2_bkey_buf_init(&copy);
-	bch2_trans_init(&trans, c, BTREE_ITER_MAX, 1024);
-	bch2_trans_iter_init(&trans, &src, BTREE_ID_extents,
-			POS(inode->v.i_ino, src_start >> 9),
-			BTREE_ITER_INTENT);
-	bch2_trans_copy_iter(&dst, &src);
-	bch2_trans_copy_iter(&del, &src);
-
-	while (ret == 0 ||
-	       bch2_err_matches(ret, BCH_ERR_transaction_restart)) {
-		struct disk_reservation disk_res =
-			bch2_disk_reservation_init(c, 0);
-		struct bkey_i delete;
-		struct bkey_s_c k;
-		struct bpos next_pos;
-		struct bpos move_pos = POS(inode->v.i_ino, offset >> 9);
-		struct bpos atomic_end;
-		unsigned trigger_flags = 0;
-		u32 snapshot;
-
-		bch2_trans_begin(&trans);
-
-		ret = bch2_subvolume_get_snapshot(&trans,
-					inode->ei_subvol, &snapshot);
-		if (ret)
-			continue;
-
-		bch2_btree_iter_set_snapshot(&src, snapshot);
-		bch2_btree_iter_set_snapshot(&dst, snapshot);
-		bch2_btree_iter_set_snapshot(&del, snapshot);
-
-		bch2_trans_begin(&trans);
-
-		k = insert
-			? bch2_btree_iter_peek_prev(&src)
-			: bch2_btree_iter_peek_upto(&src, POS(inode->v.i_ino, U64_MAX));
-		if ((ret = bkey_err(k)))
-			continue;
-
-		if (!k.k || k.k->p.inode != inode->v.i_ino)
-			break;
-
-		if (insert &&
-		    bkey_le(k.k->p, POS(inode->v.i_ino, offset >> 9)))
-			break;
-reassemble:
-		bch2_bkey_buf_reassemble(&copy, c, k);
-
-		if (insert &&
-		    bkey_lt(bkey_start_pos(k.k), move_pos))
-			bch2_cut_front(move_pos, copy.k);
-
-		copy.k->k.p.offset += shift >> 9;
-		bch2_btree_iter_set_pos(&dst, bkey_start_pos(&copy.k->k));
-
-		ret = bch2_extent_atomic_end(&trans, &dst, copy.k, &atomic_end);
-		if (ret)
-			continue;
-
-		if (!bkey_eq(atomic_end, copy.k->k.p)) {
-			if (insert) {
-				move_pos = atomic_end;
-				move_pos.offset -= shift >> 9;
-				goto reassemble;
-			} else {
-				bch2_cut_back(atomic_end, copy.k);
-			}
-		}
-
-		bkey_init(&delete.k);
-		delete.k.p = copy.k->k.p;
-		delete.k.size = copy.k->k.size;
-		delete.k.p.offset -= shift >> 9;
-		bch2_btree_iter_set_pos(&del, bkey_start_pos(&delete.k));
-
-		next_pos = insert ? bkey_start_pos(&delete.k) : delete.k.p;
-
-		if (copy.k->k.size != k.k->size) {
-			/* We might end up splitting compressed extents: */
-			unsigned nr_ptrs =
-				bch2_bkey_nr_ptrs_allocated(bkey_i_to_s_c(copy.k));
-
-			ret = bch2_disk_reservation_get(c, &disk_res,
-					copy.k->k.size, nr_ptrs,
-					BCH_DISK_RESERVATION_NOFAIL);
-			BUG_ON(ret);
-		}
-
-		ret =   bch2_btree_iter_traverse(&del) ?:
-			bch2_trans_update(&trans, &del, &delete, trigger_flags) ?:
-			bch2_trans_update(&trans, &dst, copy.k, trigger_flags) ?:
-			bch2_trans_commit(&trans, &disk_res, NULL,
-					  BTREE_INSERT_NOFAIL);
-		bch2_disk_reservation_put(c, &disk_res);
-
-		if (!ret)
-			bch2_btree_iter_set_pos(&src, next_pos);
-	}
-	bch2_trans_iter_exit(&trans, &del);
-	bch2_trans_iter_exit(&trans, &dst);
-	bch2_trans_iter_exit(&trans, &src);
-	bch2_trans_exit(&trans);
-	bch2_bkey_buf_exit(&copy, c);
-
-	if (ret)
-		return ret;
-
-	mutex_lock(&inode->ei_update_lock);
-	if (!insert) {
-		i_size_write(&inode->v, new_size);
-		ret = bch2_write_inode_size(c, inode, new_size,
-					    ATTR_MTIME|ATTR_CTIME);
-	} else {
-		/* We need an inode update to update bi_journal_seq for fsync: */
-		ret = bch2_write_inode(c, inode, inode_update_times_fn, NULL,
-				       ATTR_MTIME|ATTR_CTIME);
-	}
-	mutex_unlock(&inode->ei_update_lock);
 	return ret;
 }
 
@@ -753,16 +580,15 @@ static int __bchfs_fallocate(struct bch_inode_info *inode, int mode,
 			     u64 start_sector, u64 end_sector)
 {
 	struct bch_fs *c = inode->v.i_sb->s_fs_info;
-	struct btree_trans trans;
+	struct btree_trans *trans = bch2_trans_get(c);
 	struct btree_iter iter;
 	struct bpos end_pos = POS(inode->v.i_ino, end_sector);
 	struct bch_io_opts opts;
 	int ret = 0;
 
 	bch2_inode_opts_get(&opts, c, &inode->ei_inode);
-	bch2_trans_init(&trans, c, BTREE_ITER_MAX, 512);
 
-	bch2_trans_iter_init(&trans, &iter, BTREE_ID_extents,
+	bch2_trans_iter_init(trans, &iter, BTREE_ID_extents,
 			POS(inode->v.i_ino, start_sector),
 			BTREE_ITER_SLOTS|BTREE_ITER_INTENT);
 
@@ -775,9 +601,9 @@ static int __bchfs_fallocate(struct bch_inode_info *inode, int mode,
 		u64 hole_start, hole_end;
 		u32 snapshot;
 
-		bch2_trans_begin(&trans);
+		bch2_trans_begin(trans);
 
-		ret = bch2_subvolume_get_snapshot(&trans,
+		ret = bch2_subvolume_get_snapshot(trans,
 					inode->ei_subvol, &snapshot);
 		if (ret)
 			goto bkey_err;
@@ -814,7 +640,7 @@ static int __bchfs_fallocate(struct bch_inode_info *inode, int mode,
 						 &hole_start,
 						 &hole_end,
 						 opts.data_replicas, true))
-				ret = drop_locks_do(&trans,
+				ret = drop_locks_do(trans,
 					(bch2_clamp_data_hole(&inode->v,
 							      &hole_start,
 							      &hole_end,
@@ -837,7 +663,7 @@ static int __bchfs_fallocate(struct bch_inode_info *inode, int mode,
 				goto bkey_err;
 		}
 
-		ret = bch2_extent_fallocate(&trans, inode_inum(inode), &iter,
+		ret = bch2_extent_fallocate(trans, inode_inum(inode), &iter,
 					    sectors, opts, &i_sectors_delta,
 					    writepoint_hashed((unsigned long) current));
 		if (ret)
@@ -845,7 +671,7 @@ static int __bchfs_fallocate(struct bch_inode_info *inode, int mode,
 
 		bch2_i_sectors_acct(c, inode, &quota_res, i_sectors_delta);
 
-		drop_locks_do(&trans,
+		drop_locks_do(trans,
 			(bch2_mark_pagecache_reserved(inode, hole_start, iter.pos.offset), 0));
 bkey_err:
 		bch2_quota_reservation_put(c, inode, &quota_res);
@@ -857,14 +683,14 @@ bkey_err:
 		struct quota_res quota_res = { 0 };
 		s64 i_sectors_delta = 0;
 
-		bch2_fpunch_at(&trans, &iter, inode_inum(inode),
+		bch2_fpunch_at(trans, &iter, inode_inum(inode),
 			       end_sector, &i_sectors_delta);
 		bch2_i_sectors_acct(c, inode, &quota_res, i_sectors_delta);
 		bch2_quota_reservation_put(c, inode, &quota_res);
 	}
 
-	bch2_trans_iter_exit(&trans, &iter);
-	bch2_trans_exit(&trans);
+	bch2_trans_iter_exit(trans, &iter);
+	bch2_trans_put(trans);
 	return ret;
 }
 
@@ -970,26 +796,24 @@ static int quota_reserve_range(struct bch_inode_info *inode,
 			       u64 start, u64 end)
 {
 	struct bch_fs *c = inode->v.i_sb->s_fs_info;
-	struct btree_trans trans;
+	struct btree_trans *trans = bch2_trans_get(c);
 	struct btree_iter iter;
 	struct bkey_s_c k;
 	u32 snapshot;
 	u64 sectors = end - start;
 	u64 pos = start;
 	int ret;
-
-	bch2_trans_init(&trans, c, 0, 0);
 retry:
-	bch2_trans_begin(&trans);
+	bch2_trans_begin(trans);
 
-	ret = bch2_subvolume_get_snapshot(&trans, inode->ei_subvol, &snapshot);
+	ret = bch2_subvolume_get_snapshot(trans, inode->ei_subvol, &snapshot);
 	if (ret)
 		goto err;
 
-	bch2_trans_iter_init(&trans, &iter, BTREE_ID_extents,
+	bch2_trans_iter_init(trans, &iter, BTREE_ID_extents,
 			     SPOS(inode->v.i_ino, pos, snapshot), 0);
 
-	while (!(ret = btree_trans_too_many_iters(&trans)) &&
+	while (!(ret = btree_trans_too_many_iters(trans)) &&
 	       (k = bch2_btree_iter_peek_upto(&iter, POS(inode->v.i_ino, end - 1))).k &&
 	       !(ret = bkey_err(k))) {
 		if (bkey_extent_is_allocation(k.k)) {
@@ -1001,17 +825,14 @@ retry:
 		bch2_btree_iter_advance(&iter);
 	}
 	pos = iter.pos.offset;
-	bch2_trans_iter_exit(&trans, &iter);
+	bch2_trans_iter_exit(trans, &iter);
 err:
 	if (bch2_err_matches(ret, BCH_ERR_transaction_restart))
 		goto retry;
 
-	bch2_trans_exit(&trans);
+	bch2_trans_put(trans);
 
-	if (ret)
-		return ret;
-
-	return bch2_quota_reservation_add(c, inode, res, sectors, true);
+	return ret ?: bch2_quota_reservation_add(c, inode, res, sectors, true);
 }
 
 loff_t bch2_remap_file_range(struct file *file_src, loff_t pos_src,
@@ -1104,7 +925,7 @@ static loff_t bch2_seek_data(struct file *file, u64 offset)
 {
 	struct bch_inode_info *inode = file_bch_inode(file);
 	struct bch_fs *c = inode->v.i_sb->s_fs_info;
-	struct btree_trans trans;
+	struct btree_trans *trans;
 	struct btree_iter iter;
 	struct bkey_s_c k;
 	subvol_inum inum = inode_inum(inode);
@@ -1116,15 +937,15 @@ static loff_t bch2_seek_data(struct file *file, u64 offset)
 	if (offset >= isize)
 		return -ENXIO;
 
-	bch2_trans_init(&trans, c, 0, 0);
+	trans = bch2_trans_get(c);
 retry:
-	bch2_trans_begin(&trans);
+	bch2_trans_begin(trans);
 
-	ret = bch2_subvolume_get_snapshot(&trans, inum.subvol, &snapshot);
+	ret = bch2_subvolume_get_snapshot(trans, inum.subvol, &snapshot);
 	if (ret)
 		goto err;
 
-	for_each_btree_key_upto_norestart(&trans, iter, BTREE_ID_extents,
+	for_each_btree_key_upto_norestart(trans, iter, BTREE_ID_extents,
 			   SPOS(inode->v.i_ino, offset >> 9, snapshot),
 			   POS(inode->v.i_ino, U64_MAX),
 			   0, k, ret) {
@@ -1134,12 +955,12 @@ retry:
 		} else if (k.k->p.offset >> 9 > isize)
 			break;
 	}
-	bch2_trans_iter_exit(&trans, &iter);
+	bch2_trans_iter_exit(trans, &iter);
 err:
 	if (bch2_err_matches(ret, BCH_ERR_transaction_restart))
 		goto retry;
 
-	bch2_trans_exit(&trans);
+	bch2_trans_put(trans);
 	if (ret)
 		return ret;
 
@@ -1157,7 +978,7 @@ static loff_t bch2_seek_hole(struct file *file, u64 offset)
 {
 	struct bch_inode_info *inode = file_bch_inode(file);
 	struct bch_fs *c = inode->v.i_sb->s_fs_info;
-	struct btree_trans trans;
+	struct btree_trans *trans;
 	struct btree_iter iter;
 	struct bkey_s_c k;
 	subvol_inum inum = inode_inum(inode);
@@ -1169,15 +990,15 @@ static loff_t bch2_seek_hole(struct file *file, u64 offset)
 	if (offset >= isize)
 		return -ENXIO;
 
-	bch2_trans_init(&trans, c, 0, 0);
+	trans = bch2_trans_get(c);
 retry:
-	bch2_trans_begin(&trans);
+	bch2_trans_begin(trans);
 
-	ret = bch2_subvolume_get_snapshot(&trans, inum.subvol, &snapshot);
+	ret = bch2_subvolume_get_snapshot(trans, inum.subvol, &snapshot);
 	if (ret)
 		goto err;
 
-	for_each_btree_key_norestart(&trans, iter, BTREE_ID_extents,
+	for_each_btree_key_norestart(trans, iter, BTREE_ID_extents,
 			   SPOS(inode->v.i_ino, offset >> 9, snapshot),
 			   BTREE_ITER_SLOTS, k, ret) {
 		if (k.k->p.inode != inode->v.i_ino) {
@@ -1195,12 +1016,12 @@ retry:
 			offset = max(offset, bkey_start_offset(k.k) << 9);
 		}
 	}
-	bch2_trans_iter_exit(&trans, &iter);
+	bch2_trans_iter_exit(trans, &iter);
 err:
 	if (bch2_err_matches(ret, BCH_ERR_transaction_restart))
 		goto retry;
 
-	bch2_trans_exit(&trans);
+	bch2_trans_put(trans);
 	if (ret)
 		return ret;
 

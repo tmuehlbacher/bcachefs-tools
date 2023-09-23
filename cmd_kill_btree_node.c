@@ -64,7 +64,7 @@ int cmd_kill_btree_node(int argc, char *argv[])
 	if (IS_ERR(c))
 		die("error opening %s: %s", argv[0], bch2_err_str(PTR_ERR(c)));
 
-	struct btree_trans trans;
+	struct btree_trans *trans = bch2_trans_get(c);
 	struct btree_iter iter;
 	struct btree *b;
 	int ret;
@@ -74,9 +74,7 @@ int cmd_kill_btree_node(int argc, char *argv[])
 	if (ret)
 		die("error %s from posix_memalign", bch2_err_str(ret));
 
-	bch2_trans_init(&trans, c, 0, 0);
-
-	__for_each_btree_node(&trans, iter, btree_id, POS_MIN, 0, level, 0, b, ret) {
+	__for_each_btree_node(trans, iter, btree_id, POS_MIN, 0, level, 0, b, ret) {
 		if (b->c.level != level)
 			continue;
 
@@ -113,8 +111,8 @@ int cmd_kill_btree_node(int argc, char *argv[])
 		bch_err(c, "node at specified index not found");
 	ret = EXIT_FAILURE;
 done:
-	bch2_trans_iter_exit(&trans, &iter);
-	bch2_trans_exit(&trans);
+	bch2_trans_iter_exit(trans, &iter);
+	bch2_trans_put(trans);
 
 	bch2_fs_stop(c);
 	return ret;

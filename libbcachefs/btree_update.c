@@ -124,7 +124,7 @@ int __bch2_insert_snapshot_whiteouts(struct btree_trans *trans,
 	struct bkey_s_c old_k, new_k;
 	snapshot_id_list s;
 	struct bkey_i *update;
-	int ret;
+	int ret = 0;
 
 	if (!bch2_snapshot_has_children(c, old_pos.snapshot))
 		return 0;
@@ -466,11 +466,49 @@ bch2_trans_update_by_path(struct btree_trans *trans, struct btree_path *path,
 	return 0;
 }
 
+static noinline int bch2_trans_update_get_key_cache(struct btree_trans *trans,
+						    struct btree_iter *iter,
+						    struct btree_path *path)
+{
+	if (!iter->key_cache_path ||
+	    !iter->key_cache_path->should_be_locked ||
+	    !bpos_eq(iter->key_cache_path->pos, iter->pos)) {
+		struct bkey_cached *ck;
+		int ret;
+
+		if (!iter->key_cache_path)
+			iter->key_cache_path =
+				bch2_path_get(trans, path->btree_id, path->pos, 1, 0,
+					      BTREE_ITER_INTENT|
+					      BTREE_ITER_CACHED, _THIS_IP_);
+
+		iter->key_cache_path =
+			bch2_btree_path_set_pos(trans, iter->key_cache_path, path->pos,
+						iter->flags & BTREE_ITER_INTENT,
+						_THIS_IP_);
+
+		ret = bch2_btree_path_traverse(trans, iter->key_cache_path,
+					       BTREE_ITER_CACHED);
+		if (unlikely(ret))
+			return ret;
+
+		ck = (void *) iter->key_cache_path->l[0].b;
+
+		if (test_bit(BKEY_CACHED_DIRTY, &ck->flags)) {
+			trace_and_count(trans->c, trans_restart_key_cache_raced, trans, _RET_IP_);
+			return btree_trans_restart(trans, BCH_ERR_transaction_restart_key_cache_raced);
+		}
+
+		btree_path_set_should_be_locked(iter->key_cache_path);
+	}
+
+	return 0;
+}
+
 int __must_check bch2_trans_update(struct btree_trans *trans, struct btree_iter *iter,
 				   struct bkey_i *k, enum btree_update_flags flags)
 {
 	struct btree_path *path = iter->update_path ?: iter->path;
-	struct bkey_cached *ck;
 	int ret;
 
 	if (iter->flags & BTREE_ITER_IS_EXTENTS)
@@ -494,34 +532,9 @@ int __must_check bch2_trans_update(struct btree_trans *trans, struct btree_iter 
 	    !path->cached &&
 	    !path->level &&
 	    btree_id_cached(trans->c, path->btree_id)) {
-		if (!iter->key_cache_path ||
-		    !iter->key_cache_path->should_be_locked ||
-		    !bpos_eq(iter->key_cache_path->pos, k->k.p)) {
-			if (!iter->key_cache_path)
-				iter->key_cache_path =
-					bch2_path_get(trans, path->btree_id, path->pos, 1, 0,
-						      BTREE_ITER_INTENT|
-						      BTREE_ITER_CACHED, _THIS_IP_);
-
-			iter->key_cache_path =
-				bch2_btree_path_set_pos(trans, iter->key_cache_path, path->pos,
-							iter->flags & BTREE_ITER_INTENT,
-							_THIS_IP_);
-
-			ret = bch2_btree_path_traverse(trans, iter->key_cache_path,
-						       BTREE_ITER_CACHED);
-			if (unlikely(ret))
-				return ret;
-
-			ck = (void *) iter->key_cache_path->l[0].b;
-
-			if (test_bit(BKEY_CACHED_DIRTY, &ck->flags)) {
-				trace_and_count(trans->c, trans_restart_key_cache_raced, trans, _RET_IP_);
-				return btree_trans_restart(trans, BCH_ERR_transaction_restart_key_cache_raced);
-			}
-
-			btree_path_set_should_be_locked(iter->key_cache_path);
-		}
+		ret = bch2_trans_update_get_key_cache(trans, iter, path);
+		if (ret)
+			return ret;
 
 		path = iter->key_cache_path;
 	}
@@ -640,6 +653,7 @@ int bch2_btree_insert_nonextent(struct btree_trans *trans,
 	int ret;
 
 	bch2_trans_iter_init(trans, &iter, btree, k->k.p,
+			     BTREE_ITER_CACHED|
 			     BTREE_ITER_NOT_EXTENTS|
 			     BTREE_ITER_INTENT);
 	ret   = bch2_btree_iter_traverse(&iter) ?:
@@ -648,8 +662,8 @@ int bch2_btree_insert_nonextent(struct btree_trans *trans,
 	return ret;
 }
 
-int __bch2_btree_insert(struct btree_trans *trans, enum btree_id id,
-			struct bkey_i *k, enum btree_update_flags flags)
+int bch2_btree_insert_trans(struct btree_trans *trans, enum btree_id id,
+			    struct bkey_i *k, enum btree_update_flags flags)
 {
 	struct btree_iter iter;
 	int ret;
@@ -667,16 +681,18 @@ int __bch2_btree_insert(struct btree_trans *trans, enum btree_id id,
  * bch2_btree_insert - insert keys into the extent btree
  * @c:			pointer to struct bch_fs
  * @id:			btree to insert into
- * @insert_keys:	list of keys to insert
- * @hook:		insert callback
+ * @k:			key to insert
+ * @disk_res:		must be non-NULL whenever inserting or potentially
+ *			splitting data extents
+ * @flags:		transaction commit flags
+ *
+ * Returns:		0 on success, error code on failure
  */
-int bch2_btree_insert(struct bch_fs *c, enum btree_id id,
-		      struct bkey_i *k,
-		      struct disk_reservation *disk_res,
-		      u64 *journal_seq, int flags)
+int bch2_btree_insert(struct bch_fs *c, enum btree_id id, struct bkey_i *k,
+		      struct disk_reservation *disk_res, int flags)
 {
-	return bch2_trans_do(c, disk_res, journal_seq, flags,
-			     __bch2_btree_insert(&trans, id, k, 0));
+	return bch2_trans_do(c, disk_res, NULL, flags,
+			     bch2_btree_insert_trans(trans, id, k, 0));
 }
 
 int bch2_btree_delete_extent_at(struct btree_trans *trans, struct btree_iter *iter,
@@ -712,6 +728,23 @@ int bch2_btree_delete_at_buffered(struct btree_trans *trans,
 	bkey_init(&k->k);
 	k->k.p = pos;
 	return bch2_trans_update_buffered(trans, btree, k);
+}
+
+int bch2_btree_delete(struct btree_trans *trans,
+		      enum btree_id btree, struct bpos pos,
+		      unsigned update_flags)
+{
+	struct btree_iter iter;
+	int ret;
+
+	bch2_trans_iter_init(trans, &iter, btree, pos,
+			     BTREE_ITER_CACHED|
+			     BTREE_ITER_INTENT);
+	ret   = bch2_btree_iter_traverse(&iter) ?:
+		bch2_btree_delete_at(trans, &iter, update_flags);
+	bch2_trans_iter_exit(trans, &iter);
+
+	return ret;
 }
 
 int bch2_btree_delete_range_trans(struct btree_trans *trans, enum btree_id id,
@@ -777,9 +810,7 @@ err:
 	}
 	bch2_trans_iter_exit(trans, &iter);
 
-	if (!ret && trans_was_restarted(trans, restart_count))
-		ret = -BCH_ERR_transaction_restart_nested;
-	return ret;
+	return ret ?: trans_was_restarted(trans, restart_count);
 }
 
 /*
@@ -793,7 +824,7 @@ int bch2_btree_delete_range(struct bch_fs *c, enum btree_id id,
 			    u64 *journal_seq)
 {
 	int ret = bch2_trans_run(c,
-			bch2_btree_delete_range_trans(&trans, id, start, end,
+			bch2_btree_delete_range_trans(trans, id, start, end,
 						      update_flags, journal_seq));
 	if (ret == -BCH_ERR_transaction_restart_nested)
 		ret = 0;
@@ -818,6 +849,7 @@ int bch2_btree_bit_mod(struct btree_trans *trans, enum btree_id btree,
 	return bch2_trans_update_buffered(trans, btree, k);
 }
 
+__printf(2, 0)
 static int __bch2_trans_log_msg(darray_u64 *entries, const char *fmt, va_list args)
 {
 	struct printbuf buf = PRINTBUF;
@@ -854,6 +886,7 @@ err:
 	return ret;
 }
 
+__printf(3, 0)
 static int
 __bch2_fs_log_msg(struct bch_fs *c, unsigned commit_flags, const char *fmt,
 		  va_list args)
@@ -865,12 +898,13 @@ __bch2_fs_log_msg(struct bch_fs *c, unsigned commit_flags, const char *fmt,
 	} else {
 		ret = bch2_trans_do(c, NULL, NULL,
 			BTREE_INSERT_LAZY_RW|commit_flags,
-			__bch2_trans_log_msg(&trans.extra_journal_entries, fmt, args));
+			__bch2_trans_log_msg(&trans->extra_journal_entries, fmt, args));
 	}
 
 	return ret;
 }
 
+__printf(2, 3)
 int bch2_fs_log_msg(struct bch_fs *c, const char *fmt, ...)
 {
 	va_list args;
@@ -886,6 +920,7 @@ int bch2_fs_log_msg(struct bch_fs *c, const char *fmt, ...)
  * Use for logging messages during recovery to enable reserved space and avoid
  * blocking.
  */
+__printf(2, 3)
 int bch2_journal_log_msg(struct bch_fs *c, const char *fmt, ...)
 {
 	va_list args;

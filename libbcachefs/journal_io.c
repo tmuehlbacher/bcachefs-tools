@@ -8,7 +8,6 @@
 #include "checksum.h"
 #include "disk_groups.h"
 #include "error.h"
-#include "io.h"
 #include "journal.h"
 #include "journal_io.h"
 #include "journal_reclaim.h"
@@ -238,17 +237,17 @@ static void journal_entry_err_msg(struct printbuf *out,
 
 #define journal_entry_err(c, version, jset, entry, msg, ...)		\
 ({									\
-	struct printbuf buf = PRINTBUF;					\
+	struct printbuf _buf = PRINTBUF;				\
 									\
-	journal_entry_err_msg(&buf, version, jset, entry);		\
-	prt_printf(&buf, msg, ##__VA_ARGS__);				\
+	journal_entry_err_msg(&_buf, version, jset, entry);		\
+	prt_printf(&_buf, msg, ##__VA_ARGS__);				\
 									\
 	switch (flags & BKEY_INVALID_WRITE) {				\
 	case READ:							\
-		mustfix_fsck_err(c, "%s", buf.buf);			\
+		mustfix_fsck_err(c, "%s", _buf.buf);			\
 		break;							\
 	case WRITE:							\
-		bch_err(c, "corrupt metadata before write: %s\n", buf.buf);\
+		bch_err(c, "corrupt metadata before write: %s\n", _buf.buf);\
 		if (bch2_fs_inconsistent(c)) {				\
 			ret = -BCH_ERR_fsck_errors_not_fixed;		\
 			goto fsck_err;					\
@@ -256,7 +255,7 @@ static void journal_entry_err_msg(struct printbuf *out,
 		break;							\
 	}								\
 									\
-	printbuf_exit(&buf);						\
+	printbuf_exit(&_buf);						\
 	true;								\
 })
 
@@ -1282,7 +1281,7 @@ int bch2_journal_read(struct bch_fs *c,
 			continue;
 
 		for (ptr = 0; ptr < i->nr_ptrs; ptr++) {
-			struct bch_dev *ca = bch_dev_bkey_exists(c, i->ptrs[ptr].dev);
+			ca = bch_dev_bkey_exists(c, i->ptrs[ptr].dev);
 
 			if (!i->ptrs[ptr].csum_good)
 				bch_err_dev_offset(ca, i->ptrs[ptr].sector,
@@ -1380,16 +1379,21 @@ static void __journal_write_alloc(struct journal *j,
 }
 
 /**
- * journal_next_bucket - move on to the next journal bucket if possible
+ * journal_write_alloc - decide where to write next journal entry
+ *
+ * @j:		journal object
+ * @w:		journal buf (entry to be written)
+ *
+ * Returns: 0 on success, or -EROFS on failure
  */
-static int journal_write_alloc(struct journal *j, struct journal_buf *w,
-			       unsigned sectors)
+static int journal_write_alloc(struct journal *j, struct journal_buf *w)
 {
 	struct bch_fs *c = container_of(j, struct bch_fs, journal);
 	struct bch_devs_mask devs;
 	struct journal_device *ja;
 	struct bch_dev *ca;
 	struct dev_alloc_list devs_sorted;
+	unsigned sectors = vstruct_sectors(w->data, c->block_bits);
 	unsigned target = c->opts.metadata_target ?:
 		c->opts.foreground_target;
 	unsigned i, replicas = 0, replicas_want =
@@ -1550,6 +1554,7 @@ static void journal_write_done(struct closure *cl)
 
 	if (!journal_state_count(new, new.unwritten_idx) &&
 	    journal_last_unwritten_seq(j) <= journal_cur_seq(j)) {
+		spin_unlock(&j->lock);
 		closure_call(&j->io, bch2_journal_write, c->io_complete_wq, NULL);
 	} else if (journal_last_unwritten_seq(j) == journal_cur_seq(j) &&
 		   new.cur_entry_offset < JOURNAL_ENTRY_CLOSED_VAL) {
@@ -1562,10 +1567,11 @@ static void journal_write_done(struct closure *cl)
 		 * might want to be written now:
 		 */
 
+		spin_unlock(&j->lock);
 		mod_delayed_work(c->io_complete_wq, &j->write_work, max(0L, delta));
+	} else {
+		spin_unlock(&j->lock);
 	}
-
-	spin_unlock(&j->lock);
 }
 
 static void journal_write_endio(struct bio *bio)
@@ -1813,7 +1819,7 @@ void bch2_journal_write(struct closure *cl)
 
 retry_alloc:
 	spin_lock(&j->lock);
-	ret = journal_write_alloc(j, w, sectors);
+	ret = journal_write_alloc(j, w);
 
 	if (ret && j->can_discard) {
 		spin_unlock(&j->lock);

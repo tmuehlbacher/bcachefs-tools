@@ -40,15 +40,16 @@ struct bch_csum bch2_checksum(struct bch_fs *, unsigned, struct nonce,
  */
 #define csum_vstruct(_c, _type, _nonce, _i)				\
 ({									\
-	const void *start = ((const void *) (_i)) + sizeof((_i)->csum);	\
-	const void *end = vstruct_end(_i);				\
+	const void *_start = ((const void *) (_i)) + sizeof((_i)->csum);\
 									\
-	bch2_checksum(_c, _type, _nonce, start, end - start);		\
+	bch2_checksum(_c, _type, _nonce, _start, vstruct_end(_i) - _start);\
 })
 
 int bch2_chacha_encrypt_key(struct bch_key *, struct nonce, void *, size_t);
 int bch2_request_key(struct bch_sb *, struct bch_key *);
+#ifndef __KERNEL__
 int bch2_revoke_key(struct bch_sb *);
+#endif
 
 int bch2_encrypt(struct bch_fs *, unsigned, struct nonce,
 		 void *data, size_t);

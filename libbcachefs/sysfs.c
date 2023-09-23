@@ -113,10 +113,6 @@ do {									\
 		prt_human_readable_s64(out, val);			\
 } while (0)
 
-#define var_printf(_var, fmt)	sysfs_printf(_var, fmt, var(_var))
-#define var_print(_var)		sysfs_print(_var, var(_var))
-#define var_hprint(_var)	sysfs_hprint(_var, var(_var))
-
 #define sysfs_strtoul(file, var)					\
 do {									\
 	if (attr == &sysfs_ ## file)					\
@@ -138,30 +134,6 @@ do {									\
 		return _r;						\
 	_v;								\
 })
-
-#define strtoul_restrict_or_return(cp, min, max)			\
-({									\
-	unsigned long __v = 0;						\
-	int _r = strtoul_safe_restrict(cp, __v, min, max);		\
-	if (_r)								\
-		return _r;						\
-	__v;								\
-})
-
-#define strtoi_h_or_return(cp)						\
-({									\
-	u64 _v;								\
-	int _r = strtoi_h(cp, &_v);					\
-	if (_r)								\
-		return _r;						\
-	_v;								\
-})
-
-#define sysfs_hatoi(file, var)						\
-do {									\
-	if (attr == &sysfs_ ## file)					\
-		return strtoi_h(buf, &var) ?: (ssize_t) size;		\
-} while (0)
 
 write_attribute(trigger_gc);
 write_attribute(trigger_discards);
@@ -280,7 +252,7 @@ static size_t bch2_btree_cache_size(struct bch_fs *c)
 
 static int bch2_compression_stats_to_text(struct printbuf *out, struct bch_fs *c)
 {
-	struct btree_trans trans;
+	struct btree_trans *trans;
 	struct btree_iter iter;
 	struct bkey_s_c k;
 	enum btree_id id;
@@ -291,18 +263,18 @@ static int bch2_compression_stats_to_text(struct printbuf *out, struct bch_fs *c
 	    incompressible_sectors = 0,
 	    compressed_sectors_compressed = 0,
 	    compressed_sectors_uncompressed = 0;
-	int ret;
+	int ret = 0;
 
 	if (!test_bit(BCH_FS_STARTED, &c->flags))
 		return -EPERM;
 
-	bch2_trans_init(&trans, c, 0, 0);
+	trans = bch2_trans_get(c);
 
 	for (id = 0; id < BTREE_ID_NR; id++) {
 		if (!btree_type_has_ptrs(id))
 			continue;
 
-		for_each_btree_key(&trans, iter, id, POS_MIN,
+		for_each_btree_key(trans, iter, id, POS_MIN,
 				   BTREE_ITER_ALL_SNAPSHOTS, k, ret) {
 			struct bkey_ptrs_c ptrs = bch2_bkey_ptrs_c(k);
 			const union bch_extent_entry *entry;
@@ -336,10 +308,10 @@ static int bch2_compression_stats_to_text(struct printbuf *out, struct bch_fs *c
 			else if (compressed)
 				nr_compressed_extents++;
 		}
-		bch2_trans_iter_exit(&trans, &iter);
+		bch2_trans_iter_exit(trans, &iter);
 	}
 
-	bch2_trans_exit(&trans);
+	bch2_trans_put(trans);
 
 	if (ret)
 		return ret;
@@ -1005,7 +977,7 @@ STORE(bch2_dev)
 		mutex_lock(&c->sb_lock);
 		mi = &bch2_sb_get_members(c->disk_sb.sb)->members[ca->dev_idx];
 
-		if (v != BCH_MEMBER_DURABILITY(mi)) {
+		if (v + 1 != BCH_MEMBER_DURABILITY(mi)) {
 			SET_BCH_MEMBER_DURABILITY(mi, v + 1);
 			bch2_write_super(c);
 		}

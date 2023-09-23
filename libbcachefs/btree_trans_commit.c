@@ -163,13 +163,11 @@ static int __btree_node_flush(struct journal *j, struct journal_entry_pin *pin,
 	struct bch_fs *c = container_of(j, struct bch_fs, journal);
 	struct btree_write *w = container_of(pin, struct btree_write, journal);
 	struct btree *b = container_of(w, struct btree, writes[i]);
-	struct btree_trans trans;
+	struct btree_trans *trans = bch2_trans_get(c);
 	unsigned long old, new, v;
 	unsigned idx = w - b->writes;
 
-	bch2_trans_init(&trans, c, 0, 0);
-
-	btree_node_lock_nopath_nofail(&trans, &b->c, SIX_LOCK_read);
+	btree_node_lock_nopath_nofail(trans, &b->c, SIX_LOCK_read);
 	v = READ_ONCE(b->flags);
 
 	do {
@@ -188,7 +186,7 @@ static int __btree_node_flush(struct journal *j, struct journal_entry_pin *pin,
 	btree_node_write_if_need(c, b, SIX_LOCK_read);
 	six_unlock_read(&b->c.lock);
 
-	bch2_trans_exit(&trans);
+	bch2_trans_put(trans);
 	return 0;
 }
 
@@ -214,7 +212,11 @@ inline void bch2_btree_add_journal_pin(struct bch_fs *c,
 }
 
 /**
- * btree_insert_key - insert a key one key into a leaf node
+ * bch2_btree_insert_key_leaf() - insert a key one key into a leaf node
+ * @trans:		btree transaction object
+ * @path:		path pointing to @insert's pos
+ * @insert:		key to insert
+ * @journal_seq:	sequence number of journal reservation
  */
 inline void bch2_btree_insert_key_leaf(struct btree_trans *trans,
 				       struct btree_path *path,
@@ -555,7 +557,6 @@ bch2_trans_commit_write_locked(struct btree_trans *trans, unsigned flags,
 	struct btree_write_buffered_key *wb;
 	struct btree_trans_commit_hook *h;
 	unsigned u64s = 0;
-	bool marking = false;
 	int ret;
 
 	if (race_fault()) {
@@ -584,9 +585,6 @@ bch2_trans_commit_write_locked(struct btree_trans *trans, unsigned flags,
 			*stopped_at = i;
 			return ret;
 		}
-
-		if (btree_node_type_needs_gc(i->bkey_type))
-			marking = true;
 	}
 
 	if (trans->nr_wb_updates &&
@@ -778,7 +776,6 @@ static noinline void bch2_drop_overwrites_from_journal(struct btree_trans *trans
 		bch2_journal_key_overwritten(trans->c, wb->btree, 0, wb->k.k.p);
 }
 
-#ifdef CONFIG_BCACHEFS_DEBUG
 static noinline int bch2_trans_commit_bkey_invalid(struct btree_trans *trans, unsigned flags,
 						   struct btree_insert_entry *i,
 						   struct printbuf *err)
@@ -804,7 +801,6 @@ static noinline int bch2_trans_commit_bkey_invalid(struct btree_trans *trans, un
 
 	return -EINVAL;
 }
-#endif
 
 /*
  * Get journal reservation, take write locks, and attempt to do btree update(s):
@@ -1029,7 +1025,6 @@ int __bch2_trans_commit(struct btree_trans *trans, unsigned flags)
 	if (ret)
 		goto out_reset;
 
-#ifdef CONFIG_BCACHEFS_DEBUG
 	trans_for_each_update(trans, i) {
 		struct printbuf buf = PRINTBUF;
 		enum bkey_invalid_flags invalid_flags = 0;
@@ -1046,7 +1041,6 @@ int __bch2_trans_commit(struct btree_trans *trans, unsigned flags)
 		if (ret)
 			return ret;
 	}
-#endif
 
 	if (unlikely(!test_bit(BCH_FS_MAY_GO_RW, &c->flags))) {
 		ret = do_bch2_trans_commit_to_journal_replay(trans);

@@ -11,24 +11,21 @@ use std::ptr;
 use bitflags::bitflags;
 
 pub struct BtreeTrans<'f> {
-    raw:    c::btree_trans,
+    raw:    *mut c::btree_trans,
     fs:     PhantomData<&'f Fs>
 }
 
 impl<'f> BtreeTrans<'f> {
     pub fn new(fs: &'f Fs) -> BtreeTrans {
         unsafe {
-            let mut trans: MaybeUninit<c::btree_trans> = MaybeUninit::uninit();
-
-            c::__bch2_trans_init(&mut (*trans.as_mut_ptr()), fs.raw, 0);
-            BtreeTrans { raw: trans.assume_init(), fs: PhantomData }
+            BtreeTrans { raw: &mut *c::__bch2_trans_get(fs.raw, 0), fs: PhantomData }
         }
     }
 }
 
 impl<'f> Drop for BtreeTrans<'f> {
     fn drop(&mut self) {
-        unsafe { c::bch2_trans_exit(&mut self.raw) }
+        unsafe { c::bch2_trans_put(&mut *self.raw) }
     }             
 }
 
@@ -64,9 +61,9 @@ impl<'t> BtreeIter<'t> {
             let mut iter: MaybeUninit<c::btree_iter> = MaybeUninit::uninit();
 
             c::bch2_trans_iter_init_outlined(
-                ptr::addr_of!(trans.raw).cast_mut(),
+                trans.raw,
                 iter.as_mut_ptr(),
-                btree as u32,
+                btree,
                 pos,
                 flags.bits as u32);
 
@@ -123,7 +120,7 @@ impl<'t> BtreeNodeIter<'t> {
         unsafe {
             let mut iter: MaybeUninit<c::btree_iter> = MaybeUninit::uninit();
             c::bch2_trans_node_iter_init(
-                ptr::addr_of!(trans.raw).cast_mut(),
+                trans.raw,
                 iter.as_mut_ptr(),
                 btree,
                 pos,

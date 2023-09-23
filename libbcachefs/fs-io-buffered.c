@@ -8,7 +8,8 @@
 #include "fs-io-buffered.h"
 #include "fs-io-direct.h"
 #include "fs-io-pagecache.h"
-#include "io.h"
+#include "io_read.h"
+#include "io_write.h"
 
 #include <linux/backing-dev.h>
 #include <linux/pagemap.h>
@@ -269,7 +270,7 @@ void bch2_readahead(struct readahead_control *ractl)
 	struct bch_inode_info *inode = to_bch_ei(ractl->mapping->host);
 	struct bch_fs *c = inode->v.i_sb->s_fs_info;
 	struct bch_io_opts opts;
-	struct btree_trans trans;
+	struct btree_trans *trans = bch2_trans_get(c);
 	struct folio *folio;
 	struct readpages_iter readpages_iter;
 	int ret;
@@ -278,8 +279,6 @@ void bch2_readahead(struct readahead_control *ractl)
 
 	ret = readpages_iter_init(&readpages_iter, ractl);
 	BUG_ON(ret);
-
-	bch2_trans_init(&trans, c, 0, 0);
 
 	bch2_pagecache_add_get(inode);
 
@@ -299,31 +298,27 @@ void bch2_readahead(struct readahead_control *ractl)
 		rbio->bio.bi_end_io = bch2_readpages_end_io;
 		BUG_ON(!bio_add_folio(&rbio->bio, folio, folio_size(folio), 0));
 
-		bchfs_read(&trans, rbio, inode_inum(inode),
+		bchfs_read(trans, rbio, inode_inum(inode),
 			   &readpages_iter);
-		bch2_trans_unlock(&trans);
+		bch2_trans_unlock(trans);
 	}
 
 	bch2_pagecache_add_put(inode);
 
-	bch2_trans_exit(&trans);
+	bch2_trans_put(trans);
 	darray_exit(&readpages_iter.folios);
 }
 
 static void __bchfs_readfolio(struct bch_fs *c, struct bch_read_bio *rbio,
 			     subvol_inum inum, struct folio *folio)
 {
-	struct btree_trans trans;
-
 	bch2_folio_create(folio, __GFP_NOFAIL);
 
 	rbio->bio.bi_opf = REQ_OP_READ|REQ_SYNC;
 	rbio->bio.bi_iter.bi_sector = folio_sector(folio);
 	BUG_ON(!bio_add_folio(&rbio->bio, folio, folio_size(folio), 0));
 
-	bch2_trans_init(&trans, c, 0, 0);
-	bchfs_read(&trans, rbio, inum, NULL);
-	bch2_trans_exit(&trans);
+	bch2_trans_run(c, (bchfs_read(trans, rbio, inum, NULL), 0));
 }
 
 static void bch2_read_single_folio_end_io(struct bio *bio)
@@ -694,11 +689,11 @@ int bch2_write_begin(struct file *file, struct address_space *mapping,
 	if (IS_ERR_OR_NULL(folio))
 		goto err_unlock;
 
-	if (folio_test_uptodate(folio))
-		goto out;
-
 	offset = pos - folio_pos(folio);
 	len = min_t(size_t, len, folio_end_pos(folio) - pos);
+
+	if (folio_test_uptodate(folio))
+		goto out;
 
 	/* If we're writing entire folio, don't need to read it in first: */
 	if (!offset && len == folio_size(folio))
@@ -800,10 +795,10 @@ int bch2_write_end(struct file *file, struct address_space *mapping,
 	return copied;
 }
 
-static noinline void folios_trunc(folios *folios, struct folio **fi)
+static noinline void folios_trunc(folios *fs, struct folio **fi)
 {
-	while (folios->data + folios->nr > fi) {
-		struct folio *f = darray_pop(folios);
+	while (fs->data + fs->nr > fi) {
+		struct folio *f = darray_pop(fs);
 
 		folio_unlock(f);
 		folio_put(f);
@@ -817,35 +812,35 @@ static int __bch2_buffered_write(struct bch_inode_info *inode,
 {
 	struct bch_fs *c = inode->v.i_sb->s_fs_info;
 	struct bch2_folio_reservation res;
-	folios folios;
+	folios fs;
 	struct folio **fi, *f;
-	unsigned copied = 0, f_offset;
-	u64 end = pos + len, f_pos;
+	unsigned copied = 0, f_offset, f_copied;
+	u64 end = pos + len, f_pos, f_len;
 	loff_t last_folio_pos = inode->v.i_size;
 	int ret = 0;
 
 	BUG_ON(!len);
 
 	bch2_folio_reservation_init(c, inode, &res);
-	darray_init(&folios);
+	darray_init(&fs);
 
 	ret = bch2_filemap_get_contig_folios_d(mapping, pos, end,
 				   FGP_LOCK|FGP_WRITE|FGP_STABLE|FGP_CREAT,
 				   mapping_gfp_mask(mapping),
-				   &folios);
+				   &fs);
 	if (ret)
 		goto out;
 
-	BUG_ON(!folios.nr);
+	BUG_ON(!fs.nr);
 
-	f = darray_first(folios);
+	f = darray_first(fs);
 	if (pos != folio_pos(f) && !folio_test_uptodate(f)) {
 		ret = bch2_read_single_folio(f, mapping);
 		if (ret)
 			goto out;
 	}
 
-	f = darray_last(folios);
+	f = darray_last(fs);
 	end = min(end, folio_end_pos(f));
 	last_folio_pos = folio_pos(f);
 	if (end != folio_end_pos(f) && !folio_test_uptodate(f)) {
@@ -858,15 +853,15 @@ static int __bch2_buffered_write(struct bch_inode_info *inode,
 		}
 	}
 
-	ret = bch2_folio_set(c, inode_inum(inode), folios.data, folios.nr);
+	ret = bch2_folio_set(c, inode_inum(inode), fs.data, fs.nr);
 	if (ret)
 		goto out;
 
 	f_pos = pos;
-	f_offset = pos - folio_pos(darray_first(folios));
-	darray_for_each(folios, fi) {
-		struct folio *f = *fi;
-		u64 f_len = min(end, folio_end_pos(f)) - f_pos;
+	f_offset = pos - folio_pos(darray_first(fs));
+	darray_for_each(fs, fi) {
+		f = *fi;
+		f_len = min(end, folio_end_pos(f)) - f_pos;
 
 		/*
 		 * XXX: per POSIX and fstests generic/275, on -ENOSPC we're
@@ -878,11 +873,11 @@ static int __bch2_buffered_write(struct bch_inode_info *inode,
 		 */
 		ret = bch2_folio_reservation_get(c, inode, f, &res, f_offset, f_len);
 		if (unlikely(ret)) {
-			folios_trunc(&folios, fi);
-			if (!folios.nr)
+			folios_trunc(&fs, fi);
+			if (!fs.nr)
 				goto out;
 
-			end = min(end, folio_end_pos(darray_last(folios)));
+			end = min(end, folio_end_pos(darray_last(fs)));
 			break;
 		}
 
@@ -891,18 +886,17 @@ static int __bch2_buffered_write(struct bch_inode_info *inode,
 	}
 
 	if (mapping_writably_mapped(mapping))
-		darray_for_each(folios, fi)
+		darray_for_each(fs, fi)
 			flush_dcache_folio(*fi);
 
 	f_pos = pos;
-	f_offset = pos - folio_pos(darray_first(folios));
-	darray_for_each(folios, fi) {
-		struct folio *f = *fi;
-		u64 f_len = min(end, folio_end_pos(f)) - f_pos;
-		unsigned f_copied = copy_page_from_iter_atomic(&f->page, f_offset, f_len, iter);
-
+	f_offset = pos - folio_pos(darray_first(fs));
+	darray_for_each(fs, fi) {
+		f = *fi;
+		f_len = min(end, folio_end_pos(f)) - f_pos;
+		f_copied = copy_page_from_iter_atomic(&f->page, f_offset, f_len, iter);
 		if (!f_copied) {
-			folios_trunc(&folios, fi);
+			folios_trunc(&fs, fi);
 			break;
 		}
 
@@ -911,7 +905,7 @@ static int __bch2_buffered_write(struct bch_inode_info *inode,
 		    pos + copied + f_copied < inode->v.i_size) {
 			iov_iter_revert(iter, f_copied);
 			folio_zero_range(f, 0, folio_size(f));
-			folios_trunc(&folios, fi);
+			folios_trunc(&fs, fi);
 			break;
 		}
 
@@ -919,7 +913,7 @@ static int __bch2_buffered_write(struct bch_inode_info *inode,
 		copied += f_copied;
 
 		if (f_copied != f_len) {
-			folios_trunc(&folios, fi + 1);
+			folios_trunc(&fs, fi + 1);
 			break;
 		}
 
@@ -938,10 +932,10 @@ static int __bch2_buffered_write(struct bch_inode_info *inode,
 	spin_unlock(&inode->v.i_lock);
 
 	f_pos = pos;
-	f_offset = pos - folio_pos(darray_first(folios));
-	darray_for_each(folios, fi) {
-		struct folio *f = *fi;
-		u64 f_len = min(end, folio_end_pos(f)) - f_pos;
+	f_offset = pos - folio_pos(darray_first(fs));
+	darray_for_each(fs, fi) {
+		f = *fi;
+		f_len = min(end, folio_end_pos(f)) - f_pos;
 
 		if (!folio_test_uptodate(f))
 			folio_mark_uptodate(f);
@@ -954,7 +948,7 @@ static int __bch2_buffered_write(struct bch_inode_info *inode,
 
 	inode->ei_last_dirtied = (unsigned long) current;
 out:
-	darray_for_each(folios, fi) {
+	darray_for_each(fs, fi) {
 		folio_unlock(*fi);
 		folio_put(*fi);
 	}
@@ -967,7 +961,7 @@ out:
 	if (last_folio_pos >= inode->v.i_size)
 		truncate_pagecache(&inode->v, inode->v.i_size);
 
-	darray_exit(&folios);
+	darray_exit(&fs);
 	bch2_folio_reservation_put(c, inode, &res);
 
 	return copied ?: ret;
@@ -1055,8 +1049,6 @@ ssize_t bch2_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		goto out;
 	}
 
-	/* We can write back this queue in page reclaim */
-	current->backing_dev_info = inode_to_bdi(&inode->v);
 	inode_lock(&inode->v);
 
 	ret = generic_write_checks(iocb, from);
@@ -1076,7 +1068,6 @@ ssize_t bch2_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		iocb->ki_pos += ret;
 unlock:
 	inode_unlock(&inode->v);
-	current->backing_dev_info = NULL;
 
 	if (ret > 0)
 		ret = generic_write_sync(iocb, ret);

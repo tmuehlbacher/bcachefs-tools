@@ -162,7 +162,7 @@ sector_t get_capacity(struct gendisk *disk)
 	return bytes >> 9;
 }
 
-void blkdev_put(struct block_device *bdev, fmode_t mode)
+void blkdev_put(struct block_device *bdev, void *holder)
 {
 	fdatasync(bdev->bd_fd);
 	close(bdev->bd_sync_fd);
@@ -170,25 +170,25 @@ void blkdev_put(struct block_device *bdev, fmode_t mode)
 	free(bdev);
 }
 
-struct block_device *blkdev_get_by_path(const char *path, fmode_t mode,
-					void *holder)
+struct block_device *blkdev_get_by_path(const char *path, blk_mode_t mode,
+					void *holder, const struct blk_holder_ops *hop)
 {
 	struct block_device *bdev;
 	int fd, sync_fd, buffered_fd, flags = 0;
 
-	if ((mode & (FMODE_READ|FMODE_WRITE)) == (FMODE_READ|FMODE_WRITE))
+	if ((mode & (BLK_OPEN_READ|BLK_OPEN_WRITE)) == (BLK_OPEN_READ|BLK_OPEN_WRITE))
 		flags = O_RDWR;
-	else if (mode & FMODE_READ)
+	else if (mode & BLK_OPEN_READ)
 		flags = O_RDONLY;
-	else if (mode & FMODE_WRITE)
+	else if (mode & BLK_OPEN_WRITE)
 		flags = O_WRONLY;
 
-	if (!(mode & FMODE_BUFFERED))
+	if (!(mode & BLK_OPEN_BUFFERED))
 		flags |= O_DIRECT;
 
 #if 0
 	/* using O_EXCL doesn't work with opening twice for an O_SYNC fd: */
-	if (mode & FMODE_EXCL)
+	if (mode & BLK_OPEN_EXCL)
 		flags |= O_EXCL;
 #endif
 	buffered_fd = open(path, flags & ~O_DIRECT);

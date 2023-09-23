@@ -6,6 +6,8 @@
 #include <linux/kobject.h>
 #include <linux/types.h>
 
+#define MAX_LFS_FILESIZE 	((loff_t)LLONG_MAX)
+
 #define BIO_MAX_VECS	256U
 
 typedef unsigned fmode_t;
@@ -21,30 +23,20 @@ struct user_namespace;
 #define MINOR(dev)	((unsigned int) ((dev) & MINORMASK))
 #define MKDEV(ma,mi)	(((ma) << MINORBITS) | (mi))
 
-/* file is open for reading */
-#define FMODE_READ		((__force fmode_t)0x1)
-/* file is open for writing */
-#define FMODE_WRITE		((__force fmode_t)0x2)
-/* file is seekable */
-#define FMODE_LSEEK		((__force fmode_t)0x4)
-/* file can be accessed using pread */
-#define FMODE_PREAD		((__force fmode_t)0x8)
-/* file can be accessed using pwrite */
-#define FMODE_PWRITE		((__force fmode_t)0x10)
-/* File is opened for execution with sys_execve / sys_uselib */
-#define FMODE_EXEC		((__force fmode_t)0x20)
-/* File is opened with O_NDELAY (only set for block devices) */
-#define FMODE_NDELAY		((__force fmode_t)0x40)
-/* File is opened with O_EXCL (only set for block devices) */
-#define FMODE_EXCL		((__force fmode_t)0x80)
-/* File is opened using open(.., 3, ..) and is writeable only for ioctls
-   (specialy hack for floppy.c) */
-#define FMODE_WRITE_IOCTL	((__force fmode_t)0x100)
-/* 32bit hashes as llseek() offset (for directories) */
-#define FMODE_32BITHASH         ((__force fmode_t)0x200)
-/* 64bit hashes as llseek() offset (for directories) */
-#define FMODE_64BITHASH         ((__force fmode_t)0x400)
-#define FMODE_BUFFERED		((__force fmode_t)0x800)
+typedef unsigned int __bitwise blk_mode_t;
+
+/* open for reading */
+#define BLK_OPEN_READ		((__force blk_mode_t)(1 << 0))
+/* open for writing */
+#define BLK_OPEN_WRITE		((__force blk_mode_t)(1 << 1))
+/* open exclusively (vs other exclusive openers */
+#define BLK_OPEN_EXCL		((__force blk_mode_t)(1 << 2))
+/* opened with O_NDELAY */
+#define BLK_OPEN_NDELAY		((__force blk_mode_t)(1 << 3))
+/* open for "writes" only for ioctls (specialy hack for floppy.c) */
+#define BLK_OPEN_WRITE_IOCTL	((__force blk_mode_t)(1 << 4))
+
+#define BLK_OPEN_BUFFERED	((__force blk_mode_t)(1 << 5))
 
 struct inode {
 	unsigned long		i_ino;
@@ -93,9 +85,14 @@ int blkdev_issue_zeroout(struct block_device *, sector_t, sector_t, gfp_t, unsig
 unsigned bdev_logical_block_size(struct block_device *bdev);
 sector_t get_capacity(struct gendisk *disk);
 
-void blkdev_put(struct block_device *bdev, fmode_t mode);
+struct blk_holder_ops {
+        void (*mark_dead)(struct block_device *bdev);
+};
+
+void blkdev_put(struct block_device *bdev, void *holder);
 void bdput(struct block_device *bdev);
-struct block_device *blkdev_get_by_path(const char *path, fmode_t mode, void *holder);
+struct block_device *blkdev_get_by_path(const char *path, blk_mode_t mode,
+					void *holder, const struct blk_holder_ops *hop);
 int lookup_bdev(const char *path, dev_t *);
 
 struct super_block {

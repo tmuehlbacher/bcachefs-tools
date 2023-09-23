@@ -6,7 +6,6 @@
 #include "disk_groups.h"
 #include "ec.h"
 #include "error.h"
-#include "io.h"
 #include "journal.h"
 #include "journal_sb.h"
 #include "journal_seq_blacklist.h"
@@ -22,6 +21,9 @@
 
 #include <linux/backing-dev.h>
 #include <linux/sort.h>
+
+static const struct blk_holder_ops bch2_sb_handle_bdev_ops = {
+};
 
 struct bch2_metadata_version {
 	u16		version;
@@ -161,7 +163,8 @@ void bch2_free_super(struct bch_sb_handle *sb)
 {
 	kfree(sb->bio);
 	if (!IS_ERR_OR_NULL(sb->bdev))
-		blkdev_put(sb->bdev, sb->mode);
+		blkdev_put(sb->bdev, sb->holder);
+	kfree(sb->holder);
 
 	kfree(sb->sb);
 	memset(sb, 0, sizeof(*sb));
@@ -182,7 +185,7 @@ int bch2_sb_realloc(struct bch_sb_handle *sb, unsigned u64s)
 	if (sb->sb && sb->buffer_size >= new_buffer_size)
 		return 0;
 
-	if (sb->have_layout) {
+	if (sb->sb && sb->have_layout) {
 		u64 max_bytes = 512 << sb->sb->layout.sb_max_size_bits;
 
 		if (new_bytes > max_bytes) {
@@ -243,9 +246,9 @@ struct bch_sb_field *bch2_sb_field_resize(struct bch_sb_handle *sb,
 		/* XXX: we're not checking that offline device have enough space */
 
 		for_each_online_member(ca, c, i) {
-			struct bch_sb_handle *sb = &ca->disk_sb;
+			struct bch_sb_handle *dev_sb = &ca->disk_sb;
 
-			if (bch2_sb_realloc(sb, le32_to_cpu(sb->sb->u64s) + d)) {
+			if (bch2_sb_realloc(dev_sb, le32_to_cpu(dev_sb->sb->u64s) + d)) {
 				percpu_ref_put(&ca->ref);
 				return NULL;
 			}
@@ -381,7 +384,7 @@ static int bch2_sb_validate(struct bch_sb_handle *disk_sb, struct printbuf *out,
 	}
 
 	if (bch2_is_zero(sb->uuid.b, sizeof(sb->uuid))) {
-		prt_printf(out, "Bad intenal UUID (got zeroes)");
+		prt_printf(out, "Bad internal UUID (got zeroes)");
 		return -BCH_ERR_invalid_sb_uuid;
 	}
 
@@ -664,27 +667,30 @@ int bch2_read_super(const char *path, struct bch_opts *opts,
 retry:
 #endif
 	memset(sb, 0, sizeof(*sb));
-	sb->mode	= FMODE_READ;
+	sb->mode	= BLK_OPEN_READ;
 	sb->have_bio	= true;
+	sb->holder	= kmalloc(1, GFP_KERNEL);
+	if (!sb->holder)
+		return -ENOMEM;
 
 #ifndef __KERNEL__
 	if (opt_get(*opts, direct_io) == false)
-		sb->mode |= FMODE_BUFFERED;
+		sb->mode |= BLK_OPEN_BUFFERED;
 #endif
 
 	if (!opt_get(*opts, noexcl))
-		sb->mode |= FMODE_EXCL;
+		sb->mode |= BLK_OPEN_EXCL;
 
 	if (!opt_get(*opts, nochanges))
-		sb->mode |= FMODE_WRITE;
+		sb->mode |= BLK_OPEN_WRITE;
 
-	sb->bdev = blkdev_get_by_path(path, sb->mode, sb);
+	sb->bdev = blkdev_get_by_path(path, sb->mode, sb->holder, &bch2_sb_handle_bdev_ops);
 	if (IS_ERR(sb->bdev) &&
 	    PTR_ERR(sb->bdev) == -EACCES &&
 	    opt_get(*opts, read_only)) {
-		sb->mode &= ~FMODE_WRITE;
+		sb->mode &= ~BLK_OPEN_WRITE;
 
-		sb->bdev = blkdev_get_by_path(path, sb->mode, sb);
+		sb->bdev = blkdev_get_by_path(path, sb->mode, sb->holder, &bch2_sb_handle_bdev_ops);
 		if (!IS_ERR(sb->bdev))
 			opt_set(*opts, nochanges, true);
 	}

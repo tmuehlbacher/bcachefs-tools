@@ -243,8 +243,6 @@ bkey_cached_alloc(struct btree_trans *trans, struct btree_path *path,
 	}
 
 	if (ck) {
-		int ret;
-
 		ret = btree_node_lock_nopath(trans, &ck->c, SIX_LOCK_intent, _THIS_IP_);
 		if (unlikely(ret)) {
 			bkey_cached_move_to_freelist(bc, ck);
@@ -253,7 +251,7 @@ bkey_cached_alloc(struct btree_trans *trans, struct btree_path *path,
 
 		path->l[0].b = (void *) ck;
 		path->l[0].lock_seq = six_lock_seq(&ck->c.lock);
-		mark_btree_node_locked(trans, path, 0, SIX_LOCK_intent);
+		mark_btree_node_locked(trans, path, 0, BTREE_NODE_INTENT_LOCKED);
 
 		ret = bch2_btree_node_lock_write(trans, path, &ck->c);
 		if (unlikely(ret)) {
@@ -331,7 +329,7 @@ btree_key_cache_create(struct btree_trans *trans, struct btree_path *path)
 			return ERR_PTR(-BCH_ERR_ENOMEM_btree_key_cache_create);
 		}
 
-		mark_btree_node_locked(trans, path, 0, SIX_LOCK_intent);
+		mark_btree_node_locked(trans, path, 0, BTREE_NODE_INTENT_LOCKED);
 	}
 
 	ck->c.level		= 0;
@@ -479,7 +477,7 @@ retry:
 		if (!ck)
 			goto retry;
 
-		mark_btree_node_locked(trans, path, 0, SIX_LOCK_intent);
+		mark_btree_node_locked(trans, path, 0, BTREE_NODE_INTENT_LOCKED);
 		path->locks_want = 1;
 	} else {
 		enum six_lock_type lock_want = __btree_lock_want(path, 0);
@@ -497,7 +495,8 @@ retry:
 			goto retry;
 		}
 
-		mark_btree_node_locked(trans, path, 0, lock_want);
+		mark_btree_node_locked(trans, path, 0,
+				       (enum btree_node_locked_type) lock_want);
 	}
 
 	path->l[0].lock_seq	= six_lock_seq(&ck->c.lock);
@@ -579,7 +578,8 @@ retry:
 			goto retry;
 		}
 
-		mark_btree_node_locked(trans, path, 0, lock_want);
+		mark_btree_node_locked(trans, path, 0,
+				       (enum btree_node_locked_type) lock_want);
 	}
 
 	path->l[0].lock_seq	= six_lock_seq(&ck->c.lock);
@@ -705,13 +705,11 @@ int bch2_btree_key_cache_journal_flush(struct journal *j,
 	struct bkey_cached *ck =
 		container_of(pin, struct bkey_cached, journal);
 	struct bkey_cached_key key;
-	struct btree_trans trans;
+	struct btree_trans *trans = bch2_trans_get(c);
 	int srcu_idx = srcu_read_lock(&c->btree_trans_barrier);
 	int ret = 0;
 
-	bch2_trans_init(&trans, c, 0, 0);
-
-	btree_node_lock_nopath_nofail(&trans, &ck->c, SIX_LOCK_read);
+	btree_node_lock_nopath_nofail(trans, &ck->c, SIX_LOCK_read);
 	key = ck->key;
 
 	if (ck->journal.seq != seq ||
@@ -728,13 +726,13 @@ int bch2_btree_key_cache_journal_flush(struct journal *j,
 	}
 	six_unlock_read(&ck->c.lock);
 
-	ret = commit_do(&trans, NULL, NULL, 0,
-		btree_key_cache_flush_pos(&trans, key, seq,
+	ret = commit_do(trans, NULL, NULL, 0,
+		btree_key_cache_flush_pos(trans, key, seq,
 				BTREE_INSERT_JOURNAL_RECLAIM, false));
 unlock:
 	srcu_read_unlock(&c->btree_trans_barrier, srcu_idx);
 
-	bch2_trans_exit(&trans);
+	bch2_trans_put(trans);
 	return ret;
 }
 
@@ -1065,7 +1063,7 @@ int bch2_fs_btree_key_cache_init(struct btree_key_cache *bc)
 
 void bch2_btree_key_cache_to_text(struct printbuf *out, struct btree_key_cache *c)
 {
-	prt_printf(out, "nr_freed:\t%zu",	atomic_long_read(&c->nr_freed));
+	prt_printf(out, "nr_freed:\t%lu",	atomic_long_read(&c->nr_freed));
 	prt_newline(out);
 	prt_printf(out, "nr_keys:\t%lu",	atomic_long_read(&c->nr_keys));
 	prt_newline(out);

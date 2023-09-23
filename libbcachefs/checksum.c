@@ -139,7 +139,7 @@ static inline int do_encrypt(struct crypto_sync_skcipher *tfm,
 
 		for (i = 0; i < pages; i++) {
 			unsigned offset = offset_in_page(buf);
-			unsigned pg_len = min(len, PAGE_SIZE - offset);
+			unsigned pg_len = min_t(size_t, len, PAGE_SIZE - offset);
 
 			sg_set_page(sg + i, vmalloc_to_page(buf), pg_len, offset);
 			buf += pg_len;
@@ -159,15 +159,16 @@ int bch2_chacha_encrypt_key(struct bch_key *key, struct nonce nonce,
 		crypto_alloc_sync_skcipher("chacha20", 0, 0);
 	int ret;
 
-	if (!chacha20) {
-		pr_err("error requesting chacha20 module: %li", PTR_ERR(chacha20));
-		return PTR_ERR(chacha20);
+	ret = PTR_ERR_OR_ZERO(chacha20);
+	if (ret) {
+		pr_err("error requesting chacha20 cipher: %s", bch2_err_str(ret));
+		return ret;
 	}
 
 	ret = crypto_skcipher_setkey(&chacha20->base,
 				     (void *) key, sizeof(*key));
 	if (ret) {
-		pr_err("crypto_skcipher_setkey() error: %i", ret);
+		pr_err("error from crypto_skcipher_setkey(): %s", bch2_err_str(ret));
 		goto err;
 	}
 
@@ -366,11 +367,11 @@ struct bch_csum bch2_checksum_merge(unsigned type, struct bch_csum a,
 	BUG_ON(!bch2_checksum_mergeable(type));
 
 	while (b_len) {
-		unsigned b = min_t(unsigned, b_len, PAGE_SIZE);
+		unsigned page_len = min_t(unsigned, b_len, PAGE_SIZE);
 
 		bch2_checksum_update(&state,
-				page_address(ZERO_PAGE(0)), b);
-		b_len -= b;
+				page_address(ZERO_PAGE(0)), page_len);
+		b_len -= page_len;
 	}
 	a.lo = (__le64 __force) bch2_checksum_final(&state);
 	a.lo ^= b.lo;
@@ -395,9 +396,9 @@ int bch2_rechecksum_bio(struct bch_fs *c, struct bio *bio,
 		unsigned			csum_type;
 		struct bch_csum			csum;
 	} splits[3] = {
-		{ crc_a, len_a, new_csum_type },
-		{ crc_b, len_b, new_csum_type },
-		{ NULL,	 bio_sectors(bio) - len_a - len_b, new_csum_type },
+		{ crc_a, len_a, new_csum_type, { 0 }},
+		{ crc_b, len_b, new_csum_type, { 0 } },
+		{ NULL,	 bio_sectors(bio) - len_a - len_b, new_csum_type, { 0 } },
 	}, *i;
 	bool mergeable = crc_old.csum_type == new_csum_type &&
 		bch2_checksum_mergeable(new_csum_type);
@@ -558,6 +559,7 @@ int bch2_request_key(struct bch_sb *sb, struct bch_key *key)
 	return ret;
 }
 
+#ifndef __KERNEL__
 int bch2_revoke_key(struct bch_sb *sb)
 {
 	key_serial_t key_id;
@@ -575,6 +577,7 @@ int bch2_revoke_key(struct bch_sb *sb)
 
 	return 0;
 }
+#endif
 
 int bch2_decrypt_sb_key(struct bch_fs *c,
 			struct bch_sb_field_crypt *crypt,
@@ -596,7 +599,7 @@ int bch2_decrypt_sb_key(struct bch_fs *c,
 
 	/* decrypt real key: */
 	ret = bch2_chacha_encrypt_key(&user_key, bch2_sb_key_nonce(c),
-			     &sb_key, sizeof(sb_key));
+				      &sb_key, sizeof(sb_key));
 	if (ret)
 		goto err;
 
