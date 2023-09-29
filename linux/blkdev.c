@@ -289,6 +289,8 @@ static void sync_write(struct bio *bio, struct iovec * iov, unsigned i)
 	sync_check(bio, ret);
 }
 
+static DECLARE_WAIT_QUEUE_HEAD(aio_events_completed);
+
 static int aio_completion_thread(void *arg)
 {
 	struct io_event events[8], *ev;
@@ -303,6 +305,8 @@ static int aio_completion_thread(void *arg)
 			continue;
 		if (ret < 0)
 			die("io_getevents() error: %s", strerror(-ret));
+		if (ret)
+			wake_up(&aio_events_completed);
 
 		for (ev = events; ev < events + ret; ev++) {
 			struct bio *bio = (struct bio *) ev->data;
@@ -394,7 +398,10 @@ static void aio_op(struct bio *bio, struct iovec *iov, unsigned i, int opcode)
 	}, *iocbp = &iocb;
 
 	atomic_inc(&running_requests);
-	ret = io_submit(aio_ctx, 1, &iocbp);
+
+	wait_event(aio_events_completed,
+		   (ret = io_submit(aio_ctx, 1, &iocbp)) != -EAGAIN);;
+
 	if (ret != 1)
 		die("io_submit err: %s", strerror(-ret));
 }
