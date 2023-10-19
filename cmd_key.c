@@ -92,7 +92,7 @@ int cmd_set_passphrase(int argc, char *argv[])
 	if (IS_ERR(c))
 		die("Error opening %s: %s", argv[1], bch2_err_str(PTR_ERR(c)));
 
-	struct bch_sb_field_crypt *crypt = bch2_sb_get_crypt(c->disk_sb.sb);
+	struct bch_sb_field_crypt *crypt = bch2_sb_field_get(c->disk_sb.sb, crypt);
 	if (!crypt)
 		die("Filesystem does not have encryption enabled");
 
@@ -130,7 +130,7 @@ int cmd_remove_passphrase(int argc, char *argv[])
 	if (IS_ERR(c))
 		die("Error opening %s: %s", argv[1], bch2_err_str(PTR_ERR(c)));
 
-	struct bch_sb_field_crypt *crypt = bch2_sb_get_crypt(c->disk_sb.sb);
+	struct bch_sb_field_crypt *crypt = bch2_sb_field_get(c->disk_sb.sb, crypt);
 	if (!crypt)
 		die("Filesystem does not have encryption enabled");
 

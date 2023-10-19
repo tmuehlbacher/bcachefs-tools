@@ -221,7 +221,7 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 
 	/* Member info: */
 	struct bch_sb_field_members_v2 *mi =
-		bch2_sb_resize_members_v2(&sb,
+		bch2_sb_field_resize(&sb, members_v2,
 			(sizeof(*mi) + sizeof(struct bch_member) *
 			nr_devs) / sizeof(u64));
 	mi->member_bytes = cpu_to_le16(sizeof(struct bch_member));
@@ -270,7 +270,7 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 	/* Crypt: */
 	if (opts.encrypted) {
 		struct bch_sb_field_crypt *crypt =
-			bch2_sb_resize_crypt(&sb, sizeof(*crypt) / sizeof(u64));
+			bch2_sb_field_resize(&sb, crypt, sizeof(*crypt) / sizeof(u64));
 
 		bch_sb_crypt_init(sb.sb, crypt, opts.passphrase);
 		SET_BCH_SB_ENCRYPTION_TYPE(sb.sb, 1);

@@ -348,7 +348,7 @@ int cmd_show_super(int argc, char *argv[])
 		die("Error opening %s: %s", dev, bch2_err_str(ret));
 
 	if (print_default_fields)
-		fields = bch2_sb_get_members_v2(sb.sb)
+		fields = bch2_sb_field_get(sb.sb, members_v2)
 			? 1 << BCH_SB_FIELD_members_v2
 			: 1 << BCH_SB_FIELD_members_v1;
 

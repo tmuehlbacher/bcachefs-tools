@@ -720,6 +720,7 @@ static struct bch_fs *bch2_fs_alloc(struct bch_sb *sb, struct bch_opts opts)
 
 	mutex_init(&c->bio_bounce_pages_lock);
 	mutex_init(&c->snapshot_table_lock);
+	init_rwsem(&c->snapshot_create_lock);
 
 	spin_lock_init(&c->btree_write_error_lock);
 
@@ -1630,9 +1631,9 @@ int bch2_dev_add(struct bch_fs *c, const char *path)
 		goto err_unlock;
 	}
 
-	mi = bch2_sb_get_members_v2(ca->disk_sb.sb);
+	mi = bch2_sb_field_get(ca->disk_sb.sb, members_v2);
 
-	if (!bch2_sb_resize_members_v2(&ca->disk_sb,
+	if (!bch2_sb_field_resize(&ca->disk_sb, members_v2,
 				le32_to_cpu(mi->field.u64s) +
 				sizeof(dev_mi) / sizeof(u64))) {
 		ret = -BCH_ERR_ENOSPC_sb_members;
@@ -1656,7 +1657,7 @@ have_slot:
 	u64s = DIV_ROUND_UP(sizeof(struct bch_sb_field_members_v2) +
 			    le16_to_cpu(mi->member_bytes) * nr_devices, sizeof(u64));
 
-	mi = bch2_sb_resize_members_v2(&c->disk_sb, u64s);
+	mi = bch2_sb_field_resize(&c->disk_sb, members_v2, u64s);
 	if (!mi) {
 		ret = -BCH_ERR_ENOSPC_sb_members;
 		bch_err_msg(c, ret, "setting up new superblock");

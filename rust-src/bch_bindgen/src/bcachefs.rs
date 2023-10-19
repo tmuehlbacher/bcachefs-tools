@@ -43,7 +43,7 @@ impl PartialEq for bch_sb {
 impl bch_sb {
     pub fn crypt(&self) -> Option<&bch_sb_field_crypt> {
         unsafe {
-            let ptr = bch2_sb_field_get(
+            let ptr = bch2_sb_field_get_id(
                 self as *const _ as *mut _,
                 bch_sb_field_type::BCH_SB_FIELD_crypt,
             ) as *const u8;

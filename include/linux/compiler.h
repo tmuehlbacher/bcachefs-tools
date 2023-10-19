@@ -66,6 +66,7 @@
 #define __same_type(a, b)	__builtin_types_compatible_p(typeof(a), typeof(b))
 #define fallthrough		__attribute__((__fallthrough__))
 #define __noreturn		__attribute__((__noreturn__))
+#define __counted_by(nr)
 
 #define ___PASTE(a,b) a##b
 #define __PASTE(a,b) ___PASTE(a,b)

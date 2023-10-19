@@ -105,7 +105,7 @@ bool bch2_sb_is_encrypted(struct bch_sb *sb)
 {
 	struct bch_sb_field_crypt *crypt;
 
-	return (crypt = bch2_sb_get_crypt(sb)) &&
+	return (crypt = bch2_sb_field_get(sb, crypt)) &&
 		bch2_key_is_encrypted(&crypt->key);
 }
 
@@ -113,7 +113,7 @@ void bch2_passphrase_check(struct bch_sb *sb, const char *passphrase,
 			   struct bch_key *passphrase_key,
 			   struct bch_encrypted_key *sb_key)
 {
-	struct bch_sb_field_crypt *crypt = bch2_sb_get_crypt(sb);
+	struct bch_sb_field_crypt *crypt = bch2_sb_field_get(sb, crypt);
 	if (!crypt)
 		die("filesystem is not encrypted");
 
