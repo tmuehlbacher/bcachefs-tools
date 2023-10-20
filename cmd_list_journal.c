@@ -252,7 +252,7 @@ int cmd_list_journal(int argc, char *argv[])
 			darray_push(&transaction_filter, bbpos_parse(optarg));
 			break;
 		case 'k':
-			darray_push(&key_filter, read_string_list_or_die(optarg, bch2_btree_ids, "btree id"));
+			darray_push(&key_filter, read_string_list_or_die(optarg, __bch2_btree_ids, "btree id"));
 			break;
 		case 'v':
 			opt_set(opts, verbose, true);

@@ -182,7 +182,7 @@ static int bch2_journal_replay(struct bch_fs *c)
 			     bch2_journal_replay_key(trans, k));
 		if (ret) {
 			bch_err(c, "journal replay: error while replaying key at btree %s level %u: %s",
-				bch2_btree_ids[k->btree_id], k->level, bch2_err_str(ret));
+				bch2_btree_id_str(k->btree_id), k->level, bch2_err_str(ret));
 			goto err;
 		}
 	}
@@ -367,7 +367,7 @@ static int read_btree_roots(struct bch_fs *c)
 			__fsck_err(c, btree_id_is_alloc(i)
 				   ? FSCK_CAN_IGNORE : 0,
 				   "invalid btree root %s",
-				   bch2_btree_ids[i]);
+				   bch2_btree_id_str(i));
 			if (i == BTREE_ID_alloc)
 				c->sb.compat &= ~(1ULL << BCH_COMPAT_alloc_info);
 		}
@@ -376,7 +376,7 @@ static int read_btree_roots(struct bch_fs *c)
 		if (ret) {
 			fsck_err(c,
 				 "error reading btree root %s",
-				 bch2_btree_ids[i]);
+				 bch2_btree_id_str(i));
 			if (btree_id_is_alloc(i))
 				c->sb.compat &= ~(1ULL << BCH_COMPAT_alloc_info);
 			ret = 0;
@@ -901,7 +901,7 @@ out:
 	}
 	kfree(clean);
 
-	if (!ret && test_bit(BCH_FS_HAVE_DELETED_SNAPSHOTS, &c->flags)) {
+	if (!ret && test_bit(BCH_FS_NEED_DELETE_DEAD_SNAPSHOTS, &c->flags)) {
 		bch2_fs_read_write_early(c);
 		bch2_delete_dead_snapshots_async(c);
 	}

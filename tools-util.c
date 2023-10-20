@@ -673,7 +673,7 @@ struct bbpos bbpos_parse(char *buf)
 	if (!(field = strsep(&s, ":")))
 		die("invalid bbpos %s", buf);
 
-	ret.btree = read_string_list_or_die(field, bch2_btree_ids, "btree id");
+	ret.btree = read_string_list_or_die(field, __bch2_btree_ids, "btree id");
 
 	if (!s)
 		die("invalid bbpos %s", buf);

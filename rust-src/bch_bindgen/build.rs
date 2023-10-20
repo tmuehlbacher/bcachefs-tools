@@ -60,6 +60,7 @@ fn main() {
         .allowlist_var("KEY_SPEC_.*")
         .allowlist_var("Fix753_FMODE_.*")
         .allowlist_var("bch.*")
+        .allowlist_var("__bch2.*")
         .allowlist_var("__BTREE_ITER.*")
         .allowlist_var("BTREE_ITER.*")
         .blocklist_item("bch2_bkey_ops")

@@ -103,7 +103,7 @@ int cmd_data_job(int argc, char *argv[])
 		switch (opt) {
 		case 'b':
 			op.start_btree = read_string_list_or_die(optarg,
-						bch2_btree_ids, "btree id");
+						__bch2_btree_ids, "btree id");
 			op.end_btree = op.start_btree;
 			break;
 		case 's':

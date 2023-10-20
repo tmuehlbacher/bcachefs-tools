@@ -509,7 +509,7 @@ int bchu_data(struct bchfs_handle fs, struct bch_ioctl_data cmd)
 		case BCH_DATA_btree:
 		case BCH_DATA_user:
 			printf(" %s:%llu:%llu",
-			       bch2_btree_ids[e.p.btree_id],
+			       bch2_btree_id_str(e.p.btree_id),
 			       e.p.pos.inode,
 			       e.p.pos.offset);
 		}

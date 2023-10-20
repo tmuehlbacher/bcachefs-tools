@@ -62,7 +62,7 @@ use std::fmt;
 
 impl fmt::Display for c::btree_id {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let s = unsafe { CStr::from_ptr(*c::bch2_btree_ids.get_unchecked(*self as usize)) };
+        let s = unsafe { CStr::from_ptr(c::bch2_btree_id_str(*self)) };
         let s = s.to_str().unwrap();
         write!(f, "{}", s)
     }
@@ -92,7 +92,7 @@ impl FromStr for c::btree_id {
         let s = CString::new(s).unwrap();
         let p = s.as_ptr();
 
-        let v = unsafe {c::match_string(c::bch2_btree_ids[..].as_ptr(), (-(1 as isize)) as usize, p)};
+        let v = unsafe {c::match_string(c::__bch2_btree_ids[..].as_ptr(), (-(1 as isize)) as usize, p)};
         if v >= 0 {
             Ok(unsafe { std::mem::transmute(v) })
         } else {

@@ -41,7 +41,7 @@ int cmd_kill_btree_node(int argc, char *argv[])
 		switch (opt) {
 		case 'b':
 			btree_id = read_string_list_or_die(optarg,
-						bch2_btree_ids, "btree id");
+						__bch2_btree_ids, "btree id");
 			break;
 		case 'l':
 			if (kstrtouint(optarg, 10, &level) || level >= BTREE_MAX_DEPTH)
