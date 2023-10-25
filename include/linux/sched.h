@@ -151,6 +151,14 @@ static inline u64 ktime_get_seconds(void)
 	return ts.tv_sec;
 }
 
+static inline u64 ktime_get_real_ns(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_REALTIME, &ts);
+	return timespec_to_ns(&ts);
+}
+
 static inline u64 ktime_get_real_seconds(void)
 {
 	struct timespec ts;

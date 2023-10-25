@@ -47,6 +47,7 @@ typedef struct {
 #define smp_rmb()			cmm_smp_rmb()
 #define smp_mb()			cmm_smp_mb()
 #define smp_read_barrier_depends()	cmm_smp_read_barrier_depends()
+#define smp_acquire__after_ctrl_dep()	cmm_smp_mb()
 
 #else /* C11_ATOMICS */
 
@@ -203,6 +204,11 @@ static inline i_type a_type##_inc_return(a_type##_t *v)			\
 static inline i_type a_type##_dec_return(a_type##_t *v)			\
 {									\
 	return __ATOMIC_DEC_RETURN(&v->counter);			\
+}									\
+									\
+static inline i_type a_type##_dec_return_release(a_type##_t *v)		\
+{									\
+	return __ATOMIC_SUB_RETURN_RELEASE(1, &v->counter);		\
 }									\
 									\
 static inline void a_type##_inc(a_type##_t *v)				\

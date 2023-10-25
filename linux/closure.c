@@ -22,6 +22,10 @@ static inline void closure_put_after_sub(struct closure *cl, int flags)
 		panic("closure_put_after_sub: bogus flags %x remaining %i", flags, r);
 
 	if (!r) {
+		smp_acquire__after_ctrl_dep();
+
+		cl->closure_get_happened = false;
+
 		if (cl->fn && !(flags & CLOSURE_DESTRUCTOR)) {
 			atomic_set(&cl->remaining,
 				   CLOSURE_REMAINING_INITIALIZER);
@@ -44,7 +48,7 @@ static inline void closure_put_after_sub(struct closure *cl, int flags)
 /* For clearing flags with the same atomic op as a put */
 void closure_sub(struct closure *cl, int v)
 {
-	closure_put_after_sub(cl, atomic_sub_return(v, &cl->remaining));
+	closure_put_after_sub(cl, atomic_sub_return_release(v, &cl->remaining));
 }
 EXPORT_SYMBOL(closure_sub);
 
@@ -53,7 +57,7 @@ EXPORT_SYMBOL(closure_sub);
  */
 void closure_put(struct closure *cl)
 {
-	closure_put_after_sub(cl, atomic_dec_return(&cl->remaining));
+	closure_put_after_sub(cl, atomic_dec_return_release(&cl->remaining));
 }
 EXPORT_SYMBOL(closure_put);
 
@@ -91,6 +95,7 @@ bool closure_wait(struct closure_waitlist *waitlist, struct closure *cl)
 	if (atomic_read(&cl->remaining) & CLOSURE_WAITING)
 		return false;
 
+	cl->closure_get_happened = true;
 	closure_set_waiting(cl, _RET_IP_);
 	atomic_add(CLOSURE_WAITING + 1, &cl->remaining);
 	llist_add(&cl->list, &waitlist->list);

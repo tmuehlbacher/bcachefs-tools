@@ -418,6 +418,7 @@ enum bch_time_stats {
 #include "buckets_types.h"
 #include "buckets_waiting_for_journal_types.h"
 #include "clock_types.h"
+#include "disk_groups_types.h"
 #include "ec_types.h"
 #include "journal_types.h"
 #include "keylist_types.h"
@@ -463,6 +464,7 @@ enum gc_phase {
 	GC_PHASE_BTREE_snapshot_trees,
 	GC_PHASE_BTREE_deleted_inodes,
 	GC_PHASE_BTREE_logged_ops,
+	GC_PHASE_BTREE_rebalance_work,
 
 	GC_PHASE_PENDING_DELETE,
 };
@@ -937,9 +939,6 @@ struct bch_fs {
 	/* MOVE.C */
 	struct list_head	moving_context_list;
 	struct mutex		moving_context_lock;
-
-	struct list_head	data_progress_list;
-	struct mutex		data_progress_lock;
 
 	/* REBALANCE */
 	struct bch_fs_rebalance	rebalance;

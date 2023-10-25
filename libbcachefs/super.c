@@ -949,9 +949,6 @@ int bch2_fs_start(struct bch_fs *c)
 	}
 
 	for_each_online_member(ca, c, i)
-		bch2_sb_from_fs(c, ca);
-
-	for_each_online_member(ca, c, i)
 		bch2_members_v2_get_mut(c->disk_sb.sb, i)->last_mount = cpu_to_le64(now);
 
 	mutex_unlock(&c->sb_lock);
@@ -959,12 +956,6 @@ int bch2_fs_start(struct bch_fs *c)
 	for_each_rw_member(ca, c, i)
 		bch2_dev_allocator_add(c, ca);
 	bch2_recalc_capacity(c);
-
-	for (i = 0; i < BCH_TRANSACTIONS_NR; i++) {
-		mutex_lock(&c->btree_transaction_stats[i].lock);
-		bch2_time_stats_init(&c->btree_transaction_stats[i].lock_hold_times);
-		mutex_unlock(&c->btree_transaction_stats[i].lock);
-	}
 
 	ret = BCH_SB_INITIALIZED(c->disk_sb.sb)
 		? bch2_fs_recovery(c)
@@ -1591,7 +1582,7 @@ int bch2_dev_add(struct bch_fs *c, const char *path)
 	dev_mi = bch2_sb_member_get(sb.sb, sb.sb->dev_idx);
 
 	if (BCH_MEMBER_GROUP(&dev_mi)) {
-		bch2_disk_path_to_text(&label, sb.sb, BCH_MEMBER_GROUP(&dev_mi) - 1);
+		bch2_disk_path_to_text_sb(&label, sb.sb, BCH_MEMBER_GROUP(&dev_mi) - 1);
 		if (label.allocation_failure) {
 			ret = -ENOMEM;
 			goto err;
@@ -1689,13 +1680,13 @@ have_slot:
 
 	ret = bch2_trans_mark_dev_sb(c, ca);
 	if (ret) {
-		bch_err_msg(c, ret, "marking new superblock");
+		bch_err_msg(ca, ret, "marking new superblock");
 		goto err_late;
 	}
 
 	ret = bch2_fs_freespace_init(c);
 	if (ret) {
-		bch_err_msg(c, ret, "initializing free space");
+		bch_err_msg(ca, ret, "initializing free space");
 		goto err_late;
 	}
 
@@ -1763,18 +1754,25 @@ int bch2_dev_online(struct bch_fs *c, const char *path)
 	if (ca->mi.state == BCH_MEMBER_STATE_rw)
 		__bch2_dev_read_write(c, ca);
 
+	if (!ca->mi.freespace_initialized) {
+		ret = bch2_dev_freespace_init(c, ca, 0, ca->mi.nbuckets);
+		bch_err_msg(ca, ret, "initializing free space");
+		if (ret)
+			goto err;
+	}
+
+	if (!ca->journal.nr) {
+		ret = bch2_dev_journal_alloc(ca);
+		bch_err_msg(ca, ret, "allocating journal");
+		if (ret)
+			goto err;
+	}
+
 	mutex_lock(&c->sb_lock);
-	struct bch_member *m = bch2_members_v2_get_mut(c->disk_sb.sb, ca->dev_idx);
-
-	m->last_mount =
+	bch2_members_v2_get_mut(c->disk_sb.sb, ca->dev_idx)->last_mount =
 		cpu_to_le64(ktime_get_real_seconds());
-
 	bch2_write_super(c);
 	mutex_unlock(&c->sb_lock);
-
-	ret = bch2_fs_freespace_init(c);
-	if (ret)
-		bch_err_msg(c, ret, "initializing free space");
 
 	up_write(&c->state_lock);
 	return 0;

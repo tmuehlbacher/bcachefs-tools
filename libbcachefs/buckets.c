@@ -935,14 +935,12 @@ static int bch2_mark_stripe_ptr(struct btree_trans *trans,
 	return 0;
 }
 
-int bch2_mark_extent(struct btree_trans *trans,
-		     enum btree_id btree_id, unsigned level,
-		     struct bkey_s_c old, struct bkey_s_c new,
-		     unsigned flags)
+static int __mark_extent(struct btree_trans *trans,
+			 enum btree_id btree_id, unsigned level,
+			 struct bkey_s_c k, unsigned flags)
 {
 	u64 journal_seq = trans->journal_res.seq;
 	struct bch_fs *c = trans->c;
-	struct bkey_s_c k = flags & BTREE_TRIGGER_OVERWRITE ? old : new;
 	struct bkey_ptrs_c ptrs = bch2_bkey_ptrs_c(k);
 	const union bch_extent_entry *entry;
 	struct extent_ptr_decoded p;
@@ -1016,6 +1014,14 @@ int bch2_mark_extent(struct btree_trans *trans,
 	}
 
 	return 0;
+}
+
+int bch2_mark_extent(struct btree_trans *trans,
+		     enum btree_id btree_id, unsigned level,
+		     struct bkey_s_c old, struct bkey_s_c new,
+		     unsigned flags)
+{
+	return mem_trigger_run_overwrite_then_insert(__mark_extent, trans, btree_id, level, old, new, flags);
 }
 
 int bch2_mark_stripe(struct btree_trans *trans,
@@ -1124,13 +1130,11 @@ int bch2_mark_stripe(struct btree_trans *trans,
 	return 0;
 }
 
-int bch2_mark_reservation(struct btree_trans *trans,
-			  enum btree_id btree_id, unsigned level,
-			  struct bkey_s_c old, struct bkey_s_c new,
-			  unsigned flags)
+static int __mark_reservation(struct btree_trans *trans,
+			      enum btree_id btree_id, unsigned level,
+			      struct bkey_s_c k, unsigned flags)
 {
 	struct bch_fs *c = trans->c;
-	struct bkey_s_c k = flags & BTREE_TRIGGER_OVERWRITE ? old : new;
 	struct bch_fs_usage *fs_usage;
 	unsigned replicas = bkey_s_c_to_reservation(k).v->nr_replicas;
 	s64 sectors = (s64) k.k->size;
@@ -1155,6 +1159,14 @@ int bch2_mark_reservation(struct btree_trans *trans,
 	percpu_up_read(&c->mark_lock);
 
 	return 0;
+}
+
+int bch2_mark_reservation(struct btree_trans *trans,
+			  enum btree_id btree_id, unsigned level,
+			  struct bkey_s_c old, struct bkey_s_c new,
+			  unsigned flags)
+{
+	return mem_trigger_run_overwrite_then_insert(__mark_reservation, trans, btree_id, level, old, new, flags);
 }
 
 static s64 __bch2_mark_reflink_p(struct btree_trans *trans,
@@ -1211,13 +1223,11 @@ fsck_err:
 	return ret;
 }
 
-int bch2_mark_reflink_p(struct btree_trans *trans,
-			enum btree_id btree_id, unsigned level,
-			struct bkey_s_c old, struct bkey_s_c new,
-			unsigned flags)
+static int __mark_reflink_p(struct btree_trans *trans,
+			    enum btree_id btree_id, unsigned level,
+			    struct bkey_s_c k, unsigned flags)
 {
 	struct bch_fs *c = trans->c;
-	struct bkey_s_c k = flags & BTREE_TRIGGER_OVERWRITE ? old : new;
 	struct bkey_s_c_reflink_p p = bkey_s_c_to_reflink_p(k);
 	struct reflink_gc *ref;
 	size_t l, r, m;
@@ -1249,6 +1259,14 @@ int bch2_mark_reflink_p(struct btree_trans *trans,
 					    &idx, flags, l++);
 
 	return ret;
+}
+
+int bch2_mark_reflink_p(struct btree_trans *trans,
+			enum btree_id btree_id, unsigned level,
+			struct bkey_s_c old, struct bkey_s_c new,
+			unsigned flags)
+{
+	return mem_trigger_run_overwrite_then_insert(__mark_reflink_p, trans, btree_id, level, old, new, flags);
 }
 
 void bch2_trans_fs_usage_revert(struct btree_trans *trans,
@@ -1452,15 +1470,11 @@ err:
 	return ret;
 }
 
-int bch2_trans_mark_extent(struct btree_trans *trans,
-			   enum btree_id btree_id, unsigned level,
-			   struct bkey_s_c old, struct bkey_i *new,
-			   unsigned flags)
+static int __trans_mark_extent(struct btree_trans *trans,
+			       enum btree_id btree_id, unsigned level,
+			       struct bkey_s_c k, unsigned flags)
 {
 	struct bch_fs *c = trans->c;
-	struct bkey_s_c k = flags & BTREE_TRIGGER_OVERWRITE
-		? old
-		: bkey_i_to_s_c(new);
 	struct bkey_ptrs_c ptrs = bch2_bkey_ptrs_c(k);
 	const union bch_extent_entry *entry;
 	struct extent_ptr_decoded p;
@@ -1515,6 +1529,24 @@ int bch2_trans_mark_extent(struct btree_trans *trans,
 		ret = update_replicas_list(trans, &r.e, dirty_sectors);
 
 	return ret;
+}
+
+int bch2_trans_mark_extent(struct btree_trans *trans,
+			   enum btree_id btree_id, unsigned level,
+			   struct bkey_s_c old, struct bkey_i *new,
+			   unsigned flags)
+{
+	struct bch_fs *c = trans->c;
+	int mod = (int) bch2_bkey_needs_rebalance(c, bkey_i_to_s_c(new)) -
+		  (int) bch2_bkey_needs_rebalance(c, old);
+
+	if (mod) {
+		int ret = bch2_btree_bit_mod(trans, BTREE_ID_rebalance_work, new->k.p, mod > 0);
+		if (ret)
+			return ret;
+	}
+
+	return trigger_run_overwrite_then_insert(__trans_mark_extent, trans, btree_id, level, old, new, flags);
 }
 
 static int bch2_trans_mark_stripe_bucket(struct btree_trans *trans,
@@ -1670,15 +1702,10 @@ int bch2_trans_mark_stripe(struct btree_trans *trans,
 	return ret;
 }
 
-int bch2_trans_mark_reservation(struct btree_trans *trans,
-				enum btree_id btree_id, unsigned level,
-				struct bkey_s_c old,
-				struct bkey_i *new,
-				unsigned flags)
+static int __trans_mark_reservation(struct btree_trans *trans,
+				    enum btree_id btree_id, unsigned level,
+				    struct bkey_s_c k, unsigned flags)
 {
-	struct bkey_s_c k = flags & BTREE_TRIGGER_OVERWRITE
-		? old
-		: bkey_i_to_s_c(new);
 	unsigned replicas = bkey_s_c_to_reservation(k).v->nr_replicas;
 	s64 sectors = (s64) k.k->size;
 	struct replicas_delta_list *d;
@@ -1700,7 +1727,16 @@ int bch2_trans_mark_reservation(struct btree_trans *trans,
 	return 0;
 }
 
-static int __bch2_trans_mark_reflink_p(struct btree_trans *trans,
+int bch2_trans_mark_reservation(struct btree_trans *trans,
+				enum btree_id btree_id, unsigned level,
+				struct bkey_s_c old,
+				struct bkey_i *new,
+				unsigned flags)
+{
+	return trigger_run_overwrite_then_insert(__trans_mark_reservation, trans, btree_id, level, old, new, flags);
+}
+
+static int trans_mark_reflink_p_segment(struct btree_trans *trans,
 			struct bkey_s_c_reflink_p p,
 			u64 *idx, unsigned flags)
 {
@@ -1767,33 +1803,36 @@ err:
 	return ret;
 }
 
-int bch2_trans_mark_reflink_p(struct btree_trans *trans,
-			      enum btree_id btree_id, unsigned level,
-			      struct bkey_s_c old,
-			      struct bkey_i *new,
-			      unsigned flags)
+static int __trans_mark_reflink_p(struct btree_trans *trans,
+				enum btree_id btree_id, unsigned level,
+				struct bkey_s_c k, unsigned flags)
 {
-	struct bkey_s_c k = flags & BTREE_TRIGGER_OVERWRITE
-		? old
-		: bkey_i_to_s_c(new);
 	struct bkey_s_c_reflink_p p = bkey_s_c_to_reflink_p(k);
 	u64 idx, end_idx;
 	int ret = 0;
-
-	if (flags & BTREE_TRIGGER_INSERT) {
-		struct bch_reflink_p *v = (struct bch_reflink_p *) p.v;
-
-		v->front_pad = v->back_pad = 0;
-	}
 
 	idx	= le64_to_cpu(p.v->idx) - le32_to_cpu(p.v->front_pad);
 	end_idx = le64_to_cpu(p.v->idx) + p.k->size +
 		le32_to_cpu(p.v->back_pad);
 
 	while (idx < end_idx && !ret)
-		ret = __bch2_trans_mark_reflink_p(trans, p, &idx, flags);
-
+		ret = trans_mark_reflink_p_segment(trans, p, &idx, flags);
 	return ret;
+}
+
+int bch2_trans_mark_reflink_p(struct btree_trans *trans,
+			      enum btree_id btree_id, unsigned level,
+			      struct bkey_s_c old,
+			      struct bkey_i *new,
+			      unsigned flags)
+{
+	if (flags & BTREE_TRIGGER_INSERT) {
+		struct bch_reflink_p *v = &bkey_i_to_reflink_p(new)->v;
+
+		v->front_pad = v->back_pad = 0;
+	}
+
+	return trigger_run_overwrite_then_insert(__trans_mark_reflink_p, trans, btree_id, level, old, new, flags);
 }
 
 static int __bch2_trans_mark_metadata_bucket(struct btree_trans *trans,
@@ -1825,16 +1864,16 @@ static int __bch2_trans_mark_metadata_bucket(struct btree_trans *trans,
 			bch2_data_types[type],
 			bch2_data_types[type]);
 		ret = -EIO;
-		goto out;
+		goto err;
 	}
 
-	a->v.data_type		= type;
-	a->v.dirty_sectors	= sectors;
-
-	ret = bch2_trans_update(trans, &iter, &a->k_i, 0);
-	if (ret)
-		goto out;
-out:
+	if (a->v.data_type	!= type ||
+	    a->v.dirty_sectors	!= sectors) {
+		a->v.data_type		= type;
+		a->v.dirty_sectors	= sectors;
+		ret = bch2_trans_update(trans, &iter, &a->k_i, 0);
+	}
+err:
 	bch2_trans_iter_exit(trans, &iter);
 	return ret;
 }
@@ -1927,6 +1966,22 @@ int bch2_trans_mark_dev_sb(struct bch_fs *c, struct bch_dev *ca)
 	if (ret)
 		bch_err_fn(c, ret);
 	return ret;
+}
+
+int bch2_trans_mark_dev_sbs(struct bch_fs *c)
+{
+	struct bch_dev *ca;
+	unsigned i;
+
+	for_each_online_member(ca, c, i) {
+		int ret = bch2_trans_mark_dev_sb(c, ca);
+		if (ret) {
+			percpu_ref_put(&ca->ref);
+			return ret;
+		}
+	}
+
+	return 0;
 }
 
 /* Disk reservations: */

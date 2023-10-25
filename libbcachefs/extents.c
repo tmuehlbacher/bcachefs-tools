@@ -13,6 +13,7 @@
 #include "btree_iter.h"
 #include "buckets.h"
 #include "checksum.h"
+#include "compress.h"
 #include "debug.h"
 #include "disk_groups.h"
 #include "error.h"
@@ -757,18 +758,6 @@ static union bch_extent_entry *extent_entry_prev(struct bkey_ptrs ptrs,
 	return i;
 }
 
-static void extent_entry_drop(struct bkey_s k, union bch_extent_entry *entry)
-{
-	union bch_extent_entry *next = extent_entry_next(entry);
-
-	/* stripes have ptrs, but their layout doesn't work with this code */
-	BUG_ON(k.k->type == KEY_TYPE_stripe);
-
-	memmove_u64s_down(entry, next,
-			  (u64 *) bkey_val_end(k) - (u64 *) next);
-	k.k->u64s -= (u64 *) next - (u64 *) entry;
-}
-
 /*
  * Returns pointer to the next entry after the one being dropped:
  */
@@ -992,10 +981,6 @@ void bch2_bkey_ptrs_to_text(struct printbuf *out, struct bch_fs *c,
 {
 	struct bkey_ptrs_c ptrs = bch2_bkey_ptrs_c(k);
 	const union bch_extent_entry *entry;
-	struct bch_extent_crc_unpacked crc;
-	const struct bch_extent_ptr *ptr;
-	const struct bch_extent_stripe_ptr *ec;
-	struct bch_dev *ca;
 	bool first = true;
 
 	if (c)
@@ -1006,9 +991,9 @@ void bch2_bkey_ptrs_to_text(struct printbuf *out, struct bch_fs *c,
 			prt_printf(out, " ");
 
 		switch (__extent_entry_type(entry)) {
-		case BCH_EXTENT_ENTRY_ptr:
-			ptr = entry_to_ptr(entry);
-			ca = c && ptr->dev < c->sb.nr_devices && c->devs[ptr->dev]
+		case BCH_EXTENT_ENTRY_ptr: {
+			const struct bch_extent_ptr *ptr = entry_to_ptr(entry);
+			struct bch_dev *ca = c && ptr->dev < c->sb.nr_devices && c->devs[ptr->dev]
 				? bch_dev_bkey_exists(c, ptr->dev)
 				: NULL;
 
@@ -1030,10 +1015,12 @@ void bch2_bkey_ptrs_to_text(struct printbuf *out, struct bch_fs *c,
 					prt_printf(out, " stale");
 			}
 			break;
+		}
 		case BCH_EXTENT_ENTRY_crc32:
 		case BCH_EXTENT_ENTRY_crc64:
-		case BCH_EXTENT_ENTRY_crc128:
-			crc = bch2_extent_crc_unpack(k.k, entry_to_crc(entry));
+		case BCH_EXTENT_ENTRY_crc128: {
+			struct bch_extent_crc_unpacked crc =
+				bch2_extent_crc_unpack(k.k, entry_to_crc(entry));
 
 			prt_printf(out, "crc: c_size %u size %u offset %u nonce %u csum %s compress %s",
 			       crc.compressed_size,
@@ -1042,12 +1029,26 @@ void bch2_bkey_ptrs_to_text(struct printbuf *out, struct bch_fs *c,
 			       bch2_csum_types[crc.csum_type],
 			       bch2_compression_types[crc.compression_type]);
 			break;
-		case BCH_EXTENT_ENTRY_stripe_ptr:
-			ec = &entry->stripe_ptr;
+		}
+		case BCH_EXTENT_ENTRY_stripe_ptr: {
+			const struct bch_extent_stripe_ptr *ec = &entry->stripe_ptr;
 
 			prt_printf(out, "ec: idx %llu block %u",
 			       (u64) ec->idx, ec->block);
 			break;
+		}
+		case BCH_EXTENT_ENTRY_rebalance: {
+			const struct bch_extent_rebalance *r = &entry->rebalance;
+
+			prt_str(out, "rebalance: target ");
+			if (c)
+				bch2_target_to_text(out, c, r->target);
+			else
+				prt_printf(out, "%u", r->target);
+			prt_str(out, " compression ");
+			bch2_compression_opt_to_text(out, r->compression);
+			break;
+		}
 		default:
 			prt_printf(out, "(invalid extent entry %.16llx)", *((u64 *) entry));
 			return;
@@ -1207,6 +1208,14 @@ int bch2_bkey_ptrs_invalid(const struct bch_fs *c, struct bkey_s_c k,
 				return -BCH_ERR_invalid_bkey;
 			}
 			crc_since_last_ptr = true;
+
+			if (crc_is_encoded(crc) &&
+			    (crc.uncompressed_size > c->opts.encoded_extent_max >> 9) &&
+			    (flags & (BKEY_INVALID_WRITE|BKEY_INVALID_COMMIT))) {
+				prt_printf(err, "too large encoded extent");
+				return -BCH_ERR_invalid_bkey;
+			}
+
 			break;
 		case BCH_EXTENT_ENTRY_stripe_ptr:
 			if (have_ec) {
@@ -1215,8 +1224,17 @@ int bch2_bkey_ptrs_invalid(const struct bch_fs *c, struct bkey_s_c k,
 			}
 			have_ec = true;
 			break;
-		case BCH_EXTENT_ENTRY_rebalance:
+		case BCH_EXTENT_ENTRY_rebalance: {
+			const struct bch_extent_rebalance *r = &entry->rebalance;
+
+			if (!bch2_compression_opt_valid(r->compression)) {
+				struct bch_compression_opt opt = __bch2_compression_decode(r->compression);
+				prt_printf(err, "invalid compression opt %u:%u",
+					   opt.type, opt.level);
+				return -BCH_ERR_invalid_bkey;
+			}
 			break;
+		}
 		}
 	}
 
@@ -1279,6 +1297,125 @@ void bch2_ptr_swab(struct bkey_s k)
 			break;
 		}
 	}
+}
+
+const struct bch_extent_rebalance *bch2_bkey_rebalance_opts(struct bkey_s_c k)
+{
+	struct bkey_ptrs_c ptrs = bch2_bkey_ptrs_c(k);
+	const union bch_extent_entry *entry;
+
+	bkey_extent_entry_for_each(ptrs, entry)
+		if (__extent_entry_type(entry) == BCH_EXTENT_ENTRY_rebalance)
+			return &entry->rebalance;
+
+	return NULL;
+}
+
+unsigned bch2_bkey_ptrs_need_rebalance(struct bch_fs *c, struct bkey_s_c k,
+				       unsigned target, unsigned compression)
+{
+	struct bkey_ptrs_c ptrs = bch2_bkey_ptrs_c(k);
+	unsigned rewrite_ptrs = 0;
+
+	if (compression) {
+		unsigned compression_type = bch2_compression_opt_to_type(compression);
+		const union bch_extent_entry *entry;
+		struct extent_ptr_decoded p;
+		unsigned i = 0;
+
+		bkey_for_each_ptr_decode(k.k, ptrs, p, entry) {
+			if (p.crc.compression_type == BCH_COMPRESSION_TYPE_incompressible) {
+				rewrite_ptrs = 0;
+				goto incompressible;
+			}
+
+			if (!p.ptr.cached && p.crc.compression_type != compression_type)
+				rewrite_ptrs |= 1U << i;
+			i++;
+		}
+	}
+incompressible:
+	if (target && bch2_target_accepts_data(c, BCH_DATA_user, target)) {
+		const struct bch_extent_ptr *ptr;
+		unsigned i = 0;
+
+		bkey_for_each_ptr(ptrs, ptr) {
+			if (!ptr->cached && !bch2_dev_in_target(c, ptr->dev, target))
+				rewrite_ptrs |= 1U << i;
+			i++;
+		}
+	}
+
+	return rewrite_ptrs;
+}
+
+bool bch2_bkey_needs_rebalance(struct bch_fs *c, struct bkey_s_c k)
+{
+	const struct bch_extent_rebalance *r = bch2_bkey_rebalance_opts(k);
+
+	/*
+	 * If it's an indirect extent, we don't delete the rebalance entry when
+	 * done so that we know what options were applied - check if it still
+	 * needs work done:
+	 */
+	if (r &&
+	    k.k->type == KEY_TYPE_reflink_v &&
+	    !bch2_bkey_ptrs_need_rebalance(c, k, r->target, r->compression))
+		r = NULL;
+
+	return r != NULL;
+}
+
+int bch2_bkey_set_needs_rebalance(struct bch_fs *c, struct bkey_i *_k,
+				  unsigned target, unsigned compression)
+{
+	struct bkey_s k = bkey_i_to_s(_k);
+	struct bch_extent_rebalance *r;
+	bool needs_rebalance;
+
+	if (!bkey_extent_is_direct_data(k.k))
+		return 0;
+
+	/* get existing rebalance entry: */
+	r = (struct bch_extent_rebalance *) bch2_bkey_rebalance_opts(k.s_c);
+	if (r) {
+		if (k.k->type == KEY_TYPE_reflink_v) {
+			/*
+			 * indirect extents: existing options take precedence,
+			 * so that we don't move extents back and forth if
+			 * they're referenced by different inodes with different
+			 * options:
+			 */
+			if (r->target)
+				target = r->target;
+			if (r->compression)
+				compression = r->compression;
+		}
+
+		r->target	= target;
+		r->compression	= compression;
+	}
+
+	needs_rebalance = bch2_bkey_ptrs_need_rebalance(c, k.s_c, target, compression);
+
+	if (needs_rebalance && !r) {
+		union bch_extent_entry *new = bkey_val_end(k);
+
+		new->rebalance.type		= 1U << BCH_EXTENT_ENTRY_rebalance;
+		new->rebalance.compression	= compression;
+		new->rebalance.target		= target;
+		new->rebalance.unused		= 0;
+		k.k->u64s += extent_entry_u64s(new);
+	} else if (!needs_rebalance && r && k.k->type != KEY_TYPE_reflink_v) {
+		/*
+		 * For indirect extents, don't delete the rebalance entry when
+		 * we're finished so that we know we specifically moved it or
+		 * compressed it to its current location/compression type
+		 */
+		extent_entry_drop(k, (union bch_extent_entry *) r);
+	}
+
+	return 0;
 }
 
 /* Generic extent code: */

@@ -13,6 +13,7 @@
 #include "keylist.h"
 #include "move.h"
 #include "nocow_locking.h"
+#include "rebalance.h"
 #include "subvolume.h"
 #include "trace.h"
 
@@ -251,11 +252,11 @@ restart_drop_extra_replicas:
 		ret =   bch2_insert_snapshot_whiteouts(trans, m->btree_id,
 						k.k->p, bkey_start_pos(&insert->k)) ?:
 			bch2_insert_snapshot_whiteouts(trans, m->btree_id,
-						k.k->p, insert->k.p);
-		if (ret)
-			goto err;
-
-		ret   = bch2_trans_update(trans, &iter, insert,
+						k.k->p, insert->k.p) ?:
+			bch2_bkey_set_needs_rebalance(c, insert,
+						      op->opts.background_target,
+						      op->opts.background_compression) ?:
+			bch2_trans_update(trans, &iter, insert,
 				BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE) ?:
 			bch2_trans_commit(trans, &op->res,
 				NULL,
@@ -281,11 +282,11 @@ next:
 		}
 		continue;
 nowork:
-		if (m->ctxt && m->ctxt->stats) {
+		if (m->stats && m->stats) {
 			BUG_ON(k.k->p.offset <= iter.pos.offset);
-			atomic64_inc(&m->ctxt->stats->keys_raced);
+			atomic64_inc(&m->stats->keys_raced);
 			atomic64_add(k.k->p.offset - iter.pos.offset,
-				     &m->ctxt->stats->sectors_raced);
+				     &m->stats->sectors_raced);
 		}
 
 		this_cpu_inc(c->counters[BCH_COUNTER_move_extent_fail]);
@@ -439,6 +440,8 @@ int bch2_data_update_init(struct btree_trans *trans,
 	bch2_bkey_buf_reassemble(&m->k, c, k);
 	m->btree_id	= btree_id;
 	m->data_opts	= data_opts;
+	m->ctxt		= ctxt;
+	m->stats	= ctxt ? ctxt->stats : NULL;
 
 	bch2_write_op_init(&m->op, c, io_opts);
 	m->op.pos	= bkey_start_pos(k.k);
@@ -487,7 +490,7 @@ int bch2_data_update_init(struct btree_trans *trans,
 
 		if (c->opts.nocow_enabled) {
 			if (ctxt) {
-				move_ctxt_wait_event(ctxt, trans,
+				move_ctxt_wait_event(ctxt,
 						(locked = bch2_bucket_nocow_trylock(&c->nocow_locks,
 									  PTR_BUCKET_POS(c, &p.ptr), 0)) ||
 						!atomic_read(&ctxt->read_sectors));
