@@ -1218,7 +1218,8 @@ struct bch_sb_field {
 	x(journal_seq_blacklist, 8)		\
 	x(journal_v2,	9)			\
 	x(counters,	10)			\
-	x(members_v2,	11)
+	x(members_v2,	11)			\
+	x(errors,	12)
 
 enum bch_sb_field_type {
 #define x(f, nr)	BCH_SB_FIELD_##f = nr,
@@ -1268,6 +1269,18 @@ enum bch_iops_measurement {
 	BCH_IOPS_NR
 };
 
+#define BCH_MEMBER_ERROR_TYPES()		\
+	x(read,		0)			\
+	x(write,	1)			\
+	x(checksum,	2)
+
+enum bch_member_error_type {
+#define x(t, n) BCH_MEMBER_ERROR_##t = n,
+	BCH_MEMBER_ERROR_TYPES()
+#undef x
+	BCH_MEMBER_ERROR_NR
+};
+
 struct bch_member {
 	__uuid_t		uuid;
 	__le64			nbuckets;	/* device size */
@@ -1278,6 +1291,9 @@ struct bch_member {
 
 	__le64			flags;
 	__le32			iops[4];
+	__le64			errors[BCH_MEMBER_ERROR_NR];
+	__le64			errors_at_reset[BCH_MEMBER_ERROR_NR];
+	__le64			errors_reset_time;
 };
 
 #define BCH_MEMBER_V1_BYTES	56
@@ -1605,6 +1621,17 @@ struct bch_sb_field_journal_seq_blacklist {
 	struct journal_seq_blacklist_entry start[0];
 	__u64			_data[];
 };
+
+struct bch_sb_field_errors {
+	struct bch_sb_field	field;
+	struct bch_sb_field_error_entry {
+		__le64		v;
+		__le64		last_error_time;
+	}			entries[];
+};
+
+LE64_BITMASK(BCH_SB_ERROR_ENTRY_ID,	struct bch_sb_field_error_entry, v,  0, 16);
+LE64_BITMASK(BCH_SB_ERROR_ENTRY_NR,	struct bch_sb_field_error_entry, v, 16, 64);
 
 /* Superblock: */
 

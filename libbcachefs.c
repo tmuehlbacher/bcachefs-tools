@@ -276,7 +276,7 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 		SET_BCH_SB_ENCRYPTION_TYPE(sb.sb, 1);
 	}
 
-	bch_members_cpy_v2_v1(&sb);
+	bch2_sb_members_cpy_v2_v1(&sb);
 
 	for (i = devs; i < devs + nr_devs; i++) {
 		u64 size_sectors = i->size >> 9;

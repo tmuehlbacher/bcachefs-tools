@@ -49,6 +49,7 @@
 #include "recovery.h"
 #include "replicas.h"
 #include "sb-clean.h"
+#include "sb-errors.h"
 #include "sb-members.h"
 #include "snapshot.h"
 #include "subvolume.h"
@@ -400,7 +401,7 @@ static int __bch2_fs_read_write(struct bch_fs *c, bool early)
 
 	bch_info(c, "going read-write");
 
-	ret = bch2_members_v2_init(c);
+	ret = bch2_sb_members_v2_init(c);
 	if (ret)
 		goto err;
 
@@ -481,6 +482,7 @@ static void __bch2_fs_free(struct bch_fs *c)
 		bch2_time_stats_exit(&c->times[i]);
 
 	bch2_free_pending_node_rewrites(c);
+	bch2_fs_sb_errors_exit(c);
 	bch2_fs_counters_exit(c);
 	bch2_fs_snapshots_exit(c);
 	bch2_fs_quota_exit(c);
@@ -713,6 +715,7 @@ static struct bch_fs *bch2_fs_alloc(struct bch_sb *sb, struct bch_opts opts)
 	bch2_fs_quota_init(c);
 	bch2_fs_ec_init_early(c);
 	bch2_fs_move_init(c);
+	bch2_fs_sb_errors_init_early(c);
 
 	INIT_LIST_HEAD(&c->list);
 
@@ -729,8 +732,8 @@ static struct bch_fs *bch2_fs_alloc(struct bch_sb *sb, struct bch_opts opts)
 
 	INIT_LIST_HEAD(&c->journal_iters);
 
-	INIT_LIST_HEAD(&c->fsck_errors);
-	mutex_init(&c->fsck_error_lock);
+	INIT_LIST_HEAD(&c->fsck_error_msgs);
+	mutex_init(&c->fsck_error_msgs_lock);
 
 	seqcount_init(&c->gc_pos_lock);
 
@@ -840,6 +843,7 @@ static struct bch_fs *bch2_fs_alloc(struct bch_sb *sb, struct bch_opts opts)
 	}
 
 	ret = bch2_fs_counters_init(c) ?:
+	    bch2_fs_sb_errors_init(c) ?:
 	    bch2_io_clock_init(&c->io_clock[READ]) ?:
 	    bch2_io_clock_init(&c->io_clock[WRITE]) ?:
 	    bch2_fs_journal_init(&c->journal) ?:
@@ -942,7 +946,7 @@ int bch2_fs_start(struct bch_fs *c)
 
 	mutex_lock(&c->sb_lock);
 
-	ret = bch2_members_v2_init(c);
+	ret = bch2_sb_members_v2_init(c);
 	if (ret) {
 		mutex_unlock(&c->sb_lock);
 		goto err;
@@ -1131,6 +1135,7 @@ static struct bch_dev *__bch2_dev_alloc(struct bch_fs *c,
 					struct bch_member *member)
 {
 	struct bch_dev *ca;
+	unsigned i;
 
 	ca = kzalloc(sizeof(*ca), GFP_KERNEL);
 	if (!ca)
@@ -1148,6 +1153,10 @@ static struct bch_dev *__bch2_dev_alloc(struct bch_fs *c,
 	bch2_time_stats_init(&ca->io_latency[WRITE]);
 
 	ca->mi = bch2_mi_to_cpu(member);
+
+	for (i = 0; i < ARRAY_SIZE(member->errors); i++)
+		atomic64_set(&ca->errors[i], le64_to_cpu(member->errors[i]));
+
 	ca->uuid = member->uuid;
 
 	ca->nr_btree_reserve = DIV_ROUND_UP(BTREE_NODE_RESERVE,
@@ -1622,16 +1631,6 @@ int bch2_dev_add(struct bch_fs *c, const char *path)
 		goto err_unlock;
 	}
 
-	mi = bch2_sb_field_get(ca->disk_sb.sb, members_v2);
-
-	if (!bch2_sb_field_resize(&ca->disk_sb, members_v2,
-				le32_to_cpu(mi->field.u64s) +
-				sizeof(dev_mi) / sizeof(u64))) {
-		ret = -BCH_ERR_ENOSPC_sb_members;
-		bch_err_msg(c, ret, "setting up new superblock");
-		goto err_unlock;
-	}
-
 	if (dynamic_fault("bcachefs:add:no_slot"))
 		goto no_slot;
 
@@ -1645,6 +1644,8 @@ no_slot:
 
 have_slot:
 	nr_devices = max_t(unsigned, dev_idx + 1, c->sb.nr_devices);
+
+	mi = bch2_sb_field_get(c->disk_sb.sb, members_v2);
 	u64s = DIV_ROUND_UP(sizeof(struct bch_sb_field_members_v2) +
 			    le16_to_cpu(mi->member_bytes) * nr_devices, sizeof(u64));
 
