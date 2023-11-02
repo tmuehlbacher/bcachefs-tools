@@ -66,11 +66,11 @@ void bch2_inode_update_after_write(struct btree_trans *trans,
 	inode->v.i_mode	= bi->bi_mode;
 
 	if (fields & ATTR_ATIME)
-		inode->v.i_atime = bch2_time_to_timespec(c, bi->bi_atime);
+		inode_set_atime_to_ts(&inode->v, bch2_time_to_timespec(c, bi->bi_atime));
 	if (fields & ATTR_MTIME)
-		inode->v.i_mtime = bch2_time_to_timespec(c, bi->bi_mtime);
+		inode_set_mtime_to_ts(&inode->v, bch2_time_to_timespec(c, bi->bi_mtime));
 	if (fields & ATTR_CTIME)
-		inode->v.i_ctime = bch2_time_to_timespec(c, bi->bi_ctime);
+		inode_set_ctime_to_ts(&inode->v, bch2_time_to_timespec(c, bi->bi_ctime));
 
 	inode->ei_inode		= *bi;
 
@@ -753,9 +753,9 @@ static int bch2_getattr(struct mnt_idmap *idmap,
 	stat->gid	= inode->v.i_gid;
 	stat->rdev	= inode->v.i_rdev;
 	stat->size	= i_size_read(&inode->v);
-	stat->atime	= inode->v.i_atime;
-	stat->mtime	= inode->v.i_mtime;
-	stat->ctime	= inode->v.i_ctime;
+	stat->atime	= inode_get_atime(&inode->v);
+	stat->mtime	= inode_get_mtime(&inode->v);
+	stat->ctime	= inode_get_ctime(&inode->v);
 	stat->blksize	= block_bytes(c);
 	stat->blocks	= inode->v.i_blocks;
 
@@ -764,15 +764,15 @@ static int bch2_getattr(struct mnt_idmap *idmap,
 		stat->btime = bch2_time_to_timespec(c, inode->ei_inode.bi_otime);
 	}
 
-	if (inode->ei_inode.bi_flags & BCH_INODE_IMMUTABLE)
+	if (inode->ei_inode.bi_flags & BCH_INODE_immutable)
 		stat->attributes |= STATX_ATTR_IMMUTABLE;
 	stat->attributes_mask	 |= STATX_ATTR_IMMUTABLE;
 
-	if (inode->ei_inode.bi_flags & BCH_INODE_APPEND)
+	if (inode->ei_inode.bi_flags & BCH_INODE_append)
 		stat->attributes |= STATX_ATTR_APPEND;
 	stat->attributes_mask	 |= STATX_ATTR_APPEND;
 
-	if (inode->ei_inode.bi_flags & BCH_INODE_NODUMP)
+	if (inode->ei_inode.bi_flags & BCH_INODE_nodump)
 		stat->attributes |= STATX_ATTR_NODUMP;
 	stat->attributes_mask	 |= STATX_ATTR_NODUMP;
 
@@ -1418,9 +1418,9 @@ static int inode_update_times_fn(struct btree_trans *trans,
 {
 	struct bch_fs *c = inode->v.i_sb->s_fs_info;
 
-	bi->bi_atime	= timespec_to_bch2_time(c, inode->v.i_atime);
-	bi->bi_mtime	= timespec_to_bch2_time(c, inode->v.i_mtime);
-	bi->bi_ctime	= timespec_to_bch2_time(c, inode->v.i_ctime);
+	bi->bi_atime	= timespec_to_bch2_time(c, inode_get_atime(&inode->v));
+	bi->bi_mtime	= timespec_to_bch2_time(c, inode_get_mtime(&inode->v));
+	bi->bi_ctime	= timespec_to_bch2_time(c, inode_get_ctime(&inode->v));
 
 	return 0;
 }

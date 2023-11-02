@@ -17,9 +17,8 @@ static inline void closure_put_after_sub(struct closure *cl, int flags)
 {
 	int r = flags & CLOSURE_REMAINING_MASK;
 
-	if ((flags & CLOSURE_GUARD_MASK) ||
-	    (!r && (flags & ~CLOSURE_DESTRUCTOR)))
-		panic("closure_put_after_sub: bogus flags %x remaining %i", flags, r);
+	BUG_ON(flags & CLOSURE_GUARD_MASK);
+	BUG_ON(!r && (flags & ~CLOSURE_DESTRUCTOR));
 
 	if (!r) {
 		smp_acquire__after_ctrl_dep();

@@ -128,7 +128,7 @@ static void move_buckets_wait(struct moving_context *ctxt,
 		kfree(i);
 	}
 
-	bch2_trans_unlock(ctxt->trans);
+	bch2_trans_unlock_long(ctxt->trans);
 }
 
 static bool bucket_in_flight(struct buckets_in_flight *list,
@@ -188,7 +188,8 @@ static int bch2_copygc_get_buckets(struct moving_context *ctxt,
 
 noinline
 static int bch2_copygc(struct moving_context *ctxt,
-		       struct buckets_in_flight *buckets_in_flight)
+		       struct buckets_in_flight *buckets_in_flight,
+		       bool *did_work)
 {
 	struct btree_trans *trans = ctxt->trans;
 	struct bch_fs *c = trans->c;
@@ -224,6 +225,8 @@ static int bch2_copygc(struct moving_context *ctxt,
 					     f->bucket.k.gen, data_opts);
 		if (ret)
 			goto err;
+
+		*did_work = true;
 	}
 err:
 	darray_exit(&buckets);
@@ -302,14 +305,16 @@ static int bch2_copygc_thread(void *arg)
 	struct moving_context ctxt;
 	struct bch_move_stats move_stats;
 	struct io_clock *clock = &c->io_clock[WRITE];
-	struct buckets_in_flight buckets;
+	struct buckets_in_flight *buckets;
 	u64 last, wait;
 	int ret = 0;
 
-	memset(&buckets, 0, sizeof(buckets));
-
-	ret = rhashtable_init(&buckets.table, &bch_move_bucket_params);
+	buckets = kzalloc(sizeof(struct buckets_in_flight), GFP_KERNEL);
+	if (!buckets)
+		return -ENOMEM;
+	ret = rhashtable_init(&buckets->table, &bch_move_bucket_params);
 	if (ret) {
+		kfree(buckets);
 		bch_err_msg(c, ret, "allocating copygc buckets in flight");
 		return ret;
 	}
@@ -322,16 +327,18 @@ static int bch2_copygc_thread(void *arg)
 			      false);
 
 	while (!ret && !kthread_should_stop()) {
-		bch2_trans_unlock(ctxt.trans);
+		bool did_work = false;
+
+		bch2_trans_unlock_long(ctxt.trans);
 		cond_resched();
 
 		if (!c->copy_gc_enabled) {
-			move_buckets_wait(&ctxt, &buckets, true);
+			move_buckets_wait(&ctxt, buckets, true);
 			kthread_wait_freezable(c->copy_gc_enabled);
 		}
 
 		if (unlikely(freezing(current))) {
-			move_buckets_wait(&ctxt, &buckets, true);
+			move_buckets_wait(&ctxt, buckets, true);
 			__refrigerator(false);
 			continue;
 		}
@@ -342,7 +349,7 @@ static int bch2_copygc_thread(void *arg)
 		if (wait > clock->max_slop) {
 			c->copygc_wait_at = last;
 			c->copygc_wait = last + wait;
-			move_buckets_wait(&ctxt, &buckets, true);
+			move_buckets_wait(&ctxt, buckets, true);
 			trace_and_count(c, copygc_wait, c, wait, last + wait);
 			bch2_kthread_io_clock_wait(clock, last + wait,
 					MAX_SCHEDULE_TIMEOUT);
@@ -352,14 +359,26 @@ static int bch2_copygc_thread(void *arg)
 		c->copygc_wait = 0;
 
 		c->copygc_running = true;
-		ret = bch2_copygc(&ctxt, &buckets);
+		ret = bch2_copygc(&ctxt, buckets, &did_work);
 		c->copygc_running = false;
 
 		wake_up(&c->copygc_running_wq);
+
+		if (!wait && !did_work) {
+			u64 min_member_capacity = bch2_min_rw_member_capacity(c);
+
+			if (min_member_capacity == U64_MAX)
+				min_member_capacity = 128 * 2048;
+
+			bch2_kthread_io_clock_wait(clock, last + (min_member_capacity >> 6),
+					MAX_SCHEDULE_TIMEOUT);
+		}
 	}
 
-	move_buckets_wait(&ctxt, &buckets, true);
-	rhashtable_destroy(&buckets.table);
+	move_buckets_wait(&ctxt, buckets, true);
+
+	rhashtable_destroy(&buckets->table);
+	kfree(buckets);
 	bch2_moving_ctxt_exit(&ctxt);
 	bch2_move_stats_exit(&move_stats, c);
 

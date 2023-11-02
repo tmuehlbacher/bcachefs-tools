@@ -177,7 +177,7 @@ static inline unsigned nlink_bias(umode_t mode)
 
 static inline unsigned bch2_inode_nlink_get(struct bch_inode_unpacked *bi)
 {
-	return bi->bi_flags & BCH_INODE_UNLINKED
+	return bi->bi_flags & BCH_INODE_unlinked
 		  ? 0
 		  : bi->bi_nlink + nlink_bias(bi->bi_mode);
 }
@@ -187,10 +187,10 @@ static inline void bch2_inode_nlink_set(struct bch_inode_unpacked *bi,
 {
 	if (nlink) {
 		bi->bi_nlink = nlink - nlink_bias(bi->bi_mode);
-		bi->bi_flags &= ~BCH_INODE_UNLINKED;
+		bi->bi_flags &= ~BCH_INODE_unlinked;
 	} else {
 		bi->bi_nlink = 0;
-		bi->bi_flags |= BCH_INODE_UNLINKED;
+		bi->bi_flags |= BCH_INODE_unlinked;
 	}
 }
 

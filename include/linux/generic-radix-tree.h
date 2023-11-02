@@ -191,8 +191,8 @@ void *__genradix_iter_peek_prev(struct genradix_iter *, struct __genradix *,
 				size_t, size_t);
 
 /**
- * genradix_iter_peek - get first entry at or below iterator's current
- *			position
+ * genradix_iter_peek_prev - get first entry at or below iterator's current
+ *			     position
  * @_iter:	a genradix_iter
  * @_radix:	genradix being iterated over
  *

@@ -255,7 +255,7 @@ s64 bch2_remap_range(struct bch_fs *c,
 	struct bpos dst_end = dst_start, src_end = src_start;
 	struct bch_io_opts opts;
 	struct bpos src_want;
-	u64 dst_done;
+	u64 dst_done = 0;
 	u32 dst_snapshot, src_snapshot;
 	int ret = 0, ret2 = 0;
 
