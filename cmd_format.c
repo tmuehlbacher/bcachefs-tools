@@ -347,10 +347,12 @@ int cmd_show_super(int argc, char *argv[])
 	if (ret)
 		die("Error opening %s: %s", dev, bch2_err_str(ret));
 
-	if (print_default_fields)
-		fields = bch2_sb_field_get(sb.sb, members_v2)
+	if (print_default_fields) {
+		fields |= bch2_sb_field_get(sb.sb, members_v2)
 			? 1 << BCH_SB_FIELD_members_v2
 			: 1 << BCH_SB_FIELD_members_v1;
+		fields |= BCH_SB_FIELD_errors;
+	}
 
 	struct printbuf buf = PRINTBUF;
 

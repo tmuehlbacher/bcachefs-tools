@@ -11,7 +11,7 @@ crate-type = ["staticlib"]
 [dependencies]
 atty = "0.2.14"
 log = { version = "0.4", features = ["std"] }
-chrono = "0.4"
+chrono = { version = "0.4", default-features = false }
 colored = "2"
 clap = { version = "4.0.32", features = ["derive", "wrap_help"] }
 anyhow = "1.0"
