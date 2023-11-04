@@ -10,13 +10,22 @@
   };
 
   outputs = { self, nixpkgs, utils, ... }:
-    utils.lib.eachDefaultSystem (system:
+    {
+      overlays.default = final: prev: {
+        bcachefs = final.callPackage ./build.nix { };
+      };
+    } // utils.lib.eachDefaultSystem (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
-        bcachefs = pkgs.callPackage ./build.nix {};
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ self.overlays.default ];
+        };
       in {
         packages = {
-          default = bcachefs;
+          inherit (pkgs) bcachefs;
+          default = pkgs.bcachefs;
         };
+
+        formatter = pkgs.nixfmt;
       });
 }

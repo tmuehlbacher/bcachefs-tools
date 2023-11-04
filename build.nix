@@ -1,28 +1,10 @@
-{ lib
-, stdenv
-, pkg-config
-, attr
-, libuuid
-, libsodium
-, keyutils
-, liburcu
-, zlib
-, libaio
-, udev
-, zstd
-, lz4
-, nix-gitignore
-, rustPlatform
-, rustc
-, cargo
- }:
-
+{ lib, stdenv, pkg-config, attr, libuuid, libsodium, keyutils, liburcu, zlib
+, libaio, udev, zstd, lz4, nix-gitignore, rustPlatform, rustc, cargo, }:
 let
-  src = nix-gitignore.gitignoreSource [] ./. ;
+  src = nix-gitignore.gitignoreSource [ ] ./.;
 
   commit = lib.strings.substring 0 7 (builtins.readFile ./.bcachefs_revision);
   version = "git-${commit}";
-
 in stdenv.mkDerivation {
   inherit src version;
 
@@ -61,12 +43,14 @@ in stdenv.mkDerivation {
     };
   };
 
-  makeFlags = [
-    "PREFIX=${placeholder "out"}"
-    "VERSION=${commit}"
-  ];
+  makeFlags = [ "DESTDIR=${placeholder "out"}" "PREFIX=" "VERSION=${commit}" ];
 
   dontStrip = true;
   checkPhase = "./bcachefs version";
   doCheck = true;
+
+  meta = {
+    mainProgram = "bcachefs";
+    license = lib.licenses.gpl2Only;
+  };
 }
