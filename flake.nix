@@ -27,5 +27,13 @@
         };
 
         formatter = pkgs.nixfmt;
+
+        devShells.default = pkgs.callPackage ({ mkShell, rustc, cargo, gnumake
+          , gcc, clang, pkg-config, libuuid, libsodium, keyutils, liburcu, zlib
+          , libaio, zstd, lz4, udev, bcachefs }:
+          mkShell {
+            LIBCLANG_PATH = "${clang.cc.lib}/lib";
+            inherit (bcachefs) nativeBuildInputs buildInputs;
+          }) { };
       });
 }
