@@ -11,7 +11,7 @@ jobs:
         os: [ubuntu-20.04, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Disable initramfs update
         run: sudo sed -i 's/yes/no/g' /etc/initramfs-tools/update-initramfs.conf
       - name: Disable man-db update
@@ -43,7 +43,7 @@ jobs:
     container:
       image: docker.io/fedora:latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install build essentials
         run: dnf install -y nodejs make rpmdevtools yum-utils
       - name: Setup Rust
@@ -66,7 +66,7 @@ jobs:
     name: bcachefs-tools-msrv
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Disable initramfs update
         run: sudo sed -i 's/yes/no/g' /etc/initramfs-tools/update-initramfs.conf
       - name: Disable man-db update
