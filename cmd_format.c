@@ -119,6 +119,7 @@ int cmd_format(int argc, char *argv[])
 	struct format_opts opts	= format_opts_default();
 	struct dev_opts dev_opts = dev_opts_default(), *dev;
 	bool force = false, no_passphrase = false, quiet = false, initialize = true, verbose = false;
+	bool unconsumed_dev_option = false;
 	unsigned v;
 	int opt;
 
@@ -162,6 +163,7 @@ int cmd_format(int argc, char *argv[])
 		case O_fs_size:
 			if (bch2_strtoull_h(optarg, &dev_opts.size))
 				die("invalid filesystem size");
+			unconsumed_dev_option = true;
 			break;
 		case O_superblock_size:
 			if (bch2_strtouint_h(optarg, &opts.superblock_size))
@@ -172,23 +174,28 @@ int cmd_format(int argc, char *argv[])
 		case O_bucket_size:
 			if (bch2_strtoull_h(optarg, &dev_opts.bucket_size))
 				die("bad bucket_size %s", optarg);
+			unconsumed_dev_option = true;
 			break;
 		case O_label:
 		case 'l':
 			dev_opts.label = optarg;
+			unconsumed_dev_option = true;
 			break;
 		case O_discard:
 			dev_opts.discard = true;
+			unconsumed_dev_option = true;
 			break;
 		case O_data_allowed:
 			dev_opts.data_allowed =
 				read_flag_list_or_die(optarg,
 					bch2_data_types, "data type");
+			unconsumed_dev_option = true;
 			break;
 		case O_durability:
 			if (kstrtouint(optarg, 10, &dev_opts.durability) ||
 			    dev_opts.durability > BCH_REPLICAS_MAX)
 				die("invalid durability");
+			unconsumed_dev_option = true;
 			break;
 		case O_version:
 			if (kstrtouint(optarg, 10, &opts.version))
@@ -202,6 +209,7 @@ int cmd_format(int argc, char *argv[])
 			dev_opts.path = optarg;
 			darray_push(&devices, dev_opts);
 			dev_opts.size = 0;
+			unconsumed_dev_option = false;
 			break;
 		case O_quiet:
 		case 'q':
@@ -218,6 +226,9 @@ int cmd_format(int argc, char *argv[])
 			exit(EXIT_FAILURE);
 			break;
 		}
+
+	if (unconsumed_dev_option)
+		die("Options for devices apply to subsequent devices; got a device option with no device");
 
 	if (opts.version != bcachefs_metadata_version_current)
 		initialize = false;
