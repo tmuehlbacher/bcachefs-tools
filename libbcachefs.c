@@ -64,44 +64,44 @@ static u64 min_size(unsigned bucket_size)
 	return BCH_MIN_NR_NBUCKETS * bucket_size;
 }
 
-void bch2_pick_bucket_size(struct bch_opts opts, struct dev_opts *dev)
+u64 bch2_pick_bucket_size(struct bch_opts opts, struct dev_opts *dev)
 {
-	if (!dev->size)
-		dev->size = get_size(dev->bdev->bd_buffered_fd);
+	u64 bucket_size;
 
-	if (!dev->bucket_size) {
-		if (dev->size < min_size(opts.block_size))
-			die("cannot format %s, too small (%llu bytes, min %llu)",
-			    dev->path, dev->size, min_size(opts.block_size));
+	if (dev->size < min_size(opts.block_size))
+		die("cannot format %s, too small (%llu bytes, min %llu)",
+		    dev->path, dev->size, min_size(opts.block_size));
 
-		/* Bucket size must be >= block size: */
-		dev->bucket_size = opts.block_size;
+	/* Bucket size must be >= block size: */
+	bucket_size = opts.block_size;
 
-		/* Bucket size must be >= btree node size: */
-		if (opt_defined(opts, btree_node_size))
-			dev->bucket_size = max_t(unsigned, dev->bucket_size,
-						 opts.btree_node_size);
+	/* Bucket size must be >= btree node size: */
+	if (opt_defined(opts, btree_node_size))
+		bucket_size = max_t(unsigned, bucket_size,
+					 opts.btree_node_size);
 
-		/* Want a bucket size of at least 128k, if possible: */
-		dev->bucket_size = max(dev->bucket_size, 128ULL << 10);
+	/* Want a bucket size of at least 128k, if possible: */
+	bucket_size = max(bucket_size, 128ULL << 10);
 
-		if (dev->size >= min_size(dev->bucket_size)) {
-			unsigned scale = max(1,
-				ilog2(dev->size / min_size(dev->bucket_size)) / 4);
+	if (dev->size >= min_size(bucket_size)) {
+		unsigned scale = max(1,
+			ilog2(dev->size / min_size(bucket_size)) / 4);
 
-			scale = rounddown_pow_of_two(scale);
+		scale = rounddown_pow_of_two(scale);
 
-			/* max bucket size 1 mb */
-			dev->bucket_size = min(dev->bucket_size * scale, 1ULL << 20);
-		} else {
-			do {
-				dev->bucket_size /= 2;
-			} while (dev->size < min_size(dev->bucket_size));
-		}
+		/* max bucket size 1 mb */
+		bucket_size = min(bucket_size * scale, 1ULL << 20);
+	} else {
+		do {
+			bucket_size /= 2;
+		} while (dev->size < min_size(bucket_size));
 	}
 
-	dev->nbuckets = dev->size / dev->bucket_size;
+	return bucket_size;
+}
 
+void bch2_check_bucket_size(struct bch_opts opts, struct dev_opts *dev)
+{
 	if (dev->bucket_size < opts.block_size)
 		die("Bucket size (%llu) cannot be smaller than block size (%u)",
 		    dev->bucket_size, opts.block_size);
@@ -152,6 +152,7 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 	struct dev_opts *i;
 	unsigned max_dev_block_size = 0;
 	unsigned opt_id;
+	u64 min_bucket_size = U64_MAX;
 
 	for (i = devs; i < devs + nr_devs; i++)
 		max_dev_block_size = max(max_dev_block_size, get_blocksize(i->bdev->bd_buffered_fd));
@@ -163,9 +164,24 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 		die("blocksize too small: %u, must be greater than device blocksize %u",
 		    fs_opts.block_size, max_dev_block_size);
 
+	/* get device size, if it wasn't specified: */
+	for (i = devs; i < devs + nr_devs; i++)
+		if (!i->size)
+			i->size = get_size(i->bdev->bd_buffered_fd);
+
 	/* calculate bucket sizes: */
 	for (i = devs; i < devs + nr_devs; i++)
-		bch2_pick_bucket_size(fs_opts, i);
+		min_bucket_size = min(min_bucket_size,
+			i->bucket_size ?: bch2_pick_bucket_size(fs_opts, i));
+
+	for (i = devs; i < devs + nr_devs; i++)
+		if (!i->bucket_size)
+			i->bucket_size = min_bucket_size;
+
+	for (i = devs; i < devs + nr_devs; i++) {
+		i->nbuckets = i->size / i->bucket_size;
+		bch2_check_bucket_size(fs_opts, i);
+	}
 
 	/* calculate btree node size: */
 	if (!opt_defined(fs_opts, btree_node_size)) {

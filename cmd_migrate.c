@@ -677,7 +677,11 @@ static int migrate_fs(const char		*fs_path,
 	printf("Creating new filesystem on %s in space reserved at %s\n",
 	       dev.path, file_path);
 
-	bch2_pick_bucket_size(fs_opts, &dev);
+	dev.size	= get_size(dev.bdev->bd_buffered_fd);
+	dev.bucket_size = bch2_pick_bucket_size(fs_opts, &dev);
+	dev.nbuckets	= dev.size / dev.bucket_size;
+
+	bch2_check_bucket_size(fs_opts, &dev);
 
 	u64 bcachefs_inum;
 	ranges extents = reserve_new_fs_space(file_path,

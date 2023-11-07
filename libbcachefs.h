@@ -75,7 +75,9 @@ static inline struct dev_opts dev_opts_default()
 	};
 }
 
-void bch2_pick_bucket_size(struct bch_opts, struct dev_opts *);
+u64 bch2_pick_bucket_size(struct bch_opts, struct dev_opts *);
+void bch2_check_bucket_size(struct bch_opts, struct dev_opts *);
+
 struct bch_sb *bch2_format(struct bch_opt_strs,
 			   struct bch_opts,
 			   struct format_opts, struct dev_opts *, size_t);
