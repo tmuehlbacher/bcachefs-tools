@@ -21,7 +21,8 @@
 #include "libbcachefs/error.h"
 #include "libbcachefs/fs-common.h"
 #include "libbcachefs/inode.h"
-#include "libbcachefs/io.h"
+#include "libbcachefs/io_read.h"
+#include "libbcachefs/io_write.h"
 #include "libbcachefs/opts.h"
 #include "libbcachefs/super.h"
 
@@ -167,7 +168,7 @@ static void bcachefs_fuse_setattr(fuse_req_t req, fuse_ino_t ino,
 {
 	struct bch_fs *c = fuse_req_userdata(req);
 	struct bch_inode_unpacked inode_u;
-	struct btree_trans trans;
+	struct btree_trans *trans;
 	struct btree_iter iter;
 	u64 now;
 	int ret;
@@ -176,12 +177,12 @@ static void bcachefs_fuse_setattr(fuse_req_t req, fuse_ino_t ino,
 
 	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_setattr(%llu, %x)\n", inum.inum, to_set);
 
-	bch2_trans_init(&trans, c, 0, 0);
+	trans = bch2_trans_get(c);
 retry:
-	bch2_trans_begin(&trans);
+	bch2_trans_begin(trans);
 	now = bch2_current_time(c);
 
-	ret = bch2_inode_peek(&trans, &iter, &inode_u, inum, BTREE_ITER_INTENT);
+	ret = bch2_inode_peek(trans, &iter, &inode_u, inum, BTREE_ITER_INTENT);
 	if (ret)
 		goto err;
 
@@ -203,15 +204,15 @@ retry:
 		inode_u.bi_mtime = now;
 	/* TODO: CTIME? */
 
-	ret   = bch2_inode_write(&trans, &iter, &inode_u) ?:
-		bch2_trans_commit(&trans, NULL, NULL,
+	ret   = bch2_inode_write(trans, &iter, &inode_u) ?:
+		bch2_trans_commit(trans, NULL, NULL,
 				  BTREE_INSERT_NOFAIL);
 err:
-        bch2_trans_iter_exit(&trans, &iter);
+        bch2_trans_iter_exit(trans, &iter);
 	if (ret == -EINTR)
 		goto retry;
 
-	bch2_trans_exit(&trans);
+	bch2_trans_put(trans);
 
 	if (!ret) {
 		*attr = inode_to_stat(c, &inode_u);
@@ -233,7 +234,7 @@ static int do_create(struct bch_fs *c, subvol_inum dir,
 	bch2_inode_init_early(c, new_inode);
 
 	return bch2_trans_do(c, NULL, NULL, 0,
-			bch2_create_trans(&trans,
+			bch2_create_trans(trans,
 				dir, &dir_u,
 				new_inode, &qstr,
 				uid, gid, mode, rdev, NULL, NULL,
@@ -286,7 +287,7 @@ static void bcachefs_fuse_unlink(fuse_req_t req, fuse_ino_t dir_ino,
 	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_unlink(%llu, %s)\n", dir.inum, name);
 
 	int ret = bch2_trans_do(c, NULL, NULL, BTREE_INSERT_NOFAIL,
-			    bch2_unlink_trans(&trans, dir, &dir_u,
+			    bch2_unlink_trans(trans, dir, &dir_u,
 					      &inode_u, &qstr, false));
 
 	fuse_reply_err(req, -ret);
@@ -320,7 +321,7 @@ static void bcachefs_fuse_rename(fuse_req_t req,
 
 	/* XXX handle overwrites */
 	ret = bch2_trans_do(c, NULL, NULL, 0,
-		bch2_rename_trans(&trans,
+		bch2_rename_trans(trans,
 				  src_dir, &src_dir_u,
 				  dst_dir, &dst_dir_u,
 				  &src_inode_u, &dst_inode_u,
@@ -344,7 +345,7 @@ static void bcachefs_fuse_link(fuse_req_t req, fuse_ino_t ino,
 		 inum, newparent.inum, newname);
 
 	ret = bch2_trans_do(c, NULL, NULL, 0,
-			    bch2_link_trans(&trans, newparent, &dir_u,
+			    bch2_link_trans(trans, newparent, &dir_u,
 					    inum, &inode_u, &qstr));
 
 	if (!ret) {
@@ -514,37 +515,37 @@ static void bcachefs_fuse_read(fuse_req_t req, fuse_ino_t ino,
 
 static int inode_update_times(struct bch_fs *c, subvol_inum inum)
 {
-	struct btree_trans trans;
+	struct btree_trans *trans;
 	struct btree_iter iter;
 	struct bch_inode_unpacked inode_u;
 	int ret = 0;
 	u64 now;
 
-	bch2_trans_init(&trans, c, 0, 0);
+	trans = bch2_trans_get(c);
 retry:
-	bch2_trans_begin(&trans);
+	bch2_trans_begin(trans);
 	now = bch2_current_time(c);
 
-	ret = bch2_inode_peek(&trans, &iter, &inode_u, inum, BTREE_ITER_INTENT);
+	ret = bch2_inode_peek(trans, &iter, &inode_u, inum, BTREE_ITER_INTENT);
 	if (ret)
 		goto err;
 
 	inode_u.bi_mtime = now;
 	inode_u.bi_ctime = now;
 
-	ret = bch2_inode_write(&trans, &iter, &inode_u);
+	ret = bch2_inode_write(trans, &iter, &inode_u);
 	if (ret)
 		goto err;
 
-	ret = bch2_trans_commit(&trans, NULL, NULL,
+	ret = bch2_trans_commit(trans, NULL, NULL,
 				BTREE_INSERT_NOFAIL);
 
 err:
-        bch2_trans_iter_exit(&trans, &iter);
+        bch2_trans_iter_exit(trans, &iter);
 	if (ret == -EINTR)
 		goto retry;
 
-	bch2_trans_exit(&trans);
+	bch2_trans_put(trans);
 	return ret;
 }
 
