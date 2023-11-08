@@ -27,7 +27,8 @@ static inline void *kmalloc_noprof(size_t size, gfp_t flags)
 
 	for (i = 0; i < 10; i++) {
 		if (size) {
-			size_t alignment = min(rounddown_pow_of_two(size), (size_t)PAGE_SIZE);
+			size_t alignment = min_t(size_t, PAGE_SIZE,
+						 rounddown_pow_of_two(size));
 			alignment = max(sizeof(void *), alignment);
 			if (posix_memalign(&p, alignment, size))
 				p = NULL;
