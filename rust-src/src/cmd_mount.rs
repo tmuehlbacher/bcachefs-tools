@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use uuid::Uuid;
 use std::path::PathBuf;
 use crate::{key, transform_c_args};
-use crate::key::KeyLoc;
+use crate::key::KeyLocation;
 use crate::logger::SimpleLogger;
 use std::ffi::{CStr, CString, OsStr, c_int, c_char, c_void};
 use std::os::unix::ffi::OsStrExt;
@@ -137,7 +137,7 @@ pub struct Cli {
     /// "wait" - wait for password to become available before mounting;
     /// "ask" -  prompt the user for password;
     #[arg(short, long, default_value = "ask", verbatim_doc_comment)]
-    key_location:   KeyLoc,
+    key_location:   KeyLocation,
 
     /// Device, or UUID=<UUID>
     dev:            String,
@@ -199,12 +199,7 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
     if sbs.len() == 0 {
         Err(anyhow::anyhow!("No device found from specified parameters"))?;
     } else if unsafe { bcachefs::bch2_sb_is_encrypted(sbs[0].sb) } {
-        let key = opt
-            .key_location
-            .0
-            .ok_or_else(|| anyhow::anyhow!("no keyoption specified for locked filesystem"))?;
-
-        key::prepare_key(&sbs[0], key)?;
+        key::prepare_key(&sbs[0], opt.key_location)?;
     }
 
     if let Some(mountpoint) = opt.mountpoint {

@@ -1,34 +1,47 @@
 use log::{info};
 use bch_bindgen::bcachefs::bch_sb_handle;
+use clap::builder::PossibleValue;
 use crate::c_str;
 use anyhow::anyhow;
 
 #[derive(Clone, Debug)]
 pub enum KeyLocation {
+    None,
     Fail,
     Wait,
     Ask,
 }
 
-#[derive(Clone, Debug)]
-pub struct KeyLoc(pub Option<KeyLocation>);
-impl std::ops::Deref for KeyLoc {
-    type Target = Option<KeyLocation>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::str::FromStr for KeyLoc {
+impl std::str::FromStr for KeyLocation {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> anyhow::Result<Self> {
         match s {
-            ""      => Ok(KeyLoc(None)),
-            "fail"  => Ok(KeyLoc(Some(KeyLocation::Fail))),
-            "wait"  => Ok(KeyLoc(Some(KeyLocation::Wait))),
-            "ask"   => Ok(KeyLoc(Some(KeyLocation::Ask))),
-            _       => Err(anyhow!("invalid password option")),
+            ""|"none" => Ok(KeyLocation::None),
+            "fail"    => Ok(KeyLocation::Fail),
+            "wait"    => Ok(KeyLocation::Wait),
+            "ask"     => Ok(KeyLocation::Ask),
+            _         => Err(anyhow!("invalid password option")),
         }
+    }
+}
+
+impl clap::ValueEnum for KeyLocation {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[
+            KeyLocation::None,
+            KeyLocation::Fail,
+            KeyLocation::Wait,
+            KeyLocation::Ask,
+        ]
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(match self {
+            Self::None => PossibleValue::new("none").alias(""),
+            Self::Fail => PossibleValue::new("fail"),
+            Self::Wait => PossibleValue::new("wait"),
+            Self::Ask => PossibleValue::new("ask"),
+        })
     }
 }
 
@@ -126,5 +139,6 @@ pub fn prepare_key(sb: &bch_sb_handle, password: KeyLocation) -> anyhow::Result<
         KeyLocation::Fail => Err(anyhow!("no key available")),
         KeyLocation::Wait => Ok(wait_for_key(&sb.sb().uuid())?),
         KeyLocation::Ask => ask_for_key(sb),
+        _ => Err(anyhow!("no keyoption specified for locked filesystem")),
     }
 }
