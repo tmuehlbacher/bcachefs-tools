@@ -150,6 +150,7 @@ void bch2_stripe_to_text(struct printbuf *out, struct bch_fs *c,
 		prt_printf(out, " %u:%llu:%u", ptr->dev, b, offset);
 		if (i < nr_data)
 			prt_printf(out, "#%u", stripe_blockcount_get(s, i));
+		prt_printf(out, " gen %u", ptr->gen);
 		if (ptr_stale(ca, ptr))
 			prt_printf(out, " stale");
 	}
@@ -303,16 +304,21 @@ static void ec_validate_checksums(struct bch_fs *c, struct ec_stripe_buf *buf)
 			struct bch_csum got = ec_block_checksum(buf, i, offset);
 
 			if (bch2_crc_cmp(want, got)) {
-				struct printbuf buf2 = PRINTBUF;
+				struct printbuf err = PRINTBUF;
+				struct bch_dev *ca = bch_dev_bkey_exists(c, v->ptrs[i].dev);
 
-				bch2_bkey_val_to_text(&buf2, c, bkey_i_to_s_c(&buf->key));
+				prt_printf(&err, "stripe checksum error: expected %0llx:%0llx got %0llx:%0llx (type %s)\n",
+					   want.hi, want.lo,
+					   got.hi, got.lo,
+					   bch2_csum_types[v->csum_type]);
+				prt_printf(&err, "  for %ps at %u of\n  ", (void *) _RET_IP_, i);
+				bch2_bkey_val_to_text(&err, c, bkey_i_to_s_c(&buf->key));
+				bch_err_ratelimited(ca, "%s", err.buf);
+				printbuf_exit(&err);
 
-				bch_err_ratelimited(c,
-					"stripe checksum error for %ps at %u:%u: csum type %u, expected %llx got %llx\n%s",
-					(void *) _RET_IP_, i, j, v->csum_type,
-					want.lo, got.lo, buf2.buf);
-				printbuf_exit(&buf2);
 				clear_bit(i, buf->valid);
+
+				bch2_io_error(ca, BCH_MEMBER_ERROR_checksum);
 				break;
 			}
 
@@ -475,14 +481,10 @@ err:
 	return ret;
 }
 
-static int get_stripe_key(struct bch_fs *c, u64 idx, struct ec_stripe_buf *stripe)
-{
-	return bch2_trans_run(c, get_stripe_key_trans(trans, idx, stripe));
-}
-
 /* recovery read path: */
-int bch2_ec_read_extent(struct bch_fs *c, struct bch_read_bio *rbio)
+int bch2_ec_read_extent(struct btree_trans *trans, struct bch_read_bio *rbio)
 {
+	struct bch_fs *c = trans->c;
 	struct ec_stripe_buf *buf;
 	struct closure cl;
 	struct bch_stripe *v;
@@ -497,7 +499,7 @@ int bch2_ec_read_extent(struct bch_fs *c, struct bch_read_bio *rbio)
 	if (!buf)
 		return -BCH_ERR_ENOMEM_ec_read_extent;
 
-	ret = get_stripe_key(c, rbio->pick.ec.idx, buf);
+	ret = lockrestart_do(trans, get_stripe_key_trans(trans, rbio->pick.ec.idx, buf));
 	if (ret) {
 		bch_err_ratelimited(c,
 			"error doing reconstruct read: error %i looking up stripe", ret);
@@ -801,7 +803,7 @@ static void ec_stripe_delete_work(struct work_struct *work)
 		if (!idx)
 			break;
 
-		ret = commit_do(trans, NULL, NULL, BTREE_INSERT_NOFAIL,
+		ret = commit_do(trans, NULL, NULL, BCH_TRANS_COMMIT_no_enospc,
 				ec_stripe_delete(trans, idx));
 		if (ret) {
 			bch_err_fn(c, ret);
@@ -981,8 +983,8 @@ static int ec_stripe_update_bucket(struct btree_trans *trans, struct ec_stripe_b
 
 	while (1) {
 		ret = commit_do(trans, NULL, NULL,
-				BTREE_INSERT_NOCHECK_RW|
-				BTREE_INSERT_NOFAIL,
+				BCH_TRANS_COMMIT_no_check_rw|
+				BCH_TRANS_COMMIT_no_enospc,
 			ec_stripe_update_extent(trans, bucket_pos, bucket.gen,
 						s, &bp_pos));
 		if (ret)
@@ -1119,8 +1121,8 @@ static void ec_stripe_create(struct ec_stripe_new *s)
 	}
 
 	ret = bch2_trans_do(c, &s->res, NULL,
-			    BTREE_INSERT_NOCHECK_RW|
-			    BTREE_INSERT_NOFAIL,
+			    BCH_TRANS_COMMIT_no_check_rw|
+			    BCH_TRANS_COMMIT_no_enospc,
 			    ec_stripe_key_update(trans,
 					bkey_i_to_stripe(&s->new_stripe.key),
 					!s->have_existing_stripe));
@@ -1371,6 +1373,15 @@ ec_new_stripe_head_alloc(struct bch_fs *c, unsigned target,
 			h->nr_active_devs++;
 
 	rcu_read_unlock();
+
+	/*
+	 * If we only have redundancy + 1 devices, we're better off with just
+	 * replication:
+	 */
+	if (h->nr_active_devs < h->redundancy + 2)
+		bch_err(c, "insufficient devices available to create stripe (have %u, need %u) - mismatched bucket sizes?",
+			h->nr_active_devs, h->redundancy + 2);
+
 	list_add(&h->list, &c->ec_stripe_head_list);
 	return h;
 }
@@ -1422,6 +1433,11 @@ __bch2_ec_stripe_head_get(struct btree_trans *trans,
 
 	h = ec_new_stripe_head_alloc(c, target, algo, redundancy, watermark);
 found:
+	if (!IS_ERR_OR_NULL(h) &&
+	    h->nr_active_devs < h->redundancy + 2) {
+		mutex_unlock(&h->lock);
+		h = NULL;
+	}
 	mutex_unlock(&c->ec_stripe_head_lock);
 	return h;
 }
@@ -1679,8 +1695,6 @@ struct ec_stripe_head *bch2_ec_stripe_head_get(struct btree_trans *trans,
 	int ret;
 
 	h = __bch2_ec_stripe_head_get(trans, target, algo, redundancy, watermark);
-	if (!h)
-		bch_err(c, "no stripe head");
 	if (IS_ERR_OR_NULL(h))
 		return h;
 

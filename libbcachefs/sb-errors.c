@@ -70,7 +70,7 @@ static void bch2_sb_errors_to_text(struct printbuf *out, struct bch_sb *sb,
 		prt_tab(out);
 		prt_u64(out, BCH_SB_ERROR_ENTRY_NR(&e->entries[i]));
 		prt_tab(out);
-		bch2_prt_date_seconds(out, le64_to_cpu(e->entries[i].last_error_time));
+		bch2_prt_datetime(out, le64_to_cpu(e->entries[i].last_error_time));
 		prt_newline(out);
 	}
 }

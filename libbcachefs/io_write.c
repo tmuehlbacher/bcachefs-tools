@@ -202,6 +202,17 @@ static inline int bch2_extent_update_i_size_sectors(struct btree_trans *trans,
 	struct btree_iter iter;
 	struct bkey_i *k;
 	struct bkey_i_inode_v3 *inode;
+	/*
+	 * Crazy performance optimization:
+	 * Every extent update needs to also update the inode: the inode trigger
+	 * will set bi->journal_seq to the journal sequence number of this
+	 * transaction - for fsync.
+	 *
+	 * But if that's the only reason we're updating the inode (we're not
+	 * updating bi_size or bi_sectors), then we don't need the inode update
+	 * to be journalled - if we crash, the bi_journal_seq update will be
+	 * lost, but that's fine.
+	 */
 	unsigned inode_update_flags = BTREE_UPDATE_NOJOURNAL;
 	int ret;
 
@@ -305,8 +316,8 @@ int bch2_extent_update(struct btree_trans *trans,
 						  i_sectors_delta) ?:
 		bch2_trans_update(trans, iter, k, 0) ?:
 		bch2_trans_commit(trans, disk_res, NULL,
-				BTREE_INSERT_NOCHECK_RW|
-				BTREE_INSERT_NOFAIL);
+				BCH_TRANS_COMMIT_no_check_rw|
+				BCH_TRANS_COMMIT_no_enospc);
 	if (unlikely(ret))
 		return ret;
 
@@ -1165,7 +1176,7 @@ static void bch2_nocow_write_convert_unwritten(struct bch_write_op *op)
 		ret = for_each_btree_key_upto_commit(trans, iter, BTREE_ID_extents,
 				     bkey_start_pos(&orig->k), orig->k.p,
 				     BTREE_ITER_INTENT, k,
-				     NULL, NULL, BTREE_INSERT_NOFAIL, ({
+				     NULL, NULL, BCH_TRANS_COMMIT_no_enospc, ({
 			bch2_nocow_write_convert_one_unwritten(trans, &iter, orig, k, op->new_i_size);
 		}));
 

@@ -830,7 +830,7 @@ static int bch2_inode_delete_keys(struct btree_trans *trans,
 
 		ret = bch2_trans_update(trans, &iter, &delete, 0) ?:
 		      bch2_trans_commit(trans, NULL, NULL,
-					BTREE_INSERT_NOFAIL);
+					BCH_TRANS_COMMIT_no_enospc);
 err:
 		if (ret && !bch2_err_matches(ret, BCH_ERR_transaction_restart))
 			break;
@@ -893,7 +893,7 @@ retry:
 
 	ret   = bch2_trans_update(trans, &iter, &delete.k_i, 0) ?:
 		bch2_trans_commit(trans, NULL, NULL,
-				BTREE_INSERT_NOFAIL);
+				BCH_TRANS_COMMIT_no_enospc);
 err:
 	bch2_trans_iter_exit(trans, &iter);
 	if (bch2_err_matches(ret, BCH_ERR_transaction_restart))
@@ -1057,7 +1057,7 @@ retry:
 
 	ret   = bch2_trans_update(trans, &iter, &delete.k_i, 0) ?:
 		bch2_trans_commit(trans, NULL, NULL,
-				BTREE_INSERT_NOFAIL);
+				BCH_TRANS_COMMIT_no_enospc);
 err:
 	bch2_trans_iter_exit(trans, &iter);
 	if (bch2_err_matches(ret, BCH_ERR_transaction_restart))
@@ -1091,7 +1091,7 @@ static int may_delete_deleted_inode(struct btree_trans *trans,
 
 	ret = bch2_inode_unpack(k, &inode);
 	if (ret)
-		goto err;
+		goto out;
 
 	if (fsck_err_on(S_ISDIR(inode.bi_mode), c,
 			deleted_inode_is_dir,
@@ -1109,38 +1109,45 @@ static int may_delete_deleted_inode(struct btree_trans *trans,
 	    !fsck_err(c,
 		      deleted_inode_but_clean,
 		      "filesystem marked as clean but have deleted inode %llu:%u",
-		      pos.offset, pos.snapshot))
-		return 0;
+		      pos.offset, pos.snapshot)) {
+		ret = 0;
+		goto out;
+	}
 
 	if (bch2_snapshot_is_internal_node(c, pos.snapshot)) {
 		struct bpos new_min_pos;
 
 		ret = bch2_propagate_key_to_snapshot_leaves(trans, inode_iter.btree_id, k, &new_min_pos);
 		if (ret)
-			goto err;
+			goto out;
 
 		inode.bi_flags &= ~BCH_INODE_unlinked;
 
 		ret = bch2_inode_write_flags(trans, &inode_iter, &inode,
-					     BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE);
+					     BTREE_UPDATE_INTERNAL_SNAPSHOT_NODE) ?:
+			bch2_trans_commit(trans, NULL, NULL,
+					  BCH_TRANS_COMMIT_no_enospc|
+					  BCH_TRANS_COMMIT_lazy_rw);
 		bch_err_msg(c, ret, "clearing inode unlinked flag");
 		if (ret)
-			return ret;
+			goto out;
 
 		/*
 		 * We'll need another write buffer flush to pick up the new
 		 * unlinked inodes in the snapshot leaves:
 		 */
 		*need_another_pass = true;
-		return 0;
+		goto out;
 	}
 
-	return 1;
-err:
+	ret = 1;
+out:
 fsck_err:
+	bch2_trans_iter_exit(trans, &inode_iter);
 	return ret;
 delete:
-	return bch2_btree_bit_mod(trans, BTREE_ID_deleted_inodes, pos, false);
+	ret = bch2_btree_bit_mod(trans, BTREE_ID_deleted_inodes, pos, false);
+	goto out;
 }
 
 int bch2_delete_dead_inodes(struct bch_fs *c)

@@ -5,7 +5,7 @@
 #include <linux/list.h>
 #include <linux/rhashtable.h>
 
-//#include "bkey_methods.h"
+#include "btree_key_cache_types.h"
 #include "buckets_types.h"
 #include "darray.h"
 #include "errcode.h"
@@ -322,31 +322,6 @@ struct btree_iter {
 #endif
 };
 
-struct btree_key_cache_freelist {
-	struct bkey_cached	*objs[16];
-	unsigned		nr;
-};
-
-struct btree_key_cache {
-	struct mutex		lock;
-	struct rhashtable	table;
-	bool			table_init_done;
-	struct list_head	freed_pcpu;
-	struct list_head	freed_nonpcpu;
-	struct shrinker		shrink;
-	unsigned		shrink_iter;
-	struct btree_key_cache_freelist __percpu *pcpu_freed;
-
-	atomic_long_t		nr_freed;
-	atomic_long_t		nr_keys;
-	atomic_long_t		nr_dirty;
-};
-
-struct bkey_cached_key {
-	u32			btree_id;
-	struct bpos		pos;
-} __packed __aligned(4);
-
 #define BKEY_CACHED_ACCESSED		0
 #define BKEY_CACHED_DIRTY		1
 
@@ -362,7 +337,6 @@ struct bkey_cached {
 	struct rhash_head	hash;
 	struct list_head	list;
 
-	struct journal_preres	res;
 	struct journal_entry_pin journal;
 	u64			seq;
 
@@ -392,7 +366,6 @@ struct btree_insert_entry {
 	u8			old_btree_u64s;
 	struct bkey_i		*k;
 	struct btree_path	*path;
-	u64			seq;
 	/* key being overwritten: */
 	struct bkey		old_k;
 	const struct bch_val	*old_v;
@@ -441,6 +414,7 @@ struct btree_trans {
 	bool			journal_replay_not_finished:1;
 	bool			is_initial_gc:1;
 	bool			notrace_relock_fail:1;
+	bool			write_locked:1;
 	enum bch_errcode	restarted:16;
 	u32			restart_count;
 	unsigned long		last_begin_ip;
@@ -472,11 +446,9 @@ struct btree_trans {
 	struct journal_entry_pin *journal_pin;
 
 	struct journal_res	journal_res;
-	struct journal_preres	journal_preres;
 	u64			*journal_seq;
 	struct disk_reservation *disk_res;
 	unsigned		journal_u64s;
-	unsigned		journal_preres_u64s;
 	struct replicas_delta_list *fs_usage_deltas;
 };
 
@@ -710,6 +682,17 @@ static inline bool btree_type_has_snapshots(enum btree_id id)
 {
 	const unsigned mask = 0
 #define x(name, nr, flags, ...)	|((!!((flags) & BTREE_ID_SNAPSHOTS)) << nr)
+	BCH_BTREE_IDS()
+#undef x
+	;
+
+	return (1U << id) & mask;
+}
+
+static inline bool btree_type_has_snapshot_field(enum btree_id id)
+{
+	const unsigned mask = 0
+#define x(name, nr, flags, ...)	|((!!((flags) & (BTREE_ID_SNAPSHOT_FIELD|BTREE_ID_SNAPSHOTS))) << nr)
 	BCH_BTREE_IDS()
 #undef x
 	;

@@ -55,7 +55,6 @@ struct btree_update {
 	unsigned			update_level;
 
 	struct disk_reservation		disk_res;
-	struct journal_preres		journal_preres;
 
 	/*
 	 * BTREE_INTERIOR_UPDATING_NODE:
@@ -325,7 +324,7 @@ bool bch2_btree_interior_updates_flush(struct bch_fs *);
 
 void bch2_journal_entry_to_btree_root(struct bch_fs *, struct jset_entry *);
 struct jset_entry *bch2_btree_roots_to_journal_entries(struct bch_fs *,
-					struct jset_entry *, struct jset_entry *);
+					struct jset_entry *, unsigned long);
 
 void bch2_do_pending_node_rewrites(struct bch_fs *);
 void bch2_free_pending_node_rewrites(struct bch_fs *);
