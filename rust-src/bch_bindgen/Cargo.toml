@@ -1,8 +1,8 @@
 [package]
 name = "bch_bindgen"
 version = "0.1.0"
-authors = [ "Kayla Firestack <dev@kaylafire.me>", "Yuxuan Shui <yshuiv7@gmail.com>" ]
-edition = "2018"
+authors = [ "Kayla Firestack <dev@kaylafire.me>", "Yuxuan Shui <yshuiv7@gmail.com>", "Kent Overstreet <kent.overstreet@linux.dev>" ]
+edition = "2021"
 
 [lib]
 crate-type = ["lib"]

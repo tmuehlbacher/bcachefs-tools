@@ -1,8 +1,8 @@
 [package]
 name = "bcachefs-rust"
 version = "0.3.1"
-authors = ["Yuxuan Shui <yshuiv7@gmail.com>", "Kayla Firestack <dev@kaylafire.me>"]
-edition = "2018"
+authors = ["Yuxuan Shui <yshuiv7@gmail.com>", "Kayla Firestack <dev@kaylafire.me>", "Kent Overstreet <kent.overstreet@linux.dev>" ]
+edition = "2021"
 rust-version = "1.65"
 
 [lib]
