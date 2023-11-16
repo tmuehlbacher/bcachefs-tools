@@ -4,6 +4,6 @@
 
 int cmd_version(int argc, char *argv[])
 {
-	printf("bcachefs tool version %s\n", VERSION_STRING);
+	printf("%s\n", VERSION_STRING);
 	return 0;
 }

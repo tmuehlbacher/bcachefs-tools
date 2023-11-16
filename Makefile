@@ -1,3 +1,5 @@
+VERSION=1.3.3
+
 PREFIX?=/usr/local
 PKG_CONFIG?=pkg-config
 INSTALL=install
@@ -46,7 +48,6 @@ CARGO_PROFILE=release
 
 CARGO_BUILD_ARGS=--$(CARGO_PROFILE)
 CARGO_BUILD=$(CARGO) build $(CARGO_BUILD_ARGS)
-VERSION?=$(shell git describe --dirty=+ 2>/dev/null || echo v0.1-nogit)
 
 include Makefile.compiler
 
