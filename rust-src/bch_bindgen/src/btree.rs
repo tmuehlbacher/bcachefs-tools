@@ -32,7 +32,6 @@ impl<'f> Drop for BtreeTrans<'f> {
 bitflags! {
     pub struct BtreeIterFlags: u16 {
         const SLOTS = c::BTREE_ITER_SLOTS as u16;
-        const ALL_LEVELS = c::BTREE_ITER_ALL_LEVELS as u16;
         const INTENT = c::BTREE_ITER_INTENT	 as u16;
         const PREFETCH = c::BTREE_ITER_PREFETCH as u16;
         const IS_EXTENTS = c::BTREE_ITER_IS_EXTENTS as u16;
