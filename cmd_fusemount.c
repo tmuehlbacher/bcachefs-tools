@@ -206,7 +206,7 @@ retry:
 
 	ret   = bch2_inode_write(trans, &iter, &inode_u) ?:
 		bch2_trans_commit(trans, NULL, NULL,
-				  BTREE_INSERT_NOFAIL);
+				  BCH_TRANS_COMMIT_no_enospc);
 err:
         bch2_trans_iter_exit(trans, &iter);
 	if (ret == -EINTR)
@@ -286,7 +286,8 @@ static void bcachefs_fuse_unlink(fuse_req_t req, fuse_ino_t dir_ino,
 
 	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_unlink(%llu, %s)\n", dir.inum, name);
 
-	int ret = bch2_trans_do(c, NULL, NULL, BTREE_INSERT_NOFAIL,
+	int ret = bch2_trans_do(c, NULL, NULL,
+				BCH_TRANS_COMMIT_no_enospc,
 			    bch2_unlink_trans(trans, dir, &dir_u,
 					      &inode_u, &qstr, false));
 
@@ -538,8 +539,7 @@ retry:
 		goto err;
 
 	ret = bch2_trans_commit(trans, NULL, NULL,
-				BTREE_INSERT_NOFAIL);
-
+				BCH_TRANS_COMMIT_no_enospc);
 err:
         bch2_trans_iter_exit(trans, &iter);
 	if (ret == -EINTR)
