@@ -232,7 +232,10 @@ int open_for_format(struct dev_opts *dev, bool force)
 		die("blkid error 1");
 	if (blkid_probe_set_device(pr, dev->bdev->bd_buffered_fd, 0, 0))
 		die("blkid error 2");
-	if (blkid_probe_enable_partitions(pr, true))
+	if (blkid_probe_enable_partitions(pr, true) ||
+	    blkid_probe_enable_superblocks(pr, true) ||
+	    blkid_probe_set_superblocks_flags(pr,
+			BLKID_SUBLKS_LABEL|BLKID_SUBLKS_TYPE|BLKID_SUBLKS_MAGIC))
 		die("blkid error 3");
 	if (blkid_do_fullprobe(pr) < 0)
 		die("blkid error 4");
@@ -250,8 +253,10 @@ int open_for_format(struct dev_opts *dev, bool force)
 		fputs("Proceed anyway?", stdout);
 		if (!ask_yn())
 			exit(EXIT_FAILURE);
-		while (blkid_do_probe(pr) == 0)
-			blkid_do_wipe(pr, 0);
+		while (blkid_do_probe(pr) == 0) {
+			if (blkid_do_wipe(pr, 0))
+				die("Failed to wipe preexisting metadata.");
+		}
 	}
 
 	blkid_free_probe(pr);
