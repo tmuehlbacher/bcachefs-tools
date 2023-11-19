@@ -1,5 +1,6 @@
 { lib, stdenv, pkg-config, attr, libuuid, libsodium, keyutils, liburcu, zlib
-, libaio, udev, zstd, lz4, nix-gitignore, rustPlatform, rustc, cargo, }:
+, libaio, udev, zstd, lz4, nix-gitignore, rustPlatform, rustc, cargo, fuse3
+, fuseSupport ? false, }:
 let
   src = nix-gitignore.gitignoreSource [ ] ./.;
 
@@ -30,7 +31,9 @@ in stdenv.mkDerivation {
     zlib # zlib1g
     attr
     udev
-  ];
+  ] ++ lib.optional fuseSupport fuse3;
+
+  BCACHEFS_FUSE = if fuseSupport then "1" else "";
 
   cargoRoot = "rust-src";
   # when git-based crates are updated, run:

@@ -23,6 +23,7 @@
       in {
         packages = {
           inherit (pkgs) bcachefs;
+          bcachefs-fuse = pkgs.bcachefs.override { fuseSupport = true; };
           default = pkgs.bcachefs;
         };
 
