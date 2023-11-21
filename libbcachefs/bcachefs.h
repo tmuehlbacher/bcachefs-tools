@@ -406,6 +406,7 @@ BCH_DEBUG_PARAMS_DEBUG()
 	x(blocked_journal_max_in_flight)	\
 	x(blocked_allocate)			\
 	x(blocked_allocate_open_bucket)		\
+	x(blocked_write_buffer_full)		\
 	x(nocow_lock_contended)
 
 enum bch_time_stats {
@@ -640,6 +641,8 @@ struct journal_keys {
 	size_t			gap;
 	size_t			nr;
 	size_t			size;
+	atomic_t		ref;
+	bool			initial_ref_held;
 };
 
 struct btree_trans_buf {
@@ -664,7 +667,8 @@ struct btree_trans_buf {
 	x(invalidate)							\
 	x(delete_dead_snapshots)					\
 	x(snapshot_delete_pagecache)					\
-	x(sysfs)
+	x(sysfs)							\
+	x(btree_write_buffer)
 
 enum bch_write_ref {
 #define x(n) BCH_WRITE_REF_##n,
@@ -1061,6 +1065,16 @@ static inline void bch2_write_ref_get(struct bch_fs *c, enum bch_write_ref ref)
 	atomic_long_inc(&c->writes[ref]);
 #else
 	percpu_ref_get(&c->writes);
+#endif
+}
+
+static inline bool __bch2_write_ref_tryget(struct bch_fs *c, enum bch_write_ref ref)
+{
+#ifdef BCH_WRITE_REF_DEBUG
+	return !test_bit(BCH_FS_GOING_RO, &c->flags) &&
+		atomic_long_inc_not_zero(&c->writes[ref]);
+#else
+	return percpu_ref_tryget(&c->writes);
 #endif
 }
 

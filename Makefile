@@ -18,7 +18,7 @@ else
   Q = @
 endif
 
-CFLAGS+=-std=gnu11 -O2 -g -MMD -Wall -fPIC 			\
+CFLAGS+=-std=gnu11 -O2 -g -MMD -Wall -fPIC			\
 	-Wno-pointer-sign					\
 	-Wno-deprecated-declarations				\
 	-fno-strict-aliasing					\

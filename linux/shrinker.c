@@ -12,7 +12,12 @@
 static LIST_HEAD(shrinker_list);
 static DEFINE_MUTEX(shrinker_lock);
 
-int register_shrinker(struct shrinker *shrinker, const char *fmt, ...)
+struct shrinker *shrinker_alloc(unsigned int flags, const char *fmt, ...)
+{
+	return calloc(sizeof(struct shrinker), 1);
+}
+
+int shrinker_register(struct shrinker *shrinker)
 {
 	mutex_lock(&shrinker_lock);
 	list_add_tail(&shrinker->list, &shrinker_list);

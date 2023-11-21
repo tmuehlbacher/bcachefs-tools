@@ -173,7 +173,7 @@ struct btree_cache {
 	unsigned		not_freed_will_make_reachable;
 	unsigned		not_freed_access_bit;
 	atomic_t		dirty;
-	struct shrinker		shrink;
+	struct shrinker		*shrink;
 
 	/*
 	 * If we need to allocate memory for a new btree node and that
@@ -297,8 +297,7 @@ struct btree_iter {
 	struct btree_path	*key_cache_path;
 
 	enum btree_id		btree_id:8;
-	unsigned		min_depth:3;
-	unsigned		advanced:1;
+	u8			min_depth;
 
 	/* btree_iter_copy starts here: */
 	u16			flags;
@@ -315,7 +314,6 @@ struct btree_iter {
 
 	/* BTREE_ITER_WITH_JOURNAL: */
 	size_t			journal_idx;
-	struct bpos		journal_pos;
 #ifdef TRACK_PATH_ALLOCATED
 	unsigned long		ip_allocated;
 #endif

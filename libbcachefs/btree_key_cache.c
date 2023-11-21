@@ -646,11 +646,19 @@ static int btree_key_cache_flush_pos(struct btree_trans *trans,
 	if (journal_seq && ck->journal.seq != journal_seq)
 		goto out;
 
+	trans->journal_res.seq = ck->journal.seq;
+
 	/*
-	 * Since journal reclaim depends on us making progress here, and the
-	 * allocator/copygc depend on journal reclaim making progress, we need
-	 * to be using alloc reserves:
+	 * If we're at the end of the journal, we really want to free up space
+	 * in the journal right away - we don't want to pin that old journal
+	 * sequence number with a new btree node write, we want to re-journal
+	 * the update
 	 */
+	if (ck->journal.seq == journal_last_seq(j))
+		commit_flags |= BCH_WATERMARK_reclaim;
+	else
+		commit_flags |= BCH_TRANS_COMMIT_no_journal_res;
+
 	ret   = bch2_btree_iter_traverse(&b_iter) ?:
 		bch2_trans_update(trans, &b_iter, ck->k,
 				  BTREE_UPDATE_KEY_CACHE_RECLAIM|
@@ -659,9 +667,6 @@ static int btree_key_cache_flush_pos(struct btree_trans *trans,
 		bch2_trans_commit(trans, NULL, NULL,
 				  BCH_TRANS_COMMIT_no_check_rw|
 				  BCH_TRANS_COMMIT_no_enospc|
-				  (ck->journal.seq == journal_last_seq(j)
-				   ? BCH_WATERMARK_reclaim
-				   : 0)|
 				  commit_flags);
 
 	bch2_fs_fatal_err_on(ret &&
@@ -830,8 +835,7 @@ void bch2_btree_key_cache_drop(struct btree_trans *trans,
 static unsigned long bch2_btree_key_cache_scan(struct shrinker *shrink,
 					   struct shrink_control *sc)
 {
-	struct bch_fs *c = container_of(shrink, struct bch_fs,
-					btree_key_cache.shrink);
+	struct bch_fs *c = shrink->private_data;
 	struct btree_key_cache *bc = &c->btree_key_cache;
 	struct bucket_table *tbl;
 	struct bkey_cached *ck, *t;
@@ -932,8 +936,7 @@ out:
 static unsigned long bch2_btree_key_cache_count(struct shrinker *shrink,
 					    struct shrink_control *sc)
 {
-	struct bch_fs *c = container_of(shrink, struct bch_fs,
-					btree_key_cache.shrink);
+	struct bch_fs *c = shrink->private_data;
 	struct btree_key_cache *bc = &c->btree_key_cache;
 	long nr = atomic_long_read(&bc->nr_keys) -
 		atomic_long_read(&bc->nr_dirty);
@@ -953,7 +956,7 @@ void bch2_fs_btree_key_cache_exit(struct btree_key_cache *bc)
 	int cpu;
 #endif
 
-	unregister_shrinker(&bc->shrink);
+	shrinker_free(bc->shrink);
 
 	mutex_lock(&bc->lock);
 
@@ -1028,8 +1031,8 @@ void bch2_fs_btree_key_cache_init_early(struct btree_key_cache *c)
 
 static void bch2_btree_key_cache_shrinker_to_text(struct seq_buf *s, struct shrinker *shrink)
 {
-	struct btree_key_cache *bc =
-		container_of(shrink, struct btree_key_cache, shrink);
+	struct bch_fs *c = shrink->private_data;
+	struct btree_key_cache *bc = &c->btree_key_cache;
 	char *cbuf;
 	size_t buflen = seq_buf_get_buf(s, &cbuf);
 	struct printbuf out = PRINTBUF_EXTERN(cbuf, buflen);
@@ -1041,6 +1044,7 @@ static void bch2_btree_key_cache_shrinker_to_text(struct seq_buf *s, struct shri
 int bch2_fs_btree_key_cache_init(struct btree_key_cache *bc)
 {
 	struct bch_fs *c = container_of(bc, struct bch_fs, btree_key_cache);
+	struct shrinker *shrink;
 
 #ifdef __KERNEL__
 	bc->pcpu_freed = alloc_percpu(struct btree_key_cache_freelist);
@@ -1053,12 +1057,16 @@ int bch2_fs_btree_key_cache_init(struct btree_key_cache *bc)
 
 	bc->table_init_done = true;
 
-	bc->shrink.seeks		= 0;
-	bc->shrink.count_objects	= bch2_btree_key_cache_count;
-	bc->shrink.scan_objects		= bch2_btree_key_cache_scan;
-	bc->shrink.to_text		= bch2_btree_key_cache_shrinker_to_text;
-	if (register_shrinker(&bc->shrink, "%s-btree_key_cache", c->name))
+	shrink = shrinker_alloc(0, "%s-btree_key_cache", c->name);
+	if (!shrink)
 		return -BCH_ERR_ENOMEM_fs_btree_cache_init;
+	bc->shrink = shrink;
+	shrink->seeks		= 0;
+	shrink->count_objects	= bch2_btree_key_cache_count;
+	shrink->scan_objects	= bch2_btree_key_cache_scan;
+	shrink->to_text		= bch2_btree_key_cache_shrinker_to_text;
+	shrink->private_data	= c;
+	shrinker_register(shrink);
 	return 0;
 }
 

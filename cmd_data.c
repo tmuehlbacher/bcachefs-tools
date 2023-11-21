@@ -5,6 +5,7 @@
 
 #include "libbcachefs/bcachefs_ioctl.h"
 #include "libbcachefs/btree_cache.h"
+#include "libbcachefs/move.h"
 
 #include "cmds.h"
 #include "libbcachefs.h"
@@ -55,7 +56,7 @@ int cmd_data_rereplicate(int argc, char *argv[])
 		die("too many arguments");
 
 	return bchu_data(bcache_fs_open(fs_path), (struct bch_ioctl_data) {
-		.op		= BCH_DATA_OP_REREPLICATE,
+		.op		= BCH_DATA_OP_rereplicate,
 		.start_btree	= 0,
 		.start_pos	= POS_MIN,
 		.end_btree	= BTREE_ID_NR,
@@ -70,7 +71,7 @@ static void data_job_usage(void)
 	     "\n"
 	     "Kick off a data job and report progress\n"
 	     "\n"
-	     "job: one of scrub, rereplicate, migrate, or rewrite_old_nodes\n"
+	     "job: one of scrub, rereplicate, migrate, rewrite_old_nodes, or drop_extra_replicas\n"
 	     "\n"
 	     "Options:\n"
 	     "  -b btree                    btree to operate on\n"
@@ -80,14 +81,6 @@ static void data_job_usage(void)
 	     "Report bugs to <linux-bcachefs@vger.kernel.org>");
 	exit(EXIT_SUCCESS);
 }
-
-const char * const data_jobs[] = {
-	"scrub",
-	"rereplicate",
-	"migrate",
-	"rewrite_old_nodes",
-	NULL
-};
 
 int cmd_data_job(int argc, char *argv[])
 {
@@ -121,10 +114,7 @@ int cmd_data_job(int argc, char *argv[])
 	if (!job)
 		die("please specify which type of job");
 
-	op.op = read_string_list_or_die(job, data_jobs, "bad job type");
-
-	if (op.op == BCH_DATA_OP_SCRUB)
-		die("scrub not implemented yet");
+	op.op = read_string_list_or_die(job, bch2_data_ops_strs, "bad job type");
 
 	char *fs_path = arg_pop();
 	if (!fs_path)

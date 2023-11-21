@@ -324,7 +324,7 @@ bool six_relock_ip(struct six_lock *lock, enum six_lock_type type,
 }
 EXPORT_SYMBOL_GPL(six_relock_ip);
 
-#ifdef CONFIG_LOCK_SPIN_ON_OWNER
+#ifdef CONFIG_BCACHEFS_SIX_OPTIMISTIC_SPIN
 
 static inline bool six_owner_running(struct six_lock *lock)
 {

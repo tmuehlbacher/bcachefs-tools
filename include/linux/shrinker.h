@@ -22,10 +22,18 @@ struct shrinker {
 	int seeks;	/* seeks to recreate an obj */
 	long batch;	/* reclaim batch size, 0 = default */
 	struct list_head list;
+	void	*private_data;
 };
 
-int register_shrinker(struct shrinker *, const char *, ...);
-void unregister_shrinker(struct shrinker *);
+static inline void shrinker_free(struct shrinker *s)
+{
+	free(s);
+}
+
+struct shrinker *shrinker_alloc(unsigned int, const char *, ...);
+
+int shrinker_register(struct shrinker *);
+void shrinker_unregister(struct shrinker *);
 
 void run_shrinkers(gfp_t gfp_mask, bool);
 

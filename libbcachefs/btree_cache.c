@@ -318,8 +318,7 @@ static int btree_node_write_and_reclaim(struct bch_fs *c, struct btree *b)
 static unsigned long bch2_btree_cache_scan(struct shrinker *shrink,
 					   struct shrink_control *sc)
 {
-	struct bch_fs *c = container_of(shrink, struct bch_fs,
-					btree_cache.shrink);
+	struct bch_fs *c = shrink->private_data;
 	struct btree_cache *bc = &c->btree_cache;
 	struct btree *b, *t;
 	unsigned long nr = sc->nr_to_scan;
@@ -420,8 +419,7 @@ out_nounlock:
 static unsigned long bch2_btree_cache_count(struct shrinker *shrink,
 					    struct shrink_control *sc)
 {
-	struct bch_fs *c = container_of(shrink, struct bch_fs,
-					btree_cache.shrink);
+	struct bch_fs *c = shrink->private_data;
 	struct btree_cache *bc = &c->btree_cache;
 
 	if (bch2_btree_shrinker_disabled)
@@ -432,8 +430,7 @@ static unsigned long bch2_btree_cache_count(struct shrinker *shrink,
 
 static void bch2_btree_cache_shrinker_to_text(struct seq_buf *s, struct shrinker *shrink)
 {
-	struct bch_fs *c = container_of(shrink, struct bch_fs,
-					btree_cache.shrink);
+	struct bch_fs *c = shrink->private_data;
 	char *cbuf;
 	size_t buflen = seq_buf_get_buf(s, &cbuf);
 	struct printbuf out = PRINTBUF_EXTERN(cbuf, buflen);
@@ -448,7 +445,7 @@ void bch2_fs_btree_cache_exit(struct bch_fs *c)
 	struct btree *b;
 	unsigned i, flags;
 
-	unregister_shrinker(&bc->shrink);
+	shrinker_free(bc->shrink);
 
 	/* vfree() can allocate memory: */
 	flags = memalloc_nofs_save();
@@ -502,6 +499,7 @@ void bch2_fs_btree_cache_exit(struct bch_fs *c)
 int bch2_fs_btree_cache_init(struct bch_fs *c)
 {
 	struct btree_cache *bc = &c->btree_cache;
+	struct shrinker *shrink;
 	unsigned i;
 	int ret = 0;
 
@@ -521,13 +519,16 @@ int bch2_fs_btree_cache_init(struct bch_fs *c)
 
 	mutex_init(&c->verify_lock);
 
-	bc->shrink.count_objects	= bch2_btree_cache_count;
-	bc->shrink.scan_objects		= bch2_btree_cache_scan;
-	bc->shrink.to_text		= bch2_btree_cache_shrinker_to_text;
-	bc->shrink.seeks		= 4;
-	ret = register_shrinker(&bc->shrink, "%s-btree_cache", c->name);
-	if (ret)
+	shrink = shrinker_alloc(0, "%s-btree_cache", c->name);
+	if (!shrink)
 		goto err;
+	bc->shrink = shrink;
+	shrink->count_objects	= bch2_btree_cache_count;
+	shrink->scan_objects	= bch2_btree_cache_scan;
+	shrink->to_text		= bch2_btree_cache_shrinker_to_text;
+	shrink->seeks		= 4;
+	shrink->private_data	= c;
+	shrinker_register(shrink);
 
 	return 0;
 err:

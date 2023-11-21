@@ -1667,8 +1667,7 @@ static int bch2_show_devname(struct seq_file *seq, struct dentry *root)
 		if (!first)
 			seq_putc(seq, ':');
 		first = false;
-		seq_puts(seq, "/dev/");
-		seq_puts(seq, ca->name);
+		seq_puts(seq, ca->disk_sb.sb_name);
 	}
 
 	return 0;
@@ -1901,7 +1900,7 @@ got_sb:
 		sb->s_flags	|= SB_POSIXACL;
 #endif
 
-	sb->s_shrink.seeks = 0;
+	sb->s_shrink->seeks = 0;
 
 	vinode = bch2_vfs_inode_get(c, BCACHEFS_ROOT_SUBVOL_INUM);
 	ret = PTR_ERR_OR_ZERO(vinode);
