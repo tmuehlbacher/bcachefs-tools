@@ -8,7 +8,7 @@ use bch_bindgen::btree::BtreeTrans;
 use bch_bindgen::btree::BtreeIter;
 use bch_bindgen::btree::BtreeNodeIter;
 use bch_bindgen::btree::BtreeIterFlags;
-use clap::{Args, Parser};
+use clap::{Parser};
 use std::ffi::{c_int, c_char};
 use crate::transform_c_args;
 

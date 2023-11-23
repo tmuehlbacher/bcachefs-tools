@@ -1,13 +1,13 @@
 use atty::Stream;
 use bch_bindgen::{bcachefs, bcachefs::bch_sb_handle};
 use log::{info, debug, error, LevelFilter};
-use clap::{Parser, Subcommand};
+use clap::{Parser};
 use uuid::Uuid;
 use std::path::PathBuf;
 use crate::{key, transform_c_args};
 use crate::key::KeyLocation;
 use crate::logger::SimpleLogger;
-use std::ffi::{CStr, CString, OsStr, c_int, c_char, c_void};
+use std::ffi::{CString, c_int, c_char, c_void};
 use std::os::unix::ffi::OsStrExt;
 
 fn mount_inner(
