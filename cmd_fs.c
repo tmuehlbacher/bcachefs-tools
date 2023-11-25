@@ -9,6 +9,7 @@
 #include "libbcachefs/bcachefs_ioctl.h"
 #include "libbcachefs/darray.h"
 #include "libbcachefs/opts.h"
+#include "libbcachefs/super-io.h"
 
 #include "cmds.h"
 #include "libbcachefs.h"
@@ -122,17 +123,19 @@ static void replicas_usage_to_text(struct printbuf *out,
 				   const struct bch_replicas_usage *r,
 				   dev_names *dev_names)
 {
-	unsigned i;
-
 	if (!r->sectors)
 		return;
 
 	char devs[4096], *d = devs;
 	*d++ = '[';
 
-	for (i = 0; i < r->r.nr_devs; i++) {
+	unsigned durability = 0;
+
+	for (unsigned i = 0; i < r->r.nr_devs; i++) {
 		unsigned dev_idx = r->r.devs[i];
 		struct dev_name *dev = dev_idx_to_name(dev_names, dev_idx);
+
+		durability += dev->durability;
 
 		if (i)
 			*d++ = ' ';
@@ -148,6 +151,9 @@ static void replicas_usage_to_text(struct printbuf *out,
 	prt_tab(out);
 
 	prt_printf(out, "%u/%u ", r->r.nr_required, r->r.nr_devs);
+	prt_tab(out);
+
+	prt_printf(out, "%u ", durability);
 	prt_tab(out);
 
 	prt_printf(out, "%s ", devs);
@@ -204,19 +210,24 @@ static void fs_usage_to_text(struct printbuf *out, const char *path)
 	prt_newline(out);
 
 	printbuf_tabstops_reset(out);
-	printbuf_tabstop_push(out, 16);
-	printbuf_tabstop_push(out, 16);
-	printbuf_tabstop_push(out, 18);
-	printbuf_tabstop_push(out, 18);
 
+	printbuf_tabstop_push(out, 16);
 	prt_str(out, "Data type");
 	prt_tab(out);
 
+	printbuf_tabstop_push(out, 16);
 	prt_str(out, "Required/total");
 	prt_tab(out);
 
+	printbuf_tabstop_push(out, 14);
+	prt_str(out, "Durability");
+	prt_tab(out);
+
+	printbuf_tabstop_push(out, 14);
 	prt_str(out, "Devices");
 	prt_newline(out);
+
+	printbuf_tabstop_push(out, 14);
 
 	for (i = 0; i < BCH_REPLICAS_MAX; i++) {
 		if (!u->persistent_reserved[i])

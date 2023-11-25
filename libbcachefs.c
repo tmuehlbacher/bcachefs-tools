@@ -728,6 +728,10 @@ dev_names bchu_fs_get_devices(struct bchfs_handle fs)
 		n.label = read_file_str(fs.sysfs_fd, label_attr);
 		free(label_attr);
 
+		char *durability_attr = mprintf("dev-%u/durability", n.idx);
+		n.durability = read_file_u64(fs.sysfs_fd, durability_attr);
+		free(durability_attr);
+
 		darray_push(&devs, n);
 	}
 

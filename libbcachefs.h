@@ -242,6 +242,7 @@ struct dev_name {
 	char		*dev;
 	char		*label;
 	uuid_t		uuid;
+	unsigned	durability;
 };
 typedef DARRAY(struct dev_name) dev_names;
 
