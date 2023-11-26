@@ -29,14 +29,12 @@ static inline bool wb_key_cmp(const struct wb_key_ref *l, const struct wb_key_re
 #ifdef CONFIG_X86_64
 	int cmp;
 
-	asm(".intel_syntax noprefix;"
-	    "mov rax, [%[l]];"
-	    "sub rax, [%[r]];"
-	    "mov rax, [%[l] + 8];"
-	    "sbb rax, [%[r] + 8];"
-	    "mov rax, [%[l] + 16];"
-	    "sbb rax, [%[r] + 16];"
-	    ".att_syntax prefix;"
+	asm("mov   (%[l]), %%rax;"
+	    "sub   (%[r]), %%rax;"
+	    "mov  8(%[l]), %%rax;"
+	    "sbb  8(%[r]), %%rax;"
+	    "mov 16(%[l]), %%rax;"
+	    "sbb 16(%[r]), %%rax;"
 	    : "=@ccae" (cmp)
 	    : [l] "r" (l), [r] "r" (r)
 	    : "rax", "cc");
@@ -297,7 +295,7 @@ static int bch2_btree_write_buffer_flush_locked(struct btree_trans *trans)
 			struct btree_write_buffered_key *n = &wb->flushing.keys.data[i[1].idx];
 
 			skipped++;
-			n->journal_seq = min_t(u64, n->journal_seq, k->journal_seq);;
+			n->journal_seq = min_t(u64, n->journal_seq, k->journal_seq);
 			k->journal_seq = 0;
 			continue;
 		}
