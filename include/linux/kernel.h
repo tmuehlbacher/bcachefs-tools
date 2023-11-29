@@ -278,7 +278,10 @@ static inline void dump_stack(void) {}
 #define unsafe_memcpy(dst, src, bytes, justification)		\
 	memcpy(dst, src, bytes)
 
-#define DECLARE_FLEX_ARRAY(TYPE, NAME) \
-	__DECLARE_FLEX_ARRAY(TYPE, NAME)
+#ifdef __DECLARE_FLEX_ARRAY
+#define DECLARE_FLEX_ARRAY(TYPE, NAME) __DECLARE_FLEX_ARRAY(TYPE, NAME)
+#else
+#define __DECLARE_FLEX_ARRAY(T, member)	T member[0]
+#endif
 
 #endif
