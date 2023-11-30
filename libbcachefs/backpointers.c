@@ -651,6 +651,8 @@ static int bch2_check_extents_to_backpointers_pass(struct btree_trans *trans,
 				}
 				if (ret)
 					break;
+				if (bpos_eq(iter.pos, SPOS_MAX))
+					break;
 				bch2_btree_iter_advance(&iter);
 			}
 			bch2_trans_iter_exit(trans, &iter);
