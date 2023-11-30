@@ -10,15 +10,16 @@ void bch2_btree_lock_init(struct btree_bkey_cached_common *b,
 			  enum six_lock_init_flags flags)
 {
 	__six_lock_init(&b->lock, "b->c.lock", &bch2_btree_node_lock_key, flags);
-#ifdef CONFIG_DEBUG_LOCK_ALLOC
-	lockdep_set_no_check_recursion(&b->lock.dep_map);
-#endif
+	lockdep_set_novalidate_class(&b->lock);
 }
 
 #ifdef CONFIG_LOCKDEP
 void bch2_assert_btree_nodes_not_locked(void)
 {
+#if 0
+	//Re-enable when lock_class_is_held() is merged:
 	BUG_ON(lock_class_is_held(&bch2_btree_node_lock_key));
+#endif
 }
 #endif
 
@@ -769,13 +770,6 @@ void bch2_trans_unlock(struct btree_trans *trans)
 
 	trans_for_each_path(trans, path)
 		__bch2_btree_path_unlock(trans, path);
-
-	/*
-	 * bch2_gc_btree_init_recurse() doesn't use btree iterators for walking
-	 * btree nodes, it implements its own walking:
-	 */
-	if (!trans->is_initial_gc)
-		bch2_assert_btree_nodes_not_locked();
 }
 
 void bch2_trans_unlock_long(struct btree_trans *trans)

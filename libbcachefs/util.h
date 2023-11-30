@@ -17,7 +17,8 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
-#include <linux/mean_and_variance.h>
+
+#include "mean_and_variance.h"
 
 #include "darray.h"
 
