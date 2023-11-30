@@ -149,7 +149,6 @@ static int bch2_copygc_get_buckets(struct moving_context *ctxt,
 	struct bkey_s_c k;
 	size_t nr_to_get = max_t(size_t, 16U, buckets_in_flight->nr / 4);
 	size_t saw = 0, in_flight = 0, not_movable = 0, sectors = 0;
-	struct bpos last_flushed_pos = POS_MIN;
 	int ret;
 
 	move_buckets_wait(ctxt, buckets_in_flight, false);
@@ -166,15 +165,10 @@ static int bch2_copygc_get_buckets(struct moving_context *ctxt,
 				  lru_pos(BCH_LRU_FRAGMENTATION_START, 0, 0),
 				  lru_pos(BCH_LRU_FRAGMENTATION_START, U64_MAX, LRU_TIME_MAX),
 				  0, k, ({
-		int ret2 = bch2_check_lru_key(trans, &iter, k, &last_flushed_pos);
-		if (ret2) {
-			ret2 = ret2 < 0 ? ret2 : 0;
-			goto next;
-		}
+		struct move_bucket b = { .k.bucket = u64_to_bucket(k.k->p.offset) };
+		int ret2 = 0;
 
 		saw++;
-
-		struct move_bucket b = { .k.bucket = u64_to_bucket(k.k->p.offset) };
 
 		if (!bch2_bucket_is_movable(trans, &b, lru_pos_time(k.k->p)))
 			not_movable++;
@@ -185,7 +179,6 @@ static int bch2_copygc_get_buckets(struct moving_context *ctxt,
 			if (ret2 >= 0)
 				sectors += b.sectors;
 		}
-next:
 		ret2;
 	}));
 
@@ -231,7 +224,7 @@ static int bch2_copygc(struct moving_context *ctxt,
 			break;
 		}
 
-		ret = __bch2_evacuate_bucket(ctxt, f, f->bucket.k.bucket,
+		ret = bch2_evacuate_bucket(ctxt, f, f->bucket.k.bucket,
 					     f->bucket.k.gen, data_opts);
 		if (ret)
 			goto err;
@@ -344,7 +337,8 @@ static int bch2_copygc_thread(void *arg)
 
 		if (!c->copy_gc_enabled) {
 			move_buckets_wait(&ctxt, buckets, true);
-			kthread_wait_freezable(c->copy_gc_enabled);
+			kthread_wait_freezable(c->copy_gc_enabled ||
+					       kthread_should_stop());
 		}
 
 		if (unlikely(freezing(current))) {
