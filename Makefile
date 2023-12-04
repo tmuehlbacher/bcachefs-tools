@@ -268,7 +268,7 @@ update-bcachefs-sources:
 	git add include/linux/kmemleak.h
 	cp $(LINUX_DIR)/lib/math/int_sqrt.c linux/
 	git add linux/int_sqrt.c
-	rm libbcachefs/mean_and_variance_test.c
+	git rm libbcachefs/mean_and_variance_test.c
 #	cp $(LINUX_DIR)/lib/math/mean_and_variance.c linux/
 #	git add linux/mean_and_variance.c
 #	cp $(LINUX_DIR)/include/linux/mean_and_variance.h include/linux/

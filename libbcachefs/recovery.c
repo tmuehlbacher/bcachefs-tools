@@ -171,10 +171,12 @@ static int bch2_journal_replay(struct bch_fs *c)
 
 		struct journal_key *k = keys->d + i;
 
-		ret = commit_do(trans, NULL, NULL,
-				BCH_TRANS_COMMIT_no_enospc|
-				BCH_TRANS_COMMIT_journal_reclaim|
-				(!k->allocated ? BCH_TRANS_COMMIT_no_journal_res : 0),
+		/* Skip fastpath if we're low on space in the journal */
+		ret = c->journal.watermark ? -1 :
+			commit_do(trans, NULL, NULL,
+				  BCH_TRANS_COMMIT_no_enospc|
+				  BCH_TRANS_COMMIT_journal_reclaim|
+				  (!k->allocated ? BCH_TRANS_COMMIT_no_journal_res : 0),
 			     bch2_journal_replay_key(trans, k));
 		BUG_ON(!ret && !k->overwritten);
 		if (ret) {
@@ -657,13 +659,13 @@ static int bch2_run_recovery_pass(struct bch_fs *c, enum bch_recovery_pass pass)
 		struct recovery_pass_fn *p = recovery_pass_fns + pass;
 
 		if (!(p->when & PASS_SILENT))
-			printk(KERN_INFO bch2_log_msg(c, "%s..."),
-			       bch2_recovery_passes[pass]);
+			bch2_print(c, KERN_INFO bch2_log_msg(c, "%s..."),
+				   bch2_recovery_passes[pass]);
 		ret = p->fn(c);
 		if (ret)
 			return ret;
 		if (!(p->when & PASS_SILENT))
-			printk(KERN_CONT " done\n");
+			bch2_print(c, KERN_CONT " done\n");
 
 		c->recovery_passes_complete |= BIT_ULL(pass);
 	}
