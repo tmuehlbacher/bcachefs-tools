@@ -142,6 +142,11 @@ static void shrinker_thread_init(void)
 	BUG_ON(IS_ERR(shrinker_task));
 }
 
+#if 0
+/*
+ * We seem to be hitting a rare segfault when shutting down the shrinker thread.
+ * Disabling this is going to cause some harmless warnings about memory leaks:
+ */
 __attribute__((destructor(103)))
 static void shrinker_thread_exit(void)
 {
@@ -150,3 +155,4 @@ static void shrinker_thread_exit(void)
 
 	shrinker_task = NULL;
 }
+#endif
