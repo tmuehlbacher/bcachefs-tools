@@ -1,5 +1,7 @@
 
 #include <getopt.h>
+#include <sys/uio.h>
+#include <unistd.h>
 #include "cmds.h"
 #include "libbcachefs/error.h"
 #include "libbcachefs.h"
@@ -21,6 +23,62 @@ static void usage(void)
 	     "  -v                      Be verbose\n"
 	     "  -h, --help              Display this help and exit\n"
 	     "Report bugs to <linux-bcachefs@vger.kernel.org>");
+}
+
+static void setnonblocking(int fd)
+{
+	int flags = fcntl(fd, F_GETFL);
+	if (fcntl(fd, F_SETFL, flags|O_NONBLOCK))
+		die("fcntl error: %m");
+}
+
+static int do_splice(int rfd, int wfd)
+{
+	char buf[4096];
+
+	int r = read(rfd, buf, sizeof(buf));
+	if (r < 0 && errno == EAGAIN)
+		return 0;
+	if (r < 0)
+		return r;
+	if (!r)
+		return 1;
+	if (write(wfd, buf, r) != r)
+		die("write error");
+	return 0;
+}
+
+static int fsck_online(const char *dev_path)
+{
+	int dev_idx;
+	struct bchfs_handle fs = bchu_fs_open_by_dev(dev_path, &dev_idx);
+
+	struct bch_ioctl_fsck_online fsck = { 0 };
+
+	int fsck_fd = ioctl(fs.ioctl_fd, BCH_IOCTL_FSCK_ONLINE, &fsck);
+	if (fsck_fd < 0)
+		die("BCH_IOCTL_FSCK_ONLINE error: %s", bch2_err_str(fsck_fd));
+
+	setnonblocking(STDIN_FILENO);
+	setnonblocking(fsck_fd);
+
+	while (true) {
+		fd_set fds;
+
+		FD_ZERO(&fds);
+		FD_SET(STDIN_FILENO, &fds);
+		FD_SET(fsck_fd, &fds);
+
+		select(fsck_fd + 1, &fds, NULL, NULL, NULL);
+
+		int r = do_splice(fsck_fd, STDOUT_FILENO) ?:
+			do_splice(STDIN_FILENO, fsck_fd);
+		if (r)
+			return r < 0 ? r : 0;
+	}
+
+	pr_info("done");
+	return 0;
 }
 
 int cmd_fsck(int argc, char *argv[])
@@ -80,16 +138,9 @@ int cmd_fsck(int argc, char *argv[])
 		exit(8);
 	}
 
-	for (i = 0; i < argc; i++) {
-		switch (dev_mounted(argv[i])) {
-		case 1:
-			ret |= 2;
-			break;
-		case 2:
-			fprintf(stderr, "%s is mounted read-write - aborting\n", argv[i]);
-			exit(8);
-		}
-	}
+	for (i = 0; i < argc; i++)
+		if (dev_mounted(argv[i]))
+			return fsck_online(argv[i]);
 
 	struct bch_fs *c = bch2_fs_open(argv, argc, opts);
 	if (IS_ERR(c)) {
