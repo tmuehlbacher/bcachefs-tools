@@ -99,21 +99,32 @@ ifeq (,$(PKGCONFIG_SERVICEDIR))
 else
 BCACHEFSCK_ARGS=-f -n
 systemd_libfiles=\
-	fsck/bcachefsck_fail
+	fsck/bcachefsck_fail \
+	fsck/bcachefsck_all
 
 systemd_services=\
 	fsck/bcachefsck_fail@.service \
 	fsck/bcachefsck@.service \
-	fsck/system-bcachefsck.slice
+	fsck/system-bcachefsck.slice \
+	fsck/bcachefsck_all_fail.service \
+	fsck/bcachefsck_all.service \
+	fsck/bcachefsck_all.timer
 
 built_scripts+=\
 	fsck/bcachefsck_fail@.service \
-	fsck/bcachefsck@.service
+	fsck/bcachefsck@.service \
+	fsck/bcachefsck_all_fail.service \
+	fsck/bcachefsck_all \
+	fsck/bcachefsck_all.service
 
 %.service: %.service.in
 	@echo "    [SED]    $@"
 	$(Q)sed -e "s|@libdir@|$(LIBDIR)|g" \
 	        -e "s|@bcachefsck_args@|$(BCACHEFSCK_ARGS)|g" < $< > $@
+
+fsck/bcachefsck_all: fsck/bcachefsck_all.in
+	@echo "    [SED]    $@"
+	$(Q)sed -e "s|@bcachefsck_args@|$(BCACHEFSCK_ARGS)|g" < $< > $@
 
 optional_build+=$(systemd_libfiles) $(systemd_services)
 optional_install+=install_systemd
