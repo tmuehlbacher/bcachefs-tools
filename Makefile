@@ -59,7 +59,7 @@ CFLAGS+=$(call cc-disable-warning, zero-length-array)
 CFLAGS+=$(call cc-disable-warning, shift-overflow)
 CFLAGS+=$(call cc-disable-warning, enum-conversion)
 
-PKGCONFIG_LIBS="blkid uuid liburcu libsodium zlib liblz4 libzstd libudev libkeyutils"
+PKGCONFIG_LIBS="blkid uuid liburcu libsodium zlib liblz4 libzstd libudev libkeyutils udev"
 ifdef BCACHEFS_FUSE
 	PKGCONFIG_LIBS+="fuse3 >= 3.7"
 	CFLAGS+=-DBCACHEFS_FUSE
@@ -72,6 +72,10 @@ endif
 PKGCONFIG_LDLIBS:=$(shell $(PKG_CONFIG) --libs   $(PKGCONFIG_LIBS))
 ifeq (,$(PKGCONFIG_LDLIBS))
     $(error pkg-config error, command: $(PKG_CONFIG) --libs $(PKGCONFIG_LIBS))
+endif
+PKGCONFIG_UDEVRULESDIR:=$(shell $(PKG_CONFIG) --variable=udev_dir udev)
+ifeq (,$(PKGCONFIG_UDEVRULESDIR))
+    $(error pkg-config error, command: $(PKG_CONFIG) --variable=udev_dir udev)
 endif
 
 CFLAGS+=$(PKGCONFIG_CFLAGS)
@@ -157,6 +161,7 @@ install: bcachefs
 	$(INSTALL) -m0644 -D bcachefs.8    -t $(DESTDIR)$(PREFIX)/share/man/man8/
 	$(INSTALL) -m0755 -D initramfs/script $(DESTDIR)$(INITRAMFS_SCRIPT)
 	$(INSTALL) -m0755 -D initramfs/hook   $(DESTDIR)$(INITRAMFS_HOOK)
+	$(INSTALL) -m0644 -D udev/bcachefs.rules -t $(DESTDIR)$(PKGCONFIG_UDEVRULESDIR)/
 	$(LN) -sfr $(DESTDIR)$(ROOT_SBINDIR)/bcachefs $(DESTDIR)$(ROOT_SBINDIR)/mkfs.bcachefs
 	$(LN) -sfr $(DESTDIR)$(ROOT_SBINDIR)/bcachefs $(DESTDIR)$(ROOT_SBINDIR)/fsck.bcachefs
 	$(LN) -sfr $(DESTDIR)$(ROOT_SBINDIR)/bcachefs $(DESTDIR)$(ROOT_SBINDIR)/mount.bcachefs
