@@ -2,6 +2,8 @@
 
 set -e
 
+#DEBHELPER#
+
 case "$1" in
     remove)
 	if which update-initramfs >/dev/null; then

@@ -91,9 +91,36 @@ else
 	ROOT_SBINDIR?=$(PREFIX)/sbin
 	INITRAMFS_DIR=/etc/initramfs-tools
 endif
+LIBDIR=$(PREFIX)/lib
+
+PKGCONFIG_SERVICEDIR:=$(shell $(PKG_CONFIG) --variable=systemdsystemunitdir systemd)
+ifeq (,$(PKGCONFIG_SERVICEDIR))
+	$(warning skipping systemd integration)
+else
+BCACHEFSCK_ARGS=-f -n
+systemd_libfiles=\
+	fsck/bcachefsck_fail
+
+systemd_services=\
+	fsck/bcachefsck_fail@.service \
+	fsck/bcachefsck@.service \
+	fsck/system-bcachefsck.slice
+
+built_scripts+=\
+	fsck/bcachefsck_fail@.service \
+	fsck/bcachefsck@.service
+
+%.service: %.service.in
+	@echo "    [SED]    $@"
+	$(Q)sed -e "s|@libdir@|$(LIBDIR)|g" \
+	        -e "s|@bcachefsck_args@|$(BCACHEFSCK_ARGS)|g" < $< > $@
+
+optional_build+=$(systemd_libfiles) $(systemd_services)
+optional_install+=install_systemd
+endif	# PKGCONFIG_SERVICEDIR
 
 .PHONY: all
-all: bcachefs
+all: bcachefs $(optional_build)
 
 .PHONY: debug
 debug: CFLAGS+=-Werror -DCONFIG_BCACHEFS_DEBUG=y -DCONFIG_VALGRIND=y
@@ -157,7 +184,7 @@ cmd_version.o : .version
 .PHONY: install
 install: INITRAMFS_HOOK=$(INITRAMFS_DIR)/hooks/bcachefs
 install: INITRAMFS_SCRIPT=$(INITRAMFS_DIR)/scripts/local-premount/bcachefs
-install: bcachefs
+install: bcachefs $(optional_install)
 	$(INSTALL) -m0755 -D bcachefs      -t $(DESTDIR)$(ROOT_SBINDIR)
 	$(INSTALL) -m0644 -D bcachefs.8    -t $(DESTDIR)$(PREFIX)/share/man/man8/
 	$(INSTALL) -m0755 -D initramfs/script $(DESTDIR)$(INITRAMFS_SCRIPT)
@@ -173,11 +200,17 @@ install: bcachefs
 	sed -i '/^# Note: make install replaces/,$$d' $(DESTDIR)$(INITRAMFS_HOOK)
 	echo "copy_exec $(ROOT_SBINDIR)/bcachefs /sbin/bcachefs" >> $(DESTDIR)$(INITRAMFS_HOOK)
 
+.PHONY: install_systemd
+install_systemd: $(systemd_services) $(systemd_libfiles)
+	$(INSTALL) -m0755 -D $(systemd_libfiles) -t $(DESTDIR)$(LIBDIR)
+	$(INSTALL) -m0644 -D $(systemd_services) -t $(DESTDIR)$(PKGCONFIG_SERVICEDIR)
+
 .PHONY: clean
 clean:
 	@echo "Cleaning all"
 	$(Q)$(RM) bcachefs libbcachefs.a tests/test_helper .version *.tar.xz $(OBJS) $(DEPS) $(DOCGENERATED)
 	$(Q)$(RM) -rf rust-src/*/target
+	$(Q)$(RM) -f $(built_scripts)
 
 .PHONY: deb
 deb: all
