@@ -290,7 +290,7 @@ static void fs_usage_usage(void)
 	     "\n"
 	     "Options:\n"
 	     "  -h, --human-readable              Human readable units\n"
-	     "      --help                        Display this help and exit\n"
+	     "  -H, --help                        Display this help and exit\n"
 	     "Report bugs to <linux-bcachefs@vger.kernel.org>");
 }
 
@@ -298,6 +298,7 @@ int cmd_fs_usage(int argc, char *argv[])
 {
 	static const struct option longopts[] = {
 		{ "help",		no_argument,		NULL, 'H' },
+		{ "human-readable",     no_argument,            NULL, 'h' },
 		{ NULL }
 	};
 	bool human_readable = false;
