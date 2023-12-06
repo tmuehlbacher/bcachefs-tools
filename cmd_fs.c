@@ -39,10 +39,22 @@ static void dev_usage_type_to_text(struct printbuf *out,
 				   struct bch_ioctl_dev_usage_v2 *u,
 				   enum bch_data_type type)
 {
+	u64 sectors = 0;
+	switch (type) {
+	case BCH_DATA_free:
+	case BCH_DATA_need_discard:
+	case BCH_DATA_need_gc_gens:
+		/* sectors are 0 for these types so calculate sectors for them */
+		sectors = u->d[type].buckets * u->bucket_size;
+		break;
+	default:
+		sectors = u->d[type].sectors;
+	}
+
 	__dev_usage_type_to_text(out, bch2_data_types[type],
 			u->bucket_size,
 			u->d[type].buckets,
-			u->d[type].sectors,
+			sectors,
 			u->d[type].fragmented);
 }
 
