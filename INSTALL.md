@@ -25,7 +25,7 @@ Debian (Bullseye or later) and Ubuntu (20.04 or later): you can install these wi
 ``` shell
 apt install -y pkg-config libaio-dev libblkid-dev libkeyutils-dev \
     liblz4-dev libsodium-dev liburcu-dev libzstd-dev \
-    uuid-dev zlib1g-dev valgrind libudev-dev git build-essential \
+    uuid-dev zlib1g-dev valgrind libudev-dev udev git build-essential \
     python3 python3-docutils libclang-dev
 ```
 
@@ -34,7 +34,7 @@ Fedora: install the "Development tools" group along with:
 dnf install -y libaio-devel libsodium-devel \
     libblkid-devel libzstd-devel zlib-devel userspace-rcu-devel \
     lz4-devel libuuid-devel valgrind-devel keyutils-libs-devel \
-    findutils
+    findutils udev systemd-devel
 ```
 
 Arch: install bcachefs-tools-git from the AUR.
@@ -60,7 +60,7 @@ On Debian/Ubuntu (Bullseye/20.04 or later needed for libfuse >= 3.7):
 apt install -y libfuse3-dev
 ```
 
-On Fedora (32 or later needed for lbifuse >= 3.7):
+On Fedora (32 or later needed for libfuse >= 3.7):
 ```shell
 dnf install -y fuse3-devel
 ```

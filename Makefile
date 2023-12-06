@@ -73,10 +73,11 @@ PKGCONFIG_LDLIBS:=$(shell $(PKG_CONFIG) --libs   $(PKGCONFIG_LIBS))
 ifeq (,$(PKGCONFIG_LDLIBS))
     $(error pkg-config error, command: $(PKG_CONFIG) --libs $(PKGCONFIG_LIBS))
 endif
-PKGCONFIG_UDEVRULESDIR:=$(shell $(PKG_CONFIG) --variable=udev_dir udev)
-ifeq (,$(PKGCONFIG_UDEVRULESDIR))
-    $(error pkg-config error, command: $(PKG_CONFIG) --variable=udev_dir udev)
+PKGCONFIG_UDEVDIR:=$(shell $(PKG_CONFIG) --variable=udevdir udev)
+ifeq (,$(PKGCONFIG_UDEVDIR))
+    $(error pkg-config error, command: $(PKG_CONFIG) --variable=udevdir udev)
 endif
+PKGCONFIG_UDEVRULESDIR:=$(PKGCONFIG_UDEVDIR)/rules.d
 
 CFLAGS+=$(PKGCONFIG_CFLAGS)
 LDLIBS+=$(PKGCONFIG_LDLIBS)
@@ -161,7 +162,7 @@ install: bcachefs
 	$(INSTALL) -m0644 -D bcachefs.8    -t $(DESTDIR)$(PREFIX)/share/man/man8/
 	$(INSTALL) -m0755 -D initramfs/script $(DESTDIR)$(INITRAMFS_SCRIPT)
 	$(INSTALL) -m0755 -D initramfs/hook   $(DESTDIR)$(INITRAMFS_HOOK)
-	$(INSTALL) -m0644 -D udev/bcachefs.rules -t $(DESTDIR)$(PKGCONFIG_UDEVRULESDIR)/
+	$(INSTALL) -m0644 -D udev/64-bcachefs.rules -t $(DESTDIR)$(PKGCONFIG_UDEVRULESDIR)/
 	$(LN) -sfr $(DESTDIR)$(ROOT_SBINDIR)/bcachefs $(DESTDIR)$(ROOT_SBINDIR)/mkfs.bcachefs
 	$(LN) -sfr $(DESTDIR)$(ROOT_SBINDIR)/bcachefs $(DESTDIR)$(ROOT_SBINDIR)/fsck.bcachefs
 	$(LN) -sfr $(DESTDIR)$(ROOT_SBINDIR)/bcachefs $(DESTDIR)$(ROOT_SBINDIR)/mount.bcachefs
