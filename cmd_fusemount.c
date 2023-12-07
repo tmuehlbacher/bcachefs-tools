@@ -34,6 +34,15 @@
 /* XXX cut and pasted from fsck.c */
 #define QSTR(n) { { { .len = strlen(n) } }, .name = n }
 
+/* used by write_aligned function for waiting on bch2_write closure */
+struct write_aligned_op_t {
+        struct closure cl;
+
+        /* must be last: */
+        struct bch_write_op             op;
+};
+
+
 static inline subvol_inum map_root_ino(u64 ino)
 {
 	return (subvol_inum) { 1, ino == 1 ? 4096 : ino };
@@ -343,7 +352,7 @@ static void bcachefs_fuse_link(fuse_req_t req, fuse_ino_t ino,
 	int ret;
 
 	fuse_log(FUSE_LOG_DEBUG, "bcachefs_fuse_link(%llu, %llu, %s)\n",
-		 inum, newparent.inum, newname);
+		 inum.inum, newparent.inum, newname);
 
 	ret = bch2_trans_do(c, NULL, NULL, 0,
 			    bch2_link_trans(trans, newparent, &dir_u,
@@ -391,6 +400,14 @@ static void bcachefs_fuse_read_endio(struct bio *bio)
 {
 	closure_put(bio->bi_private);
 }
+
+
+static void bcachefs_fuse_write_endio(struct bch_write_op *op)
+{
+       struct write_aligned_op_t *w = container_of(op,struct write_aligned_op_t,op);
+       closure_put(&w->cl);
+}
+
 
 struct fuse_align_io {
 	off_t		start;
@@ -554,41 +571,47 @@ static int write_aligned(struct bch_fs *c, subvol_inum inum,
 			 size_t aligned_size, off_t aligned_offset,
 			 off_t new_i_size, size_t *written_out)
 {
-	struct bch_write_op	op = { 0 };
+
+	struct write_aligned_op_t w = { 0 }
+;
+	struct bch_write_op	*op = &w.op;
 	struct bio_vec		bv;
-	struct closure		cl;
 
 	BUG_ON(aligned_size & (block_bytes(c) - 1));
 	BUG_ON(aligned_offset & (block_bytes(c) - 1));
 
 	*written_out = 0;
 
-	closure_init_stack(&cl);
+	closure_init_stack(&w.cl);
 
-	bch2_write_op_init(&op, c, io_opts); /* XXX reads from op?! */
-	op.write_point	= writepoint_hashed(0);
-	op.nr_replicas	= io_opts.data_replicas;
-	op.target	= io_opts.foreground_target;
-	op.subvol	= inum.subvol;
-	op.pos		= POS(inum.inum, aligned_offset >> 9);
-	op.new_i_size	= new_i_size;
+	bch2_write_op_init(op, c, io_opts); /* XXX reads from op?! */
+	op->write_point	= writepoint_hashed(0);
+	op->nr_replicas	= io_opts.data_replicas;
+	op->target	= io_opts.foreground_target;
+	op->subvol	= inum.subvol;
+	op->pos		= POS(inum.inum, aligned_offset >> 9);
+	op->new_i_size	= new_i_size;
+	op->end_io = bcachefs_fuse_write_endio;
 
-	userbio_init(&op.wbio.bio, &bv, buf, aligned_size);
-	bio_set_op_attrs(&op.wbio.bio, REQ_OP_WRITE, REQ_SYNC);
+	userbio_init(&op->wbio.bio, &bv, buf, aligned_size);
+	bio_set_op_attrs(&op->wbio.bio, REQ_OP_WRITE, REQ_SYNC);
 
-	if (bch2_disk_reservation_get(c, &op.res, aligned_size >> 9,
-				      op.nr_replicas, 0)) {
+	if (bch2_disk_reservation_get(c, &op->res, aligned_size >> 9,
+				      op->nr_replicas, 0)) {
 		/* XXX: use check_range_allocated like dio write path */
 		return -ENOSPC;
 	}
 
-	closure_call(&op.cl, bch2_write, NULL, &cl);
-	closure_sync(&cl);
+	closure_get(&w.cl);
 
-	if (!op.error)
-		*written_out = op.written << 9;
+	closure_call(&op->cl, bch2_write, NULL, NULL);
 
-	return op.error;
+	closure_sync(&w.cl);
+
+	if (!op->error)
+		*written_out = op->written << 9;
+
+	return op->error;
 }
 
 static void bcachefs_fuse_write(fuse_req_t req, fuse_ino_t ino,
@@ -1254,6 +1277,11 @@ int cmd_fusemount(int argc, char *argv[])
 
 	/* This print statement is a trigger for tests. */
 	printf("Fuse mount initialized.\n");
+
+	if (fuse_opts.foreground == 0){
+		printf("Fuse forcing to foreground mode, due gcc constructors usage.\n");
+		fuse_opts.foreground = 1;
+	}
 
 	fuse_daemonize(fuse_opts.foreground);
 
