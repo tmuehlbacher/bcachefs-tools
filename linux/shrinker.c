@@ -69,7 +69,7 @@ void run_shrinkers(gfp_t gfp_mask, bool allocation_failed)
 {
 	struct shrinker *shrinker;
 	struct sysinfo info;
-	struct mallinfo2 malloc_info = mallinfo2();
+	struct mallinfo malloc_info = mallinfo();
 	s64 want_shrink;
 
 	if (!(gfp_mask & GFP_KERNEL))

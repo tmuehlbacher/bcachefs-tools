@@ -281,7 +281,7 @@ static inline void dump_stack(void) {}
 #ifdef __DECLARE_FLEX_ARRAY
 #define DECLARE_FLEX_ARRAY(TYPE, NAME) __DECLARE_FLEX_ARRAY(TYPE, NAME)
 #else
-#define __DECLARE_FLEX_ARRAY(T, member)	T member[0]
+#define DECLARE_FLEX_ARRAY(T, member)        T member[0]
 #endif
 
 #endif
