@@ -4,6 +4,7 @@ PREFIX?=/usr/local
 PKG_CONFIG?=pkg-config
 INSTALL=install
 LN=ln
+.DEFAULT_GOAL=all
 
 ifeq ("$(origin V)", "command line")
   BUILD_VERBOSE = $(V)
