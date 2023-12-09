@@ -18,11 +18,11 @@ jobs:
         run: sudo rm -f /var/lib/man-db/auto-update
       - name: Install build-deps
         run: |
-          sudo apt-get update && sudo apt-get -y --no-install-recommends install pkg-config libaio-dev libblkid-dev \
-              libkeyutils-dev liblz4-dev libsodium-dev liburcu-dev libzstd-dev \
-              uuid-dev zlib1g-dev valgrind libudev-dev python3-docutils \
-              debhelper llvm clang libclang-dev rustc cargo \
-              devscripts udev
+          sudo apt-get update && sudo apt-get -y --no-install-recommends install \
+              valgrind \
+              equivs devscripts
+          mk-build-deps
+          sudo apt install ./bcachefs-tools-build-deps_*.deb
       - name: Setup Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal

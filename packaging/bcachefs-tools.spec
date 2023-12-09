@@ -20,6 +20,7 @@ BuildRequires:  libuuid-devel
 BuildRequires:  libzstd-devel
 BuildRequires:  lz4-devel
 BuildRequires:  systemd-devel
+BuildRequires:  systemd-rpm-macros
 BuildRequires:  udev
 BuildRequires:  userspace-rcu-devel
 BuildRequires:  zlib-devel
@@ -55,6 +56,9 @@ rm -f %{buildroot}/usr/lib/libbcachefs.so
 %{_sbindir}/mkfs.fuse.bcachefs
 %{_mandir}/man8/bcachefs.8.gz
 %{_udevrulesdir}/64-bcachefs.rules
+%{_unitdir}/bcachefsck*
+%{_unitdir}/system-bcachefsck.slice
+%{_prefix}/lib/bcachefsck*
 
 %changelog
 * Tue Nov 15 2022 Eric Sandeen <sandeen@sandeen.net> - 2022.11.15-1
