@@ -2,6 +2,7 @@
 #ifndef _TOOLS_LINUX_MM_H
 #define _TOOLS_LINUX_MM_H
 
+#include <sys/syscall.h>
 #include <linux/types.h>
 
 struct sysinfo {
@@ -20,6 +21,11 @@ struct sysinfo {
 	__u32 mem_unit;			/* Memory unit size in bytes */
 };
 
-extern void si_meminfo(struct sysinfo * val);
+
+
+static inline void si_meminfo(struct sysinfo *val)
+{
+	BUG_ON(syscall(SYS_sysinfo, val));
+}
 
 #endif /* _TOOLS_LINUX_MM_H */

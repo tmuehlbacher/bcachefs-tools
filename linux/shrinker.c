@@ -33,21 +33,6 @@ void unregister_shrinker(struct shrinker *shrinker)
 	mutex_unlock(&shrinker_lock);
 }
 
-struct meminfo {
-	u64		total;
-	u64		available;
-};
-
-void si_meminfo(struct sysinfo *val)
-{
-	long page_size = sysconf(_SC_PAGESIZE);
-	memset(val, 0, sizeof(*val));
-	val->mem_unit = 1;
-
-	val->totalram = sysconf(_SC_PHYS_PAGES) * page_size;
-	val->freeram  = sysconf(_SC_AVPHYS_PAGES) * page_size;
-}
-
 static void run_shrinkers_allocation_failed(gfp_t gfp_mask)
 {
 	struct shrinker *shrinker;
