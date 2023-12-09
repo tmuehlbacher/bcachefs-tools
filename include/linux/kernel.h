@@ -99,11 +99,14 @@
 	(type *)((char *)__mptr - offsetof(type, member)); })
 #endif
 
+#ifndef __struct_group
 #define __struct_group(TAG, NAME, ATTRS, MEMBERS...) \
 	union { \
 		struct { MEMBERS } ATTRS; \
 		struct TAG { MEMBERS } ATTRS NAME; \
 	}
+#endif
+
 #define struct_group(NAME, MEMBERS...)	\
 	__struct_group(/* no tag */, NAME, /* no attrs */, MEMBERS)
 
