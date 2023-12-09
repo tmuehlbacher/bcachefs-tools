@@ -54,7 +54,6 @@ void run_shrinkers(gfp_t gfp_mask, bool allocation_failed)
 {
 	struct shrinker *shrinker;
 	struct sysinfo info;
-	struct mallinfo malloc_info = mallinfo();
 	s64 want_shrink;
 
 	if (!(gfp_mask & GFP_KERNEL))
@@ -71,16 +70,11 @@ void run_shrinkers(gfp_t gfp_mask, bool allocation_failed)
 
 	si_meminfo(&info);
 
-	if (info.totalram && info.totalram >> 4 < info.freeram) {
-		/* freeram goes up when system swaps, use malloced data instead */
-		want_shrink = -malloc_info.arena + (info.totalram / 10 * 8);
-
-		if (want_shrink <= 0)
-			return;
-	} else {
-		/* We want to play nice with other apps keep 6% avaliable, free 3% */
-		want_shrink = (info.totalram >> 5);
-	}
+	/* Aim for 6% of physical RAM free without anything in swap */
+	want_shrink = (info.totalram << 4) - info.freeram
+			+ info.totalswap - info.freeswap;
+	if (want_shrink <= 0)
+		return;
 
 	mutex_lock(&shrinker_lock);
 	list_for_each_entry(shrinker, &shrinker_list, list) {
