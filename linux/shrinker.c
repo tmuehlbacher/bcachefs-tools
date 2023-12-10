@@ -71,7 +71,7 @@ void run_shrinkers(gfp_t gfp_mask, bool allocation_failed)
 	si_meminfo(&info);
 
 	/* Aim for 6% of physical RAM free without anything in swap */
-	want_shrink = (info.totalram << 4) - info.freeram
+	want_shrink = (info.totalram >> 4) - info.freeram
 			+ info.totalswap - info.freeswap;
 	if (want_shrink <= 0)
 		return;
