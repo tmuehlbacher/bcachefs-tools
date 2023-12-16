@@ -72,6 +72,12 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Kent Overstreet <kent.overstreet@gmail.com>");
 MODULE_DESCRIPTION("bcachefs filesystem");
+MODULE_SOFTDEP("pre: crc32c");
+MODULE_SOFTDEP("pre: crc64");
+MODULE_SOFTDEP("pre: sha256");
+MODULE_SOFTDEP("pre: chacha20");
+MODULE_SOFTDEP("pre: poly1305");
+MODULE_SOFTDEP("pre: xxhash");
 
 const char * const bch2_fs_flag_strs[] = {
 #define x(n)		#n,
@@ -82,19 +88,26 @@ const char * const bch2_fs_flag_strs[] = {
 
 void __bch2_print(struct bch_fs *c, const char *fmt, ...)
 {
+	struct log_output *output = c->output;
 	va_list args;
 
+	if (c->output_filter && c->output_filter != current)
+		output = NULL;
+
 	va_start(args, fmt);
-	if (likely(!c->output)) {
+	if (likely(!output)) {
 		vprintk(fmt, args);
 	} else {
 		unsigned long flags;
 
-		spin_lock_irqsave(&c->output->lock, flags);
-		prt_vprintf(&c->output->buf, fmt, args);
-		spin_unlock_irqrestore(&c->output->lock, flags);
+		if (fmt[0] == KERN_SOH[0])
+			fmt += 2;
 
-		wake_up(&c->output->wait);
+		spin_lock_irqsave(&output->lock, flags);
+		prt_vprintf(&output->buf, fmt, args);
+		spin_unlock_irqrestore(&output->lock, flags);
+
+		wake_up(&output->wait);
 	}
 	va_end(args);
 }
@@ -350,7 +363,8 @@ void bch2_fs_read_only(struct bch_fs *c)
 		BUG_ON(c->journal.last_empty_seq != journal_cur_seq(&c->journal));
 		BUG_ON(atomic_read(&c->btree_cache.dirty));
 		BUG_ON(atomic_long_read(&c->btree_key_cache.nr_dirty));
-		BUG_ON(c->btree_write_buffer.state.nr);
+		BUG_ON(c->btree_write_buffer.inc.keys.nr);
+		BUG_ON(c->btree_write_buffer.flushing.keys.nr);
 
 		bch_verbose(c, "marking filesystem clean");
 		bch2_fs_mark_clean(c);
@@ -612,6 +626,9 @@ void __bch2_fs_stop(struct bch_fs *c)
 	bch2_fs_debug_exit(c);
 	bch2_fs_chardev_exit(c);
 
+	bch2_ro_ref_put(c);
+	wait_event(c->ro_ref_wait, !refcount_read(&c->ro_ref));
+
 	kobject_put(&c->counters_kobj);
 	kobject_put(&c->time_stats);
 	kobject_put(&c->opts_dir);
@@ -744,6 +761,10 @@ static struct bch_fs *bch2_fs_alloc(struct bch_sb *sb, struct bch_opts opts)
 	mutex_init(&c->btree_root_lock);
 	INIT_WORK(&c->read_only_work, bch2_fs_read_only_work);
 
+	refcount_set(&c->ro_ref, 1);
+	init_waitqueue_head(&c->ro_ref_wait);
+	sema_init(&c->online_fsck_mutex, 1);
+
 	init_rwsem(&c->gc_lock);
 	mutex_init(&c->gc_gens_lock);
 	atomic_set(&c->journal_keys.ref, 1);
@@ -754,6 +775,7 @@ static struct bch_fs *bch2_fs_alloc(struct bch_sb *sb, struct bch_opts opts)
 
 	bch2_fs_copygc_init(c);
 	bch2_fs_btree_key_cache_init_early(&c->btree_key_cache);
+	bch2_fs_btree_iter_init_early(c);
 	bch2_fs_btree_interior_update_init_early(c);
 	bch2_fs_allocator_background_init(c);
 	bch2_fs_allocator_foreground_init(c);

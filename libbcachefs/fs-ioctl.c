@@ -333,10 +333,6 @@ static long __bch2_ioctl_subvolume_create(struct bch_fs *c, struct file *filp,
 	     (arg.flags & BCH_SUBVOL_SNAPSHOT_RO)))
 		return -EINVAL;
 
-	if ((arg.flags & BCH_SUBVOL_SNAPSHOT_CREATE) &&
-	    !arg.src_ptr)
-		return -EOPNOTSUPP;
-
 	if (arg.flags & BCH_SUBVOL_SNAPSHOT_CREATE)
 		create_flags |= BCH_CREATE_SNAPSHOT;
 
@@ -409,7 +405,7 @@ retry:
 
 	if ((arg.flags & BCH_SUBVOL_SNAPSHOT_CREATE) &&
 	    !arg.src_ptr)
-		snapshot_src.subvol = to_bch_ei(dir)->ei_inode.bi_subvol;
+		snapshot_src.subvol = inode_inum(to_bch_ei(dir)).subvol;
 
 	inode = __bch2_create(file_mnt_idmap(filp), to_bch_ei(dir),
 			      dst_dentry, arg.mode|S_IFDIR,

@@ -19,6 +19,7 @@
 #define KERN_DEBUG	""
 #define KERN_DEFAULT	""
 #define KERN_CONT	""
+#define KERN_SOH	"\001"
 
 static inline int vscnprintf(char *buf, size_t size, const char *fmt, va_list args)
 {

@@ -968,12 +968,20 @@ int bch2_btree_node_read_done(struct bch_fs *c, struct bch_dev *ca,
 		struct bch_btree_ptr_v2 *bp =
 			&bkey_i_to_btree_ptr_v2(&b->key)->v;
 
+		bch2_bpos_to_text(&buf, b->data->min_key);
+		prt_str(&buf, "-");
+		bch2_bpos_to_text(&buf, b->data->max_key);
+
 		btree_err_on(b->data->keys.seq != bp->seq,
 			     -BCH_ERR_btree_node_read_err_must_retry,
 			     c, ca, b, NULL,
 			     btree_node_bad_seq,
-			     "got wrong btree node (seq %llx want %llx)",
-			     b->data->keys.seq, bp->seq);
+			     "got wrong btree node (want %llx got %llx)\n"
+			     "got btree %s level %llu pos %s",
+			     bp->seq, b->data->keys.seq,
+			     bch2_btree_id_str(BTREE_NODE_ID(b->data)),
+			     BTREE_NODE_LEVEL(b->data),
+			     buf.buf);
 	} else {
 		btree_err_on(!b->data->keys.seq,
 			     -BCH_ERR_btree_node_read_err_must_retry,
@@ -2006,6 +2014,29 @@ do_write:
 
 	/* buffer must be a multiple of the block size */
 	bytes = round_up(bytes, block_bytes(c));
+
+	if (bytes > btree_bytes(c)) {
+		struct printbuf buf = PRINTBUF;
+
+		prt_printf(&buf, "btree node write bounce buffer overrun: %u > %zu\n",
+			   bytes, btree_bytes(c));
+
+		prt_printf(&buf, "header: %zu\n", b->written
+			   ? sizeof(struct btree_node)
+			   : sizeof(struct btree_node_entry));
+		prt_printf(&buf, "unwritten: %zu\n", b->whiteout_u64s * sizeof(u64));
+
+		for_each_bset(b, t) {
+			i = bset(b, t);
+
+			if (bset_written(b, i))
+				continue;
+			prt_printf(&buf, "bset %zu: %zu\n", t - b->set, le16_to_cpu(i->u64s) * sizeof(u64));
+		}
+
+		panic("%s", buf.buf);
+		printbuf_exit(&buf);
+	}
 
 	data = btree_bounce_alloc(c, bytes, &used_mempool);
 

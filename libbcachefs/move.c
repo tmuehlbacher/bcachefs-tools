@@ -377,8 +377,8 @@ struct bch_io_opts *bch2_move_get_io_opts(struct btree_trans *trans,
 
 		io_opts->d.nr = 0;
 
-		for_each_btree_key(trans, iter, BTREE_ID_inodes, POS(0, extent_k.k->p.inode),
-				   BTREE_ITER_ALL_SNAPSHOTS, k, ret) {
+		ret = for_each_btree_key(trans, iter, BTREE_ID_inodes, POS(0, extent_k.k->p.inode),
+					 BTREE_ITER_ALL_SNAPSHOTS, k, ({
 			if (k.k->p.offset != extent_k.k->p.inode)
 				break;
 
@@ -391,11 +391,8 @@ struct bch_io_opts *bch2_move_get_io_opts(struct btree_trans *trans,
 			struct snapshot_io_opts_entry e = { .snapshot = k.k->p.snapshot };
 			bch2_inode_opts_get(&e.io_opts, trans->c, &inode);
 
-			ret = darray_push(&io_opts->d, e);
-			if (ret)
-				break;
-		}
-		bch2_trans_iter_exit(trans, &iter);
+			darray_push(&io_opts->d, e);
+		}));
 		io_opts->cur_inum = extent_k.k->p.inode;
 	}
 
@@ -449,25 +446,26 @@ int bch2_move_get_io_opts_one(struct btree_trans *trans,
 int bch2_move_ratelimit(struct moving_context *ctxt)
 {
 	struct bch_fs *c = ctxt->trans->c;
+	bool is_kthread = current->flags & PF_KTHREAD;
 	u64 delay;
 
 	if (ctxt->wait_on_copygc && c->copygc_running) {
 		bch2_moving_ctxt_flush_all(ctxt);
 		wait_event_killable(c->copygc_running_wq,
 				    !c->copygc_running ||
-				    kthread_should_stop());
+				    (is_kthread && kthread_should_stop()));
 	}
 
 	do {
 		delay = ctxt->rate ? bch2_ratelimit_delay(ctxt->rate) : 0;
 
-		if (kthread_should_stop())
+		if (is_kthread && kthread_should_stop())
 			return 1;
 
 		if (delay)
 			move_ctxt_wait_event_timeout(ctxt,
 					freezing(current) ||
-					kthread_should_stop(),
+					(is_kthread && kthread_should_stop()),
 					delay);
 
 		if (unlikely(freezing(current))) {
@@ -642,6 +640,7 @@ int bch2_evacuate_bucket(struct moving_context *ctxt,
 {
 	struct btree_trans *trans = ctxt->trans;
 	struct bch_fs *c = trans->c;
+	bool is_kthread = current->flags & PF_KTHREAD;
 	struct bch_io_opts io_opts = bch2_opts_to_inode_opts(c->opts);
 	struct btree_iter iter;
 	struct bkey_buf sk;
@@ -686,7 +685,7 @@ int bch2_evacuate_bucket(struct moving_context *ctxt,
 		goto err;
 
 	while (!(ret = bch2_move_ratelimit(ctxt))) {
-		if (kthread_should_stop())
+		if (is_kthread && kthread_should_stop())
 			break;
 
 		bch2_trans_begin(trans);
@@ -804,6 +803,7 @@ static int bch2_move_btree(struct bch_fs *c,
 			   move_btree_pred pred, void *arg,
 			   struct bch_move_stats *stats)
 {
+	bool kthread = (current->flags & PF_KTHREAD) != 0;
 	struct bch_io_opts io_opts = bch2_opts_to_inode_opts(c->opts);
 	struct moving_context ctxt;
 	struct btree_trans *trans;
@@ -835,7 +835,7 @@ retry:
 		while (bch2_trans_begin(trans),
 		       (b = bch2_btree_iter_peek_node(&iter)) &&
 		       !(ret = PTR_ERR_OR_ZERO(b))) {
-			if (kthread_should_stop())
+			if (kthread && kthread_should_stop())
 				break;
 
 			if ((cmp_int(btree, end.btree) ?:
@@ -860,7 +860,7 @@ next:
 
 		bch2_trans_iter_exit(trans, &iter);
 
-		if (kthread_should_stop())
+		if (kthread && kthread_should_stop())
 			break;
 	}
 

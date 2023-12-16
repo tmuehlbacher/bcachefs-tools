@@ -2137,7 +2137,8 @@ static inline __u64 __bset_magic(struct bch_sb *sb)
 	x(clock,		7)		\
 	x(dev_usage,		8)		\
 	x(log,			9)		\
-	x(overwrite,		10)
+	x(overwrite,		10)		\
+	x(write_buffer_keys,	11)
 
 enum {
 #define x(f, nr)	BCH_JSET_ENTRY_##f	= nr,
@@ -2223,7 +2224,7 @@ static inline unsigned jset_entry_dev_usage_nr_types(struct jset_entry_dev_usage
 struct jset_entry_log {
 	struct jset_entry	entry;
 	u8			d[];
-} __packed;
+} __packed __aligned(8);
 
 /*
  * On disk format for a journal entry:

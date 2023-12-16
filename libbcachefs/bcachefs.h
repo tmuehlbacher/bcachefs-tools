@@ -193,6 +193,7 @@
 #include <linux/mutex.h>
 #include <linux/percpu-refcount.h>
 #include <linux/percpu-rwsem.h>
+#include <linux/refcount.h>
 #include <linux/rhashtable.h>
 #include <linux/rwsem.h>
 #include <linux/semaphore.h>
@@ -264,6 +265,7 @@ do {									\
 
 #define bch2_fmt(_c, fmt)		bch2_log_msg(_c, fmt "\n")
 
+__printf(2, 3)
 void __bch2_print(struct bch_fs *c, const char *fmt, ...);
 
 #define maybe_dev_to_fs(_c)	_Generic((_c),				\
@@ -426,6 +428,7 @@ BCH_DEBUG_PARAMS_DEBUG()
 	x(blocked_journal_max_in_flight)	\
 	x(blocked_allocate)			\
 	x(blocked_allocate_open_bucket)		\
+	x(blocked_write_buffer_full)		\
 	x(nocow_lock_contended)
 
 enum bch_time_stats {
@@ -636,7 +639,7 @@ struct btree_transaction_stats {
 	struct bch2_time_stats	lock_hold_times;
 	struct mutex		lock;
 	unsigned		nr_max_paths;
-	unsigned		wb_updates_size;
+	unsigned		journal_entries_size;
 	unsigned		max_mem;
 	char			*max_paths_text;
 };
@@ -725,6 +728,7 @@ struct bch_fs {
 	dev_t			dev;
 	char			name[40];
 	struct log_output	*output;
+	struct task_struct	*output_filter;
 
 	/* ro/rw, add/remove/resize devices: */
 	struct rw_semaphore	state_lock;
@@ -735,6 +739,13 @@ struct bch_fs {
 #else
 	struct percpu_ref	writes;
 #endif
+	/*
+	 * Analagous to c->writes, for asynchronous ops that don't necessarily
+	 * need fs to be read-write
+	 */
+	refcount_t		ro_ref;
+	wait_queue_head_t	ro_ref_wait;
+
 	struct work_struct	read_only_work;
 
 	struct bch_dev __rcu	*devs[BCH_SB_MEMBERS_MAX];
@@ -1037,10 +1048,21 @@ struct bch_fs {
 	/* RECOVERY */
 	u64			journal_replay_seq_start;
 	u64			journal_replay_seq_end;
+	/*
+	 * Two different uses:
+	 * "Has this fsck pass?" - i.e. should this type of error be an
+	 * emergency read-only
+	 * And, in certain situations fsck will rewind to an earlier pass: used
+	 * for signaling to the toplevel code which pass we want to run now.
+	 */
 	enum bch_recovery_pass	curr_recovery_pass;
 	/* bitmap of explicitly enabled recovery passes: */
 	u64			recovery_passes_explicit;
+	/* bitmask of recovery passes that we actually ran */
 	u64			recovery_passes_complete;
+	/* never rewinds version of curr_recovery_pass */
+	enum bch_recovery_pass	recovery_pass_done;
+	struct semaphore	online_fsck_mutex;
 
 	/* DEBUG JUNK */
 	struct dentry		*fs_debug_dir;
@@ -1100,6 +1122,16 @@ static inline void bch2_write_ref_get(struct bch_fs *c, enum bch_write_ref ref)
 #endif
 }
 
+static inline bool __bch2_write_ref_tryget(struct bch_fs *c, enum bch_write_ref ref)
+{
+#ifdef BCH_WRITE_REF_DEBUG
+	return !test_bit(BCH_FS_going_ro, &c->flags) &&
+		atomic_long_inc_not_zero(&c->writes[ref]);
+#else
+	return percpu_ref_tryget(&c->writes);
+#endif
+}
+
 static inline bool bch2_write_ref_tryget(struct bch_fs *c, enum bch_write_ref ref)
 {
 #ifdef BCH_WRITE_REF_DEBUG
@@ -1127,6 +1159,20 @@ static inline void bch2_write_ref_put(struct bch_fs *c, enum bch_write_ref ref)
 #else
 	percpu_ref_put(&c->writes);
 #endif
+}
+
+static inline bool bch2_ro_ref_tryget(struct bch_fs *c)
+{
+	if (test_bit(BCH_FS_stopping, &c->flags))
+		return false;
+
+	return refcount_inc_not_zero(&c->ro_ref);
+}
+
+static inline void bch2_ro_ref_put(struct bch_fs *c)
+{
+	if (refcount_dec_and_test(&c->ro_ref))
+		wake_up(&c->ro_ref_wait);
 }
 
 static inline void bch2_set_ra_pages(struct bch_fs *c, unsigned ra_pages)

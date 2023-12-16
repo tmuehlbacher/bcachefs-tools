@@ -417,7 +417,10 @@ static int check_bp_exists(struct btree_trans *trans,
 	struct btree_iter bp_iter = { NULL };
 	struct printbuf buf = PRINTBUF;
 	struct bkey_s_c bp_k;
+	struct bkey_buf tmp;
 	int ret;
+
+	bch2_bkey_buf_init(&tmp);
 
 	if (bpos_lt(bucket, bucket_start) ||
 	    bpos_gt(bucket, bucket_end))
@@ -438,6 +441,8 @@ static int check_bp_exists(struct btree_trans *trans,
 		if (!bpos_eq(orig_k.k->p, last_flushed->k->k.p) ||
 		    bkey_bytes(orig_k.k) != bkey_bytes(&last_flushed->k->k) ||
 		    memcmp(orig_k.v, &last_flushed->k->v, bkey_val_bytes(orig_k.k))) {
+			bch2_bkey_buf_reassemble(&tmp, c, orig_k);
+
 			if (bp.level) {
 				bch2_trans_unlock(trans);
 				bch2_btree_interior_updates_flush(c);
@@ -447,7 +452,7 @@ static int check_bp_exists(struct btree_trans *trans,
 			if (ret)
 				goto err;
 
-			bch2_bkey_buf_reassemble(last_flushed, c, orig_k);
+			bch2_bkey_buf_copy(last_flushed, c, tmp.k);
 			ret = -BCH_ERR_transaction_restart_write_buffer_flush;
 			goto out;
 		}
@@ -457,6 +462,7 @@ out:
 err:
 fsck_err:
 	bch2_trans_iter_exit(trans, &bp_iter);
+	bch2_bkey_buf_exit(&tmp, c);
 	printbuf_exit(&buf);
 	return ret;
 missing:

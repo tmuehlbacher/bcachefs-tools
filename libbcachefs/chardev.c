@@ -7,6 +7,7 @@
 #include "chardev.h"
 #include "journal.h"
 #include "move.h"
+#include "recovery.h"
 #include "replicas.h"
 #include "super.h"
 #include "super-io.h"
@@ -19,6 +20,7 @@
 #include <linux/ioctl.h>
 #include <linux/kthread.h>
 #include <linux/major.h>
+#include <linux/poll.h>
 #include <linux/sched/task.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
@@ -32,6 +34,7 @@ static int copy_to_user_errcode(void __user *to, const void *from, unsigned long
 struct thread_with_file {
 	struct task_struct	*task;
 	int			ret;
+	bool			done;
 };
 
 static void thread_with_file_exit(struct thread_with_file *thr)
@@ -42,6 +45,7 @@ static void thread_with_file_exit(struct thread_with_file *thr)
 	}
 }
 
+__printf(4, 0)
 static int run_thread_with_file(struct thread_with_file *thr,
 				const struct file_operations *fops,
 				int (*fn)(void *), const char *fmt, ...)
@@ -227,6 +231,13 @@ static int bch2_fsck_thread_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+static bool fsck_thread_ready(struct fsck_thread *thr)
+{
+	return thr->output.buf.pos ||
+		thr->output2.nr ||
+		thr->thr.done;
+}
+
 static ssize_t bch2_fsck_thread_read(struct file *file, char __user *buf,
 				     size_t len, loff_t *ppos)
 {
@@ -234,10 +245,17 @@ static ssize_t bch2_fsck_thread_read(struct file *file, char __user *buf,
 	size_t copied = 0, b;
 	int ret = 0;
 
+	if ((file->f_flags & O_NONBLOCK) &&
+	    !fsck_thread_ready(thr))
+		return -EAGAIN;
+
 	ret = wait_event_interruptible(thr->output.wait,
-			thr->output.buf.pos || thr->output2.nr);
+			fsck_thread_ready(thr));
 	if (ret)
 		return ret;
+
+	if (thr->thr.done)
+		return 0;
 
 	while (len) {
 		ret = darray_make_room(&thr->output2, thr->output.buf.pos);
@@ -279,9 +297,21 @@ static ssize_t bch2_fsck_thread_read(struct file *file, char __user *buf,
 	return copied ?: ret;
 }
 
+static __poll_t bch2_fsck_thread_poll(struct file *file, struct poll_table_struct *wait)
+{
+	struct fsck_thread *thr = container_of(file->private_data, struct fsck_thread, thr);
+
+	poll_wait(file, &thr->output.wait, wait);
+
+	return fsck_thread_ready(thr)
+		? EPOLLIN|EPOLLHUP
+		: 0;
+}
+
 static const struct file_operations fsck_thread_ops = {
 	.release	= bch2_fsck_thread_release,
 	.read		= bch2_fsck_thread_read,
+	.poll		= bch2_fsck_thread_poll,
 	.llseek		= no_llseek,
 };
 
@@ -293,6 +323,9 @@ static int bch2_fsck_offline_thread_fn(void *arg)
 	thr->thr.ret = PTR_ERR_OR_ZERO(c);
 	if (!thr->thr.ret)
 		bch2_fs_stop(c);
+
+	thr->thr.done = true;
+	wake_up(&thr->output.wait);
 	return 0;
 }
 
@@ -309,6 +342,9 @@ static long bch2_ioctl_fsck_offline(struct bch_ioctl_fsck_offline __user *user_a
 	if (arg.flags)
 		return -EINVAL;
 
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
 	if (!(devs = kcalloc(arg.nr_devs, sizeof(*devs), GFP_KERNEL)) ||
 	    !(thr = kzalloc(sizeof(*thr), GFP_KERNEL)) ||
 	    !(thr->devs = kcalloc(arg.nr_devs, sizeof(*thr->devs), GFP_KERNEL))) {
@@ -316,6 +352,7 @@ static long bch2_ioctl_fsck_offline(struct bch_ioctl_fsck_offline __user *user_a
 		goto err;
 	}
 
+	thr->opts = bch2_opts_empty();
 	thr->nr_devs = arg.nr_devs;
 	thr->output.buf	= PRINTBUF;
 	thr->output.buf.atomic++;
@@ -899,13 +936,28 @@ static int bch2_fsck_online_thread_fn(void *arg)
 {
 	struct fsck_thread *thr = container_of(arg, struct fsck_thread, thr);
 	struct bch_fs *c = thr->c;
-#if 0
-	struct bch_fs *c = bch2_fs_open(thr->devs, thr->nr_devs, thr->opts);
 
-	thr->thr.ret = PTR_ERR_OR_ZERO(c);
-	if (!thr->thr.ret)
-		bch2_fs_stop(c);
-#endif
+	c->output_filter = current;
+	c->output = &thr->output;
+
+	/*
+	 * XXX: can we figure out a way to do this without mucking with c->opts?
+	 */
+	if (opt_defined(thr->opts, fix_errors))
+		c->opts.fix_errors = thr->opts.fix_errors;
+	c->opts.fsck = true;
+
+	c->curr_recovery_pass = BCH_RECOVERY_PASS_check_alloc_info;
+	bch2_run_online_recovery_passes(c);
+
+	c->output = NULL;
+	c->output_filter = NULL;
+
+	thr->thr.done = true;
+	wake_up(&thr->output.wait);
+
+	up(&c->online_fsck_mutex);
+	bch2_ro_ref_put(c);
 	return 0;
 }
 
@@ -918,24 +970,54 @@ static long bch2_ioctl_fsck_online(struct bch_fs *c,
 	if (arg.flags)
 		return -EINVAL;
 
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	if (!bch2_ro_ref_tryget(c))
+		return -EROFS;
+
+	if (down_trylock(&c->online_fsck_mutex)) {
+		bch2_ro_ref_put(c);
+		return -EAGAIN;
+	}
+
 	thr = kzalloc(sizeof(*thr), GFP_KERNEL);
-	if (!thr)
-		return -ENOMEM;
+	if (!thr) {
+		ret = -ENOMEM;
+		goto err;
+	}
 
 	thr->c = c;
+	thr->opts = bch2_opts_empty();
 	thr->output.buf	= PRINTBUF;
 	thr->output.buf.atomic++;
 	spin_lock_init(&thr->output.lock);
 	init_waitqueue_head(&thr->output.wait);
 	darray_init(&thr->output2);
 
+	if (arg.opts) {
+		char *optstr = strndup_user((char __user *)(unsigned long) arg.opts, 1 << 16);
+
+		ret =   PTR_ERR_OR_ZERO(optstr) ?:
+			bch2_parse_mount_opts(c, &thr->opts, optstr);
+		kfree(optstr);
+
+		if (ret)
+			goto err;
+	}
+
 	ret = run_thread_with_file(&thr->thr,
 				   &fsck_thread_ops,
 				   bch2_fsck_online_thread_fn,
 				   "bch-fsck");
-	bch_err_fn(c, ret);
-	if (ret < 0)
-		bch2_fsck_thread_free(thr);
+err:
+	if (ret < 0) {
+		bch_err_fn(c, ret);
+		if (thr)
+			bch2_fsck_thread_free(thr);
+		up(&c->online_fsck_mutex);
+		bch2_ro_ref_put(c);
+	}
 	return ret;
 }
 
