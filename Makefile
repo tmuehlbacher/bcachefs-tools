@@ -97,7 +97,7 @@ LIBDIR=$(PREFIX)/lib
 
 PKGCONFIG_SERVICEDIR:=$(shell $(PKG_CONFIG) --variable=systemdsystemunitdir systemd)
 ifeq (,$(PKGCONFIG_SERVICEDIR))
-	$(warning skipping systemd integration)
+  $(warning skipping systemd integration)
 else
 BCACHEFSCK_ARGS=-f -n
 systemd_libfiles=\
