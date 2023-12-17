@@ -114,9 +114,8 @@ int cmd_dump(int argc, char *argv[])
 		{ NULL }
 	};
 	struct bch_opts opts = bch2_opts_empty();
-	struct bch_dev *ca;
 	char *out = NULL;
-	unsigned i, nr_devices = 0;
+	unsigned nr_devices = 0;
 	bool force = false, entire_journal = true;
 	int fd, opt;
 
@@ -160,22 +159,19 @@ int cmd_dump(int argc, char *argv[])
 
 	down_read(&c->gc_lock);
 
-	for_each_online_member(ca, c, i)
+	for_each_online_member(c, ca)
 		nr_devices++;
 
 	BUG_ON(!nr_devices);
 
-	for_each_online_member(ca, c, i) {
+	for_each_online_member(c, ca) {
 		int flags = O_WRONLY|O_CREAT|O_TRUNC;
 
 		if (!force)
 			flags |= O_EXCL;
 
-		if (!c->devs[i])
-			continue;
-
 		char *path = nr_devices > 1
-			? mprintf("%s.%u.qcow2", out, i)
+			? mprintf("%s.%u.qcow2", out, ca->dev_idx)
 			: mprintf("%s.qcow2", out);
 		fd = xopen(path, flags, 0600);
 		free(path);

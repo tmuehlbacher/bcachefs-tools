@@ -648,38 +648,6 @@ static inline int btree_trans_too_many_iters(struct btree_trans *trans)
 	return 0;
 }
 
-struct bkey_s_c bch2_btree_iter_peek_and_restart_outlined(struct btree_iter *);
-
-static inline struct bkey_s_c
-__bch2_btree_iter_peek_and_restart(struct btree_trans *trans,
-				   struct btree_iter *iter, unsigned flags)
-{
-	struct bkey_s_c k;
-
-	while (btree_trans_too_many_iters(trans) ||
-	       (k = bch2_btree_iter_peek_type(iter, flags),
-		bch2_err_matches(bkey_err(k), BCH_ERR_transaction_restart)))
-		bch2_trans_begin(trans);
-
-	return k;
-}
-
-static inline struct bkey_s_c
-__bch2_btree_iter_peek_upto_and_restart(struct btree_trans *trans,
-					struct btree_iter *iter,
-					struct bpos end,
-					unsigned flags)
-{
-	struct bkey_s_c k;
-
-	while (btree_trans_too_many_iters(trans) ||
-	       (k = bch2_btree_iter_peek_upto_type(iter, end, flags),
-		bch2_err_matches(bkey_err(k), BCH_ERR_transaction_restart)))
-		bch2_trans_begin(trans);
-
-	return k;
-}
-
 /*
  * goto instead of loop, so that when used inside for_each_btree_key2()
  * break/continue work correctly
@@ -726,9 +694,11 @@ transaction_restart:							\
 	_ret2 ?: trans_was_restarted(_trans, _restart_count);		\
 })
 
-#define for_each_btree_key2_upto(_trans, _iter, _btree_id,		\
-				 _start, _end, _flags, _k, _do)		\
+#define for_each_btree_key_upto(_trans, _iter, _btree_id,		\
+				_start, _end, _flags, _k, _do)		\
 ({									\
+	struct btree_iter _iter;					\
+	struct bkey_s_c _k;						\
 	int _ret3 = 0;							\
 									\
 	bch2_trans_iter_init((_trans), &(_iter), (_btree_id),		\
@@ -751,12 +721,14 @@ transaction_restart:							\
 
 #define for_each_btree_key(_trans, _iter, _btree_id,			\
 			   _start, _flags, _k, _do)			\
-	for_each_btree_key2_upto(_trans, _iter, _btree_id, _start,	\
+	for_each_btree_key_upto(_trans, _iter, _btree_id, _start,	\
 				 SPOS_MAX, _flags, _k, _do)
 
 #define for_each_btree_key_reverse(_trans, _iter, _btree_id,		\
 				   _start, _flags, _k, _do)		\
 ({									\
+	struct btree_iter _iter;					\
+	struct bkey_s_c _k;						\
 	int _ret3 = 0;							\
 									\
 	bch2_trans_iter_init((_trans), &(_iter), (_btree_id),		\
@@ -797,32 +769,31 @@ transaction_restart:							\
 				  _start, _end, _iter_flags, _k,	\
 				  _disk_res, _journal_seq, _commit_flags,\
 				  _do)					\
-	for_each_btree_key2_upto(_trans, _iter, _btree_id, _start, _end, _iter_flags, _k,\
+	for_each_btree_key_upto(_trans, _iter, _btree_id, _start, _end, _iter_flags, _k,\
 			    (_do) ?: bch2_trans_commit(_trans, (_disk_res),\
 					(_journal_seq), (_commit_flags)))
 
-#define for_each_btree_key_old(_trans, _iter, _btree_id,			\
+struct bkey_s_c bch2_btree_iter_peek_and_restart_outlined(struct btree_iter *);
+
+static inline struct bkey_s_c
+__bch2_btree_iter_peek_and_restart(struct btree_trans *trans,
+				   struct btree_iter *iter, unsigned flags)
+{
+	struct bkey_s_c k;
+
+	while (btree_trans_too_many_iters(trans) ||
+	       (k = bch2_btree_iter_peek_type(iter, flags),
+		bch2_err_matches(bkey_err(k), BCH_ERR_transaction_restart)))
+		bch2_trans_begin(trans);
+
+	return k;
+}
+
+#define for_each_btree_key_old(_trans, _iter, _btree_id,		\
 			   _start, _flags, _k, _ret)			\
 	for (bch2_trans_iter_init((_trans), &(_iter), (_btree_id),	\
 				  (_start), (_flags));			\
 	     (_k) = __bch2_btree_iter_peek_and_restart((_trans), &(_iter), _flags),\
-	     !((_ret) = bkey_err(_k)) && (_k).k;			\
-	     bch2_btree_iter_advance(&(_iter)))
-
-#define for_each_btree_key_upto(_trans, _iter, _btree_id,		\
-				_start, _end, _flags, _k, _ret)		\
-	for (bch2_trans_iter_init((_trans), &(_iter), (_btree_id),	\
-				  (_start), (_flags));			\
-	     (_k) = __bch2_btree_iter_peek_upto_and_restart((_trans),	\
-						&(_iter), _end, _flags),\
-	     !((_ret) = bkey_err(_k)) && (_k).k;			\
-	     bch2_btree_iter_advance(&(_iter)))
-
-#define for_each_btree_key_norestart(_trans, _iter, _btree_id,		\
-			   _start, _flags, _k, _ret)			\
-	for (bch2_trans_iter_init((_trans), &(_iter), (_btree_id),	\
-				  (_start), (_flags));			\
-	     (_k) = bch2_btree_iter_peek_type(&(_iter), _flags),	\
 	     !((_ret) = bkey_err(_k)) && (_k).k;			\
 	     bch2_btree_iter_advance(&(_iter)))
 
@@ -834,23 +805,19 @@ transaction_restart:							\
 	     !((_ret) = bkey_err(_k)) && (_k).k;			\
 	     bch2_btree_iter_advance(&(_iter)))
 
-#define for_each_btree_key_continue(_trans, _iter, _flags, _k, _ret)	\
-	for (;								\
-	     (_k) = __bch2_btree_iter_peek_and_restart((_trans), &(_iter), _flags),\
-	     !((_ret) = bkey_err(_k)) && (_k).k;			\
-	     bch2_btree_iter_advance(&(_iter)))
-
-#define for_each_btree_key_continue_norestart(_iter, _flags, _k, _ret)	\
-	for (;								\
-	     (_k) = bch2_btree_iter_peek_type(&(_iter), _flags),	\
-	     !((_ret) = bkey_err(_k)) && (_k).k;			\
-	     bch2_btree_iter_advance(&(_iter)))
-
 #define for_each_btree_key_upto_continue_norestart(_iter, _end, _flags, _k, _ret)\
 	for (;									\
 	     (_k) = bch2_btree_iter_peek_upto_type(&(_iter), _end, _flags),	\
 	     !((_ret) = bkey_err(_k)) && (_k).k;				\
 	     bch2_btree_iter_advance(&(_iter)))
+
+#define for_each_btree_key_norestart(_trans, _iter, _btree_id,		\
+			   _start, _flags, _k, _ret)			\
+	for_each_btree_key_upto_norestart(_trans, _iter, _btree_id, _start,\
+					  SPOS_MAX, _flags, _k, _ret)
+
+#define for_each_btree_key_continue_norestart(_iter, _flags, _k, _ret)	\
+	for_each_btree_key_upto_continue_norestart(_iter, SPOS_MAX, _flags, _k, _ret)
 
 #define drop_locks_do(_trans, _do)					\
 ({									\
@@ -882,8 +849,6 @@ transaction_restart:							\
 	}								\
 	_p;								\
 })
-
-/* new multiple iterator interface: */
 
 void bch2_trans_updates_to_text(struct printbuf *, struct btree_trans *);
 void bch2_trans_paths_to_text(struct printbuf *, struct btree_trans *);

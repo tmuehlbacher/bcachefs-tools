@@ -612,8 +612,6 @@ static void find_superblock_space(ranges extents,
 				  struct format_opts opts,
 				  struct dev_opts *dev)
 {
-	struct range *i;
-
 	darray_for_each(extents, i) {
 		u64 start = round_up(max(256ULL << 10, i->start),
 				     dev->bucket_size << 9);

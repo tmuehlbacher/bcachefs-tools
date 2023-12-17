@@ -119,12 +119,9 @@ static int dev_by_label_cmp(const void *_l, const void *_r)
 
 static struct dev_name *dev_idx_to_name(dev_names *dev_names, unsigned idx)
 {
-	struct dev_name *dev;
-
 	darray_for_each(*dev_names, dev)
 		if (dev->idx == idx)
 			return dev;
-
 	return NULL;
 }
 
@@ -185,7 +182,6 @@ static void fs_usage_to_text(struct printbuf *out, const char *path)
 
 	struct bchfs_handle fs = bcache_fs_open(path);
 
-	struct dev_name *dev;
 	dev_names dev_names = bchu_fs_get_devices(fs);
 
 	struct bch_ioctl_fs_usage *u = bchu_fs_usage(fs);

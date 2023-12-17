@@ -117,7 +117,7 @@ int cmd_format(int argc, char *argv[])
 	DARRAY(struct dev_opts) devices = { 0 };
 	DARRAY(char *) device_paths = { 0 };
 	struct format_opts opts	= format_opts_default();
-	struct dev_opts dev_opts = dev_opts_default(), *dev;
+	struct dev_opts dev_opts = dev_opts_default();
 	bool force = false, no_passphrase = false, quiet = false, initialize = true, verbose = false;
 	bool unconsumed_dev_option = false;
 	unsigned v;

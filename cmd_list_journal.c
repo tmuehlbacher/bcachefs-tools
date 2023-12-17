@@ -55,8 +55,6 @@ typedef DARRAY(enum btree_id) d_btree_id;
 
 static bool bkey_matches_filter(d_bbpos filter, struct jset_entry *entry, struct bkey_i *k)
 {
-	struct bbpos *i;
-
 	darray_for_each(filter, i) {
 		if (i->btree != entry->btree_id)
 			continue;
@@ -106,7 +104,6 @@ static bool should_print_transaction(struct jset_entry *entry, struct jset_entry
 static bool should_print_entry(struct jset_entry *entry, d_btree_id filter)
 {
 	struct bkey_i *k;
-	enum btree_id *id;
 
 	if (!filter.nr)
 		return true;

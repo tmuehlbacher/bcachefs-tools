@@ -84,7 +84,6 @@ void qcow2_write_image(int infd, int outfd, ranges *data,
 		.l1_index	= -1,
 		.offset		= round_up(sizeof(hdr), block_size),
 	};
-	struct range *r;
 	char *buf = xmalloc(block_size);
 	u64 src_offset, dst_offset;
 

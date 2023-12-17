@@ -530,10 +530,9 @@ int cmd_device_resize(int argc, char *argv[])
 		if (IS_ERR(c))
 			die("error opening %s: %s", dev, bch2_err_str(PTR_ERR(c)));
 
-		struct bch_dev *ca, *resize = NULL;
-		unsigned i;
+		struct bch_dev *resize = NULL;
 
-		for_each_online_member(ca, c, i) {
+		for_each_online_member(c, ca) {
 			if (resize)
 				die("confused: more than one online device?");
 			resize = ca;
@@ -628,10 +627,9 @@ int cmd_device_resize_journal(int argc, char *argv[])
 		if (IS_ERR(c))
 			die("error opening %s: %s", dev, bch2_err_str(PTR_ERR(c)));
 
-		struct bch_dev *ca, *resize = NULL;
-		unsigned i;
+		struct bch_dev *resize = NULL;
 
-		for_each_online_member(ca, c, i) {
+		for_each_online_member(c, ca) {
 			if (resize)
 				die("confused: more than one online device?");
 			resize = ca;
