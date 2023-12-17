@@ -156,7 +156,7 @@ int cmd_dump(int argc, char *argv[])
 
 	struct bch_fs *c = bch2_fs_open(argv, argc, opts);
 	if (IS_ERR(c))
-		die("error opening %s: %s", argv[0], bch2_err_str(PTR_ERR(c)));
+		die("error opening devices: %s", bch2_err_str(PTR_ERR(c)));
 
 	down_read(&c->gc_lock);
 
