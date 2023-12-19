@@ -187,8 +187,6 @@ static int subvolume_cmds(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
-	/* we don't want to swap */
-	mlockall(MCL_FUTURE);
 	raid_init();
 
 	full_cmd = argv[0];
