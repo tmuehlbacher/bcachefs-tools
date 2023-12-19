@@ -34,13 +34,13 @@ Fedora: install the "Development tools" group along with:
 dnf install -y libaio-devel libsodium-devel \
     libblkid-devel libzstd-devel zlib-devel userspace-rcu-devel \
     lz4-devel libuuid-devel valgrind-devel keyutils-libs-devel \
-    findutils udev systemd-devel
+    findutils udev systemd-devel llvm-devel
 ```
 
 Arch: install bcachefs-tools-git from the AUR.
 Or to build from source, install build dependencies with
 ```shell
-pacman -S base-devel libaio keyutils libsodium liburcu zstd valgrind
+pacman -S base-devel libaio keyutils libsodium liburcu zstd valgrind llvm
 ```
 
 Then, just `make && make install`
