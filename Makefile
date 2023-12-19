@@ -1,4 +1,4 @@
-VERSION=1.3.3
+VERSION=1.3.6
 
 PREFIX?=/usr/local
 PKG_CONFIG?=pkg-config
