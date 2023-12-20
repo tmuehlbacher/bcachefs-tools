@@ -28,14 +28,41 @@ void die(const char *, ...)
 	__attribute__ ((format (printf, 1, 2))) noreturn;
 char *mprintf(const char *, ...)
 	__attribute__ ((format (printf, 1, 2)));
-void *xcalloc(size_t, size_t);
-void *xmalloc(size_t);
-void *xrealloc(void *, size_t);
 void xpread(int, void *, size_t, off_t);
 void xpwrite(int, const void *, size_t, off_t, const char *);
 struct stat xfstatat(int, const char *, int);
 struct stat xfstat(int);
 struct stat xstat(const char *);
+
+static inline void *xmalloc(size_t size)
+{
+	void *p = malloc(size);
+
+	if (!p)
+		die("insufficient memory");
+
+	memset(p, 0, size);
+	return p;
+}
+
+static inline void *xcalloc(size_t count, size_t size)
+{
+	void *p = calloc(count, size);
+
+	if (!p)
+		die("insufficient memory");
+
+	return p;
+}
+
+static inline void *xrealloc(void *p, size_t size)
+{
+	p = realloc(p, size);
+	if (!p)
+		die("insufficient memory");
+
+	return p;
+}
 
 #define xopenat(_dirfd, _path, ...)					\
 ({									\
