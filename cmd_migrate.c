@@ -375,6 +375,7 @@ static void copy_file(struct bch_fs *c, struct bch_inode_unpacked *dst,
 			fsync(src_fd);
 			break;
 		}
+	fiemap_iter_exit(&iter);
 
 	fiemap_for_each(src_fd, iter, e) {
 		if ((e.fe_logical	& (block_bytes(c) - 1)) ||
@@ -408,6 +409,7 @@ static void copy_file(struct bch_fs *c, struct bch_inode_unpacked *dst,
 		range_add(extents, e.fe_physical, e.fe_length);
 		link_data(c, dst, e.fe_logical, e.fe_physical, e.fe_length);
 	}
+	fiemap_iter_exit(&iter);
 }
 
 struct copy_fs_state {
@@ -505,6 +507,7 @@ next:
 
 	if (errno)
 		die("readdir error: %m");
+	closedir(dir);
 }
 
 static ranges reserve_new_fs_space(const char *file_path, unsigned block_size,
@@ -547,6 +550,7 @@ static ranges reserve_new_fs_space(const char *file_path, unsigned block_size,
 
 		range_add(&extents, e.fe_physical, e.fe_length);
 	}
+	fiemap_iter_exit(&iter);
 	close(fd);
 
 	ranges_sort_merge(&extents);
