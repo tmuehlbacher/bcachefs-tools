@@ -378,6 +378,10 @@ static void copy_file(struct bch_fs *c, struct bch_inode_unpacked *dst,
 	fiemap_iter_exit(&iter);
 
 	fiemap_for_each(src_fd, iter, e) {
+		u64 src_max = roundup(src_size, block_bytes(c));
+
+		e.fe_length = min(e.fe_length, src_max - e.fe_logical);
+
 		if ((e.fe_logical	& (block_bytes(c) - 1)) ||
 		    (e.fe_length	& (block_bytes(c) - 1)))
 			die("Unaligned extent in %s - can't handle", src_path);
