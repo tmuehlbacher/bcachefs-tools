@@ -251,13 +251,10 @@ static void write_data(struct bch_fs *c,
 {
 	struct bch_write_op op;
 	struct bio_vec bv[WRITE_DATA_BUF / PAGE_SIZE];
-	struct closure cl;
 
 	BUG_ON(dst_offset	& (block_bytes(c) - 1));
 	BUG_ON(len		& (block_bytes(c) - 1));
 	BUG_ON(len > WRITE_DATA_BUF);
-
-	closure_init_stack(&cl);
 
 	bio_init(&op.wbio.bio, NULL, bv, ARRAY_SIZE(bv), 0);
 	bch2_bio_map(&op.wbio.bio, buf, len);
@@ -274,7 +271,7 @@ static void write_data(struct bch_fs *c,
 	if (ret)
 		die("error reserving space in new filesystem: %s", bch2_err_str(ret));
 
-	closure_call(&op.cl, bch2_write, NULL, &cl);
+	closure_call(&op.cl, bch2_write, NULL, NULL);
 
 	dst_inode->bi_sectors += len >> 9;
 }
