@@ -273,7 +273,11 @@ static void write_data(struct bch_fs *c,
 
 	closure_call(&op.cl, bch2_write, NULL, NULL);
 
+	BUG_ON(!(op.flags & BCH_WRITE_DONE));
 	dst_inode->bi_sectors += len >> 9;
+
+	if (op.error)
+		die("write error: %s", bch2_err_str(op.error));
 }
 
 static void copy_data(struct bch_fs *c,
