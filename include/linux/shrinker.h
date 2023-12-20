@@ -25,15 +25,10 @@ struct shrinker {
 	void	*private_data;
 };
 
-static inline void shrinker_free(struct shrinker *s)
-{
-	free(s);
-}
-
+void shrinker_free(struct shrinker *);
 struct shrinker *shrinker_alloc(unsigned int, const char *, ...);
 
 int shrinker_register(struct shrinker *);
-void shrinker_unregister(struct shrinker *);
 
 void run_shrinkers(gfp_t gfp_mask, bool);
 

@@ -13,6 +13,16 @@
 static LIST_HEAD(shrinker_list);
 static DEFINE_MUTEX(shrinker_lock);
 
+void shrinker_free(struct shrinker *s)
+{
+	if (s->list.next) {
+		mutex_lock(&shrinker_lock);
+		list_del(&s->list);
+		mutex_unlock(&shrinker_lock);
+	}
+	free(s);
+}
+
 struct shrinker *shrinker_alloc(unsigned int flags, const char *fmt, ...)
 {
 	return calloc(sizeof(struct shrinker), 1);
@@ -24,13 +34,6 @@ int shrinker_register(struct shrinker *shrinker)
 	list_add_tail(&shrinker->list, &shrinker_list);
 	mutex_unlock(&shrinker_lock);
 	return 0;
-}
-
-void unregister_shrinker(struct shrinker *shrinker)
-{
-	mutex_lock(&shrinker_lock);
-	list_del(&shrinker->list);
-	mutex_unlock(&shrinker_lock);
 }
 
 static void run_shrinkers_allocation_failed(gfp_t gfp_mask)
