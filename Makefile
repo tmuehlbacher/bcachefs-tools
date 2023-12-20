@@ -15,8 +15,10 @@ endif
 
 ifeq ($(BUILD_VERBOSE),1)
   Q =
+  CARGO_CLEAN_ARGS = --verbose
 else
   Q = @
+  CARGO_CLEAN_ARGS = --quiet
 endif
 
 CFLAGS+=-std=gnu11 -O2 -g -MMD -Wall -fPIC			\
@@ -46,9 +48,12 @@ CARGO_ARGS=${CARGO_TOOLCHAIN}
 CARGO=cargo $(CARGO_ARGS)
 CARGO_PROFILE=release
 # CARGO_PROFILE=debug
+CARGO_MANIFEST=--manifest-path rust-src/Cargo.toml
 
 CARGO_BUILD_ARGS=--$(CARGO_PROFILE)
-CARGO_BUILD=$(CARGO) build $(CARGO_BUILD_ARGS)
+CARGO_BUILD=$(CARGO) build $(CARGO_BUILD_ARGS) $(CARGO_MANIFEST)
+
+CARGO_CLEAN=$(CARGO) clean $(CARGO_CLEAN_ARGS) $(CARGO_MANIFEST)
 
 include Makefile.compiler
 
@@ -177,7 +182,7 @@ libbcachefs.a: $(filter-out ./tests/%.o, $(OBJS))
 
 RUST_SRCS=$(shell find rust-src/src rust-src/bch_bindgen/src -type f -iname '*.rs')
 rust-src/target/release/libbcachefs_rust.a: $(RUST_SRCS)
-	$(CARGO_BUILD) --manifest-path rust-src/Cargo.toml
+	$(CARGO_BUILD)
 
 tests/test_helper: $(filter ./tests/%.o, $(OBJS))
 	@echo "    [LD]     $@"
@@ -222,7 +227,7 @@ install_systemd: $(systemd_services) $(systemd_libfiles)
 clean:
 	@echo "Cleaning all"
 	$(Q)$(RM) bcachefs libbcachefs.a tests/test_helper .version *.tar.xz $(OBJS) $(DEPS) $(DOCGENERATED)
-	$(Q)$(RM) -rf rust-src/*/target
+	$(Q)$(CARGO_CLEAN)
 	$(Q)$(RM) -f $(built_scripts)
 
 .PHONY: deb
