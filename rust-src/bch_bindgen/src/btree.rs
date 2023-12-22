@@ -7,7 +7,6 @@ use crate::printbuf_to_formatter;
 use std::fmt;
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
-use std::ptr;
 use bitflags::bitflags;
 
 pub struct BtreeTrans<'f> {

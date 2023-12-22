@@ -36,6 +36,7 @@ fn main() {
         .clang_arg("-DZSTD_STATIC_LINKING_ONLY")
         .clang_arg("-DNO_BCACHEFS_FS")
         .clang_arg("-D_GNU_SOURCE")
+        .clang_arg("-DRUST_BINDGEN")
         .clang_arg("-fkeep-inline-functions")
         .derive_debug(true)
         .derive_default(true)
