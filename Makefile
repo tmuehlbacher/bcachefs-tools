@@ -21,6 +21,10 @@ else
   CARGO_CLEAN_ARGS = --quiet
 endif
 
+# Prevent recursive expansions of $(CFLAGS) to avoid repeatedly performing
+# compile tests
+CFLAGS:=$(CFLAGS)
+
 CFLAGS+=-std=gnu11 -O2 -g -MMD -Wall -fPIC			\
 	-Wno-pointer-sign					\
 	-Wno-deprecated-declarations				\
@@ -38,6 +42,9 @@ CFLAGS+=-std=gnu11 -O2 -g -MMD -Wall -fPIC			\
 	-DNO_BCACHEFS_SYSFS					\
 	-DVERSION_STRING='"$(VERSION)"'				\
 	$(EXTRA_CFLAGS)
+
+# Intenionally not doing the above to $(LDFLAGS) because we rely on
+# recursive expansion here (CFLAGS is not yet completely built by this line)
 LDFLAGS+=$(CFLAGS) $(EXTRA_LDFLAGS)
 
 ifdef CARGO_TOOLCHAIN_VERSION
@@ -154,11 +161,11 @@ TAGS:
 tags:
 	ctags -R .
 
-SRCS=$(sort $(shell find . -type f ! -path '*/.*/*' -iname '*.c'))
-DEPS=$(SRCS:.c=.d)
+SRCS:=$(sort $(shell find . -type f ! -path '*/.*/*' -iname '*.c'))
+DEPS:=$(SRCS:.c=.d)
 -include $(DEPS)
 
-OBJS=$(SRCS:.c=.o)
+OBJS:=$(SRCS:.c=.o)
 
 %.o: %.c
 	@echo "    [CC]     $@"
@@ -180,7 +187,7 @@ libbcachefs.a: $(filter-out ./tests/%.o, $(OBJS))
 	@echo "    [AR]     $@"
 	$(Q)ar -rc $@ $+
 
-RUST_SRCS=$(shell find rust-src/src rust-src/bch_bindgen/src -type f -iname '*.rs')
+RUST_SRCS:=$(shell find rust-src/src rust-src/bch_bindgen/src -type f -iname '*.rs')
 rust-src/target/release/libbcachefs_rust.a: $(RUST_SRCS)
 	$(CARGO_BUILD)
 
