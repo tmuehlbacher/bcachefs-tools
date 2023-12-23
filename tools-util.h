@@ -199,4 +199,6 @@ do {									\
 struct bpos bpos_parse(char *);
 struct bbpos bbpos_parse(char *);
 
+darray_str get_or_split_cmdline_devs(int argc, char *argv[]);
+
 #endif /* _TOOLS_UTIL_H */

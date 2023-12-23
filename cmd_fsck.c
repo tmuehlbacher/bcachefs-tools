@@ -90,7 +90,6 @@ int cmd_fsck(int argc, char *argv[])
 		{ NULL }
 	};
 	struct bch_opts opts = bch2_opts_empty();
-	unsigned i;
 	int opt, ret = 0;
 
 	opt_set(opts, degraded, true);
@@ -138,15 +137,15 @@ int cmd_fsck(int argc, char *argv[])
 		exit(8);
 	}
 
-	for (i = 0; i < argc; i++)
-		if (dev_mounted(argv[i]))
-			return fsck_online(argv[i]);
+	darray_str devs = get_or_split_cmdline_devs(argc, argv);
 
-	struct bch_fs *c = bch2_fs_open(argv, argc, opts);
-	if (IS_ERR(c)) {
-		fprintf(stderr, "error opening %s: %s\n", argv[0], bch2_err_str(PTR_ERR(c)));
+	darray_for_each(devs, i)
+		if (dev_mounted(*i))
+			return fsck_online(*i);
+
+	struct bch_fs *c = bch2_fs_open(devs.data, devs.nr, opts);
+	if (IS_ERR(c))
 		exit(8);
-	}
 
 	if (test_bit(BCH_FS_errors_fixed, &c->flags)) {
 		fprintf(stderr, "%s: errors fixed\n", c->name);

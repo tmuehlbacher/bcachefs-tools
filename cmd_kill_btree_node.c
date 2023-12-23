@@ -79,15 +79,12 @@ int cmd_kill_btree_node(int argc, char *argv[])
 			continue;
 
 		if (!node_index) {
-			struct bkey_ptrs_c ptrs = bch2_bkey_ptrs_c(bkey_i_to_s_c(&b->key));
-			const struct bch_extent_ptr *ptr;
-
 			struct printbuf buf = PRINTBUF;
-
 			bch2_bkey_val_to_text(&buf, c, bkey_i_to_s_c(&b->key));
 			bch_info(c, "killing btree node %s", buf.buf);
 			printbuf_exit(&buf);
 
+			struct bkey_ptrs_c ptrs = bch2_bkey_ptrs_c(bkey_i_to_s_c(&b->key));
 			bkey_for_each_ptr(ptrs, ptr) {
 				struct bch_dev *ca = bch_dev_bkey_exists(c, ptr->dev);
 

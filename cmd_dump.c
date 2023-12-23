@@ -59,7 +59,6 @@ static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
 
 	/* Btree: */
 	for (i = 0; i < BTREE_ID_NR; i++) {
-		const struct bch_extent_ptr *ptr;
 		struct bkey_ptrs_c ptrs;
 		struct btree_trans *trans = bch2_trans_get(c);
 		struct btree_iter iter;

@@ -650,3 +650,17 @@ struct bbpos bbpos_parse(char *buf)
 	ret.pos = bpos_parse(s);
 	return ret;
 }
+
+darray_str get_or_split_cmdline_devs(int argc, char *argv[])
+{
+	darray_str ret = {};
+
+	if (argc == 1) {
+		bch2_split_devs(argv[0], &ret);
+	} else {
+		for (unsigned i = 0; i < argc; i++)
+			darray_push(&ret, strdup(argv[i]));
+	}
+
+	return ret;
+}
