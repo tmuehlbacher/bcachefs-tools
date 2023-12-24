@@ -58,7 +58,7 @@ rm -f %{buildroot}/usr/lib/libbcachefs.so
 %{_udevrulesdir}/64-bcachefs.rules
 %{_unitdir}/bcachefsck*
 %{_unitdir}/system-bcachefsck.slice
-%{_prefix}/lib/bcachefsck*
+%{_libexecdir}/bcachefsck*
 
 %changelog
 * Tue Nov 15 2022 Eric Sandeen <sandeen@sandeen.net> - 2022.11.15-1
