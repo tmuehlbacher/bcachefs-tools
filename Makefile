@@ -105,14 +105,14 @@ else
 	ROOT_SBINDIR?=$(PREFIX)/sbin
 	INITRAMFS_DIR=/etc/initramfs-tools
 endif
-LIBDIR=$(PREFIX)/lib
+LIBEXECDIR=$(PREFIX)/libexec
 
 PKGCONFIG_SERVICEDIR:=$(shell $(PKG_CONFIG) --variable=systemdsystemunitdir systemd)
 ifeq (,$(PKGCONFIG_SERVICEDIR))
   $(warning skipping systemd integration)
 else
 BCACHEFSCK_ARGS=-f -n
-systemd_libfiles=\
+systemd_libexecfiles=\
 	fsck/bcachefsck_fail \
 	fsck/bcachefsck_all
 
@@ -133,14 +133,14 @@ built_scripts+=\
 
 %.service: %.service.in
 	@echo "    [SED]    $@"
-	$(Q)sed -e "s|@libdir@|$(LIBDIR)|g" \
+	$(Q)sed -e "s|@libexecdir@|$(LIBEXECDIR)|g" \
 	        -e "s|@bcachefsck_args@|$(BCACHEFSCK_ARGS)|g" < $< > $@
 
 fsck/bcachefsck_all: fsck/bcachefsck_all.in
 	@echo "    [SED]    $@"
 	$(Q)sed -e "s|@bcachefsck_args@|$(BCACHEFSCK_ARGS)|g" < $< > $@
 
-optional_build+=$(systemd_libfiles) $(systemd_services)
+optional_build+=$(systemd_libexecfiles) $(systemd_services)
 optional_install+=install_systemd
 endif	# PKGCONFIG_SERVICEDIR
 
@@ -226,8 +226,8 @@ install: bcachefs $(optional_install)
 	echo "copy_exec $(ROOT_SBINDIR)/bcachefs /sbin/bcachefs" >> $(DESTDIR)$(INITRAMFS_HOOK)
 
 .PHONY: install_systemd
-install_systemd: $(systemd_services) $(systemd_libfiles)
-	$(INSTALL) -m0755 -D $(systemd_libfiles) -t $(DESTDIR)$(LIBDIR)
+install_systemd: $(systemd_services) $(systemd_libexecfiles)
+	$(INSTALL) -m0755 -D $(systemd_libexecfiles) -t $(DESTDIR)$(LIBEXECDIR)
 	$(INSTALL) -m0644 -D $(systemd_services) -t $(DESTDIR)$(PKGCONFIG_SERVICEDIR)
 
 .PHONY: clean
