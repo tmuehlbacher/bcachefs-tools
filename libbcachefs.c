@@ -445,6 +445,7 @@ struct bchfs_handle bcache_fs_open(const char *path)
  */
 struct bchfs_handle bchu_fs_open_by_dev(const char *path, int *idx)
 {
+	struct bch_opts opts = bch2_opts_empty();
 	char buf[1024], *uuid_str;
 
 	struct stat stat = xstat(path);
@@ -469,8 +470,6 @@ struct bchfs_handle bchu_fs_open_by_dev(const char *path, int *idx)
 		uuid_str = p + 1;
 	} else {
 read_super:
-		struct bch_opts opts = bch2_opts_empty();
-
 		opt_set(opts, noexcl,	true);
 		opt_set(opts, nochanges, true);
 
