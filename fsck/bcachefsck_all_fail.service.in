@@ -10,7 +10,7 @@ Documentation=man:bcachefsck_all(8)
 [Service]
 Type=oneshot
 Environment=EMAIL_ADDR=root
-ExecStart=@libdir@/bcachefsck_fail "${EMAIL_ADDR}" bcachefsck_all
+ExecStart=@libexecdir@/bcachefsck_fail "${EMAIL_ADDR}" bcachefsck_all
 User=mail
 Group=mail
 SupplementaryGroups=systemd-journal
