@@ -449,16 +449,17 @@ struct bchfs_handle bchu_fs_open_by_dev(const char *path, int *idx)
 
 	struct stat stat = xstat(path);
 
-	if (!S_ISBLK(stat.st_mode))
-		die("%s is not a block device", path);
+	if (S_ISBLK(stat.st_mode)) {
+		char *sysfs = mprintf("/sys/dev/block/%u:%u/bcachefs",
+				      major(stat.st_dev),
+				      minor(stat.st_dev));
 
-	char *sysfs = mprintf("/sys/dev/block/%u:%u/bcachefs",
-			      major(stat.st_dev),
-			      minor(stat.st_dev));
-	ssize_t len = readlink(sysfs, buf, sizeof(buf));
-	free(sysfs);
+		ssize_t len = readlink(sysfs, buf, sizeof(buf));
+		free(sysfs);
 
-	if (len > 0) {
+		if (len <= 0)
+			goto read_super;
+
 		char *p = strrchr(buf, '/');
 		if (!p || sscanf(p + 1, "dev-%u", idx) != 1)
 			die("error parsing sysfs");
@@ -467,6 +468,7 @@ struct bchfs_handle bchu_fs_open_by_dev(const char *path, int *idx)
 		p = strrchr(buf, '/');
 		uuid_str = p + 1;
 	} else {
+read_super:
 		struct bch_opts opts = bch2_opts_empty();
 
 		opt_set(opts, noexcl,	true);
