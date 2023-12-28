@@ -134,6 +134,7 @@ fn cmd_list_inner(opt: Cli) -> anyhow::Result<()> {
     let mut fs_opts: bcachefs::bch_opts = Default::default();
 
     opt_set!(fs_opts, nochanges,        1);
+    opt_set!(fs_opts, read_only,        1);
     opt_set!(fs_opts, norecovery,       1);
     opt_set!(fs_opts, degraded,         1);
     opt_set!(fs_opts, errors,           bcachefs::bch_error_actions::BCH_ON_ERROR_continue as u8);
