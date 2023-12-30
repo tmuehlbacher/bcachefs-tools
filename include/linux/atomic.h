@@ -300,6 +300,13 @@ DEF_ATOMIC_OPS(atomic_long,	long)
 DEF_ATOMIC_OPS(atomic64,	s64)
 #else
 s64 atomic64_read(const atomic64_t *v);
+s64 atomic64_read_acquire(const atomic64_t *v)
+{
+	s64 ret = atomic64_read(v);
+	smp_mb__after_atomic();
+	return ret;
+}
+
 void atomic64_set(atomic64_t *v, s64);
 
 s64 atomic64_add_return(s64, atomic64_t *);
