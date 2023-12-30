@@ -1476,9 +1476,6 @@ static void bch2_trans_update_max_paths(struct btree_trans *trans)
 	struct printbuf buf = PRINTBUF;
 	size_t nr = bitmap_weight(trans->paths_allocated, trans->nr_paths);
 
-	if (!s)
-		return;
-
 	bch2_trans_paths_to_text(&buf, trans);
 
 	if (!buf.allocation_failure) {
@@ -2148,18 +2145,16 @@ struct bkey_s_c bch2_btree_iter_peek_upto(struct btree_iter *iter, struct bpos e
 			goto out_no_locked;
 
 		/*
-		 * iter->pos should be mononotically increasing, and always be
-		 * equal to the key we just returned - except extents can
-		 * straddle iter->pos:
+		 * We need to check against @end before FILTER_SNAPSHOTS because
+		 * if we get to a different inode that requested we might be
+		 * seeing keys for a different snapshot tree that will all be
+		 * filtered out.
+		 *
+		 * But we can't do the full check here, because bkey_start_pos()
+		 * isn't monotonically increasing before FILTER_SNAPSHOTS, and
+		 * that's what we check against in extents mode:
 		 */
-		if (!(iter->flags & BTREE_ITER_IS_EXTENTS))
-			iter_pos = k.k->p;
-		else
-			iter_pos = bkey_max(iter->pos, bkey_start_pos(k.k));
-
-		if (unlikely(!(iter->flags & BTREE_ITER_IS_EXTENTS)
-			     ? bkey_gt(iter_pos, end)
-			     : bkey_ge(iter_pos, end)))
+		if (k.k->p.inode > end.inode)
 			goto end;
 
 		if (iter->update_path &&
@@ -2217,6 +2212,21 @@ struct bkey_s_c bch2_btree_iter_peek_upto(struct btree_iter *iter, struct bpos e
 			search_key = bkey_successor(iter, k.k->p);
 			continue;
 		}
+
+		/*
+		 * iter->pos should be mononotically increasing, and always be
+		 * equal to the key we just returned - except extents can
+		 * straddle iter->pos:
+		 */
+		if (!(iter->flags & BTREE_ITER_IS_EXTENTS))
+			iter_pos = k.k->p;
+		else
+			iter_pos = bkey_max(iter->pos, bkey_start_pos(k.k));
+
+		if (unlikely(!(iter->flags & BTREE_ITER_IS_EXTENTS)
+			     ? bkey_gt(iter_pos, end)
+			     : bkey_ge(iter_pos, end)))
+			goto end;
 
 		break;
 	}
@@ -2768,8 +2778,7 @@ void *__bch2_trans_kmalloc(struct btree_trans *trans, size_t size)
 	WARN_ON_ONCE(new_bytes > BTREE_TRANS_MEM_MAX);
 
 	struct btree_transaction_stats *s = btree_trans_stats(trans);
-	if (s)
-		s->max_mem = max(s->max_mem, new_bytes);
+	s->max_mem = max(s->max_mem, new_bytes);
 
 	new_mem = krealloc(trans->mem, new_bytes, GFP_NOWAIT|__GFP_NOWARN);
 	if (unlikely(!new_mem)) {
@@ -2885,9 +2894,15 @@ u32 bch2_trans_begin(struct btree_trans *trans)
 	}
 
 	now = local_clock();
+
+	if (!IS_ENABLED(CONFIG_BCACHEFS_NO_LATENCY_ACCT) &&
+	    time_after64(now, trans->last_begin_time + 10))
+		__bch2_time_stats_update(&btree_trans_stats(trans)->duration,
+					 trans->last_begin_time, now);
+
 	if (!trans->restarted &&
 	    (need_resched() ||
-	     now - trans->last_begin_time > BTREE_TRANS_MAX_LOCK_HOLD_TIME_NS)) {
+	     time_after64(now, trans->last_begin_time + BTREE_TRANS_MAX_LOCK_HOLD_TIME_NS))) {
 		drop_locks_do(trans, (cond_resched(), 0));
 		now = local_clock();
 	}
@@ -2906,13 +2921,11 @@ u32 bch2_trans_begin(struct btree_trans *trans)
 	return trans->restart_count;
 }
 
-const char *bch2_btree_transaction_fns[BCH_TRANSACTIONS_NR];
+const char *bch2_btree_transaction_fns[BCH_TRANSACTIONS_NR] = { "(unknown)" };
 
 unsigned bch2_trans_get_fn_idx(const char *fn)
 {
-	unsigned i;
-
-	for (i = 0; i < ARRAY_SIZE(bch2_btree_transaction_fns); i++)
+	for (unsigned i = 0; i < ARRAY_SIZE(bch2_btree_transaction_fns); i++)
 		if (!bch2_btree_transaction_fns[i] ||
 		    bch2_btree_transaction_fns[i] == fn) {
 			bch2_btree_transaction_fns[i] = fn;
@@ -2920,7 +2933,7 @@ unsigned bch2_trans_get_fn_idx(const char *fn)
 		}
 
 	pr_warn_once("BCH_TRANSACTIONS_NR not big enough!");
-	return i;
+	return 0;
 }
 
 struct btree_trans *__bch2_trans_get(struct bch_fs *c, unsigned fn_idx)
@@ -3225,6 +3238,7 @@ void bch2_fs_btree_iter_init_early(struct bch_fs *c)
 	for (s = c->btree_transaction_stats;
 	     s < c->btree_transaction_stats + ARRAY_SIZE(c->btree_transaction_stats);
 	     s++) {
+		bch2_time_stats_init(&s->duration);
 		bch2_time_stats_init(&s->lock_hold_times);
 		mutex_init(&s->lock);
 	}

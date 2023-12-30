@@ -907,18 +907,6 @@ int bch2_write_super(struct bch_fs *c)
 	c->disk_sb.sb->magic = BCHFS_MAGIC;
 	c->disk_sb.sb->layout.magic = BCHFS_MAGIC;
 
-	if (le16_to_cpu(c->disk_sb.sb->version) > bcachefs_metadata_version_current) {
-		struct printbuf buf = PRINTBUF;
-		prt_printf(&buf, "attempting to write superblock that wasn't version downgraded (");
-		bch2_version_to_text(&buf, le16_to_cpu(c->disk_sb.sb->version));
-		prt_str(&buf, " > ");
-		bch2_version_to_text(&buf, bcachefs_metadata_version_current);
-		prt_str(&buf, ")");
-		bch2_fs_fatal_error(c, "%s", buf.buf);
-		printbuf_exit(&buf);
-		return -BCH_ERR_sb_not_downgraded;
-	}
-
 	le64_add_cpu(&c->disk_sb.sb->seq, 1);
 
 	struct bch_sb_field_members_v2 *mi = bch2_sb_field_get(c->disk_sb.sb, members_v2);
@@ -961,6 +949,18 @@ int bch2_write_super(struct bch_fs *c)
 	 */
 	if (!BCH_SB_INITIALIZED(c->disk_sb.sb))
 		goto out;
+
+	if (le16_to_cpu(c->disk_sb.sb->version) > bcachefs_metadata_version_current) {
+		struct printbuf buf = PRINTBUF;
+		prt_printf(&buf, "attempting to write superblock that wasn't version downgraded (");
+		bch2_version_to_text(&buf, le16_to_cpu(c->disk_sb.sb->version));
+		prt_str(&buf, " > ");
+		bch2_version_to_text(&buf, bcachefs_metadata_version_current);
+		prt_str(&buf, ")");
+		bch2_fs_fatal_error(c, "%s", buf.buf);
+		printbuf_exit(&buf);
+		return -BCH_ERR_sb_not_downgraded;
+	}
 
 	for_each_online_member(c, ca) {
 		__set_bit(ca->dev_idx, sb_written.d);
