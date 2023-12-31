@@ -2,6 +2,7 @@
 /* Copyright (C) 2022 Kent Overstreet */
 
 #include <linux/err.h>
+#include <linux/bitmap.h>
 #include <linux/export.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -421,5 +422,26 @@ void bch2_prt_bitflags(struct printbuf *out,
 		first = false;
 		bch2_prt_printf(out, "%s", list[bit]);
 		flags ^= BIT_ULL(bit);
+	}
+}
+
+void bch2_prt_bitflags_vector(struct printbuf *out,
+			      const char * const list[],
+			      unsigned long *v, unsigned nr)
+{
+	bool first = true;
+	unsigned i;
+
+	for (i = 0; i < nr; i++)
+		if (!list[i]) {
+			nr = i - 1;
+			break;
+		}
+
+	for_each_set_bit(i, v, nr) {
+		if (!first)
+			bch2_prt_printf(out, ",");
+		first = false;
+		bch2_prt_printf(out, "%s", list[i]);
 	}
 }
