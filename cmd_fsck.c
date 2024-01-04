@@ -35,7 +35,7 @@ static void setnonblocking(int fd)
 
 static int do_splice(int rfd, int wfd)
 {
-	char buf[4096];
+	char buf[4096], *b = buf;
 
 	int r = read(rfd, buf, sizeof(buf));
 	if (r < 0 && errno == EAGAIN)
@@ -44,8 +44,13 @@ static int do_splice(int rfd, int wfd)
 		return r;
 	if (!r)
 		return 1;
-	if (write(wfd, buf, r) != r)
-		die("write error");
+	do {
+		ssize_t w = write(wfd, b, r);
+		if (w < 0)
+			die("%s: write error: %m", __func__);
+		r -= w;
+		b += w;
+	} while (r);
 	return 0;
 }
 
