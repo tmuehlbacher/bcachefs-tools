@@ -627,7 +627,7 @@ restart:
 		prt_printf(&i->buf, "backtrace:");
 		prt_newline(&i->buf);
 		printbuf_indent_add(&i->buf, 2);
-		bch2_prt_task_backtrace(&i->buf, task);
+		bch2_prt_task_backtrace(&i->buf, task, 0);
 		printbuf_indent_sub(&i->buf, 2);
 		prt_newline(&i->buf);
 
@@ -930,8 +930,6 @@ void bch2_debug_exit(void)
 
 int __init bch2_debug_init(void)
 {
-	int ret = 0;
-
 	bch_debug = debugfs_create_dir("bcachefs", NULL);
-	return ret;
+	return 0;
 }

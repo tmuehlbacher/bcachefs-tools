@@ -30,14 +30,12 @@ static const struct blk_holder_ops bch2_sb_handle_bdev_ops = {
 struct bch2_metadata_version {
 	u16		version;
 	const char	*name;
-	u64		recovery_passes;
 };
 
 static const struct bch2_metadata_version bch2_metadata_versions[] = {
-#define x(n, v, _recovery_passes) {		\
+#define x(n, v) {		\
 	.version = v,				\
 	.name = #n,				\
-	.recovery_passes = _recovery_passes,	\
 },
 	BCH_METADATA_VERSIONS()
 #undef x
@@ -68,24 +66,6 @@ unsigned bch2_latest_compatible_version(unsigned v)
 			v = bch2_metadata_versions[i].version;
 
 	return v;
-}
-
-u64 bch2_upgrade_recovery_passes(struct bch_fs *c,
-				 unsigned old_version,
-				 unsigned new_version)
-{
-	u64 ret = 0;
-
-	for (const struct bch2_metadata_version *i = bch2_metadata_versions;
-	     i < bch2_metadata_versions + ARRAY_SIZE(bch2_metadata_versions);
-	     i++)
-		if (i->version > old_version && i->version <= new_version) {
-			if (i->recovery_passes & RECOVERY_PASS_ALL_FSCK)
-				ret |= bch2_fsck_recovery_passes();
-			ret |= i->recovery_passes;
-		}
-
-	return ret &= ~RECOVERY_PASS_ALL_FSCK;
 }
 
 const char * const bch2_sb_fields[] = {
@@ -190,8 +170,12 @@ int bch2_sb_realloc(struct bch_sb_handle *sb, unsigned u64s)
 		u64 max_bytes = 512 << sb->sb->layout.sb_max_size_bits;
 
 		if (new_bytes > max_bytes) {
-			pr_err("%pg: superblock too big: want %zu but have %llu",
-			       sb->bdev, new_bytes, max_bytes);
+			struct printbuf buf = PRINTBUF;
+
+			prt_bdevname(&buf, sb->bdev);
+			prt_printf(&buf, ": superblock too big: want %zu but have %llu", new_bytes, max_bytes);
+			pr_err("%s", buf.buf);
+			printbuf_exit(&buf);
 			return -BCH_ERR_ENOSPC_sb;
 		}
 	}
@@ -1095,8 +1079,10 @@ void __bch2_check_set_feature(struct bch_fs *c, unsigned feat)
 }
 
 /* Downgrade if superblock is at a higher version than currently supported: */
-void bch2_sb_maybe_downgrade(struct bch_fs *c)
+bool bch2_check_version_downgrade(struct bch_fs *c)
 {
+	bool ret = bcachefs_metadata_version_current < c->sb.version;
+
 	lockdep_assert_held(&c->sb_lock);
 
 	/*
@@ -1110,6 +1096,7 @@ void bch2_sb_maybe_downgrade(struct bch_fs *c)
 	if (c->sb.version_min > bcachefs_metadata_version_current)
 		c->disk_sb.sb->version_min = cpu_to_le16(bcachefs_metadata_version_current);
 	c->disk_sb.sb->compat[0] &= cpu_to_le64((1ULL << BCH_COMPAT_NR) - 1);
+	return ret;
 }
 
 void bch2_sb_upgrade(struct bch_fs *c, unsigned new_version)
@@ -1200,14 +1187,23 @@ static int bch2_sb_field_validate(struct bch_sb *sb, struct bch_sb_field *f,
 	return ret;
 }
 
-void bch2_sb_field_to_text(struct printbuf *out, struct bch_sb *sb,
-			   struct bch_sb_field *f)
+void __bch2_sb_field_to_text(struct printbuf *out, struct bch_sb *sb,
+			     struct bch_sb_field *f)
 {
 	unsigned type = le32_to_cpu(f->type);
 	const struct bch_sb_field_ops *ops = bch2_sb_field_type_ops(type);
 
 	if (!out->nr_tabstops)
 		printbuf_tabstop_push(out, 32);
+
+	if (ops->to_text)
+		ops->to_text(out, sb, f);
+}
+
+void bch2_sb_field_to_text(struct printbuf *out, struct bch_sb *sb,
+			   struct bch_sb_field *f)
+{
+	unsigned type = le32_to_cpu(f->type);
 
 	if (type < BCH_SB_FIELD_NR)
 		prt_printf(out, "%s", bch2_sb_fields[type]);
@@ -1217,11 +1213,7 @@ void bch2_sb_field_to_text(struct printbuf *out, struct bch_sb *sb,
 	prt_printf(out, " (size %zu):", vstruct_bytes(f));
 	prt_newline(out);
 
-	if (ops->to_text) {
-		printbuf_indent_add(out, 2);
-		ops->to_text(out, sb, f);
-		printbuf_indent_sub(out, 2);
-	}
+	__bch2_sb_field_to_text(out, sb, f);
 }
 
 void bch2_sb_layout_to_text(struct printbuf *out, struct bch_sb_layout *l)

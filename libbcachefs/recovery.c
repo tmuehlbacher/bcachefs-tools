@@ -575,7 +575,7 @@ u64 bch2_recovery_passes_from_stable(u64 v)
 	return ret;
 }
 
-static u64 check_version_upgrade(struct bch_fs *c)
+static bool check_version_upgrade(struct bch_fs *c)
 {
 	unsigned latest_compatible = bch2_latest_compatible_version(c->sb.version);
 	unsigned latest_version	= bcachefs_metadata_version_current;
@@ -624,10 +624,15 @@ static u64 check_version_upgrade(struct bch_fs *c)
 		bch2_version_to_text(&buf, new_version);
 		prt_newline(&buf);
 
-		u64 recovery_passes = bch2_upgrade_recovery_passes(c, old_version, new_version);
-		if (recovery_passes) {
+		struct bch_sb_field_ext *ext = bch2_sb_field_get(c->disk_sb.sb, ext);
+		__le64 passes = ext->recovery_passes_required[0];
+		bch2_sb_set_upgrade(c, old_version, new_version);
+		passes = ext->recovery_passes_required[0] & ~passes;
+
+		if (passes) {
 			prt_str(&buf, "  running recovery passes: ");
-			prt_bitflags(&buf, bch2_recovery_passes, recovery_passes);
+			prt_bitflags(&buf, bch2_recovery_passes,
+				     bch2_recovery_passes_from_stable(le64_to_cpu(passes)));
 		}
 
 		bch_info(c, "%s", buf.buf);
@@ -635,10 +640,6 @@ static u64 check_version_upgrade(struct bch_fs *c)
 		bch2_sb_upgrade(c, new_version);
 
 		printbuf_exit(&buf);
-
-		struct bch_sb_field_ext *ext = bch2_sb_field_get(c->disk_sb.sb, ext);
-		ext->recovery_passes_required[0] |=
-			cpu_to_le64(bch2_recovery_passes_to_stable(recovery_passes));
 		return true;
 	}
 
@@ -795,23 +796,17 @@ int bch2_fs_recovery(struct bch_fs *c)
 			prt_bitflags(&buf, bch2_recovery_passes, sb_passes);
 			bch_info(c, "%s", buf.buf);
 			printbuf_exit(&buf);
-			c->recovery_passes_explicit |= sb_passes;
 		}
 
-		if (bcachefs_metadata_version_current < c->sb.version) {
+		if (bch2_check_version_downgrade(c)) {
 			struct printbuf buf = PRINTBUF;
 
 			prt_str(&buf, "Version downgrade required:\n");
 
-			u64 passes = ext->recovery_passes_required[0];
-			ret = bch2_sb_set_downgrade(c,
+			__le64 passes = ext->recovery_passes_required[0];
+			bch2_sb_set_downgrade(c,
 					BCH_VERSION_MINOR(bcachefs_metadata_version_current),
 					BCH_VERSION_MINOR(c->sb.version));
-			if (ret) {
-				mutex_unlock(&c->sb_lock);
-				goto err;
-			}
-
 			passes = ext->recovery_passes_required[0] & ~passes;
 			if (passes) {
 				prt_str(&buf, "  running recovery passes: ");
@@ -821,8 +816,6 @@ int bch2_fs_recovery(struct bch_fs *c)
 
 			bch_info(c, "%s", buf.buf);
 			printbuf_exit(&buf);
-
-			bch2_sb_maybe_downgrade(c);
 			write_sb = true;
 		}
 
@@ -838,6 +831,9 @@ int bch2_fs_recovery(struct bch_fs *c)
 
 	if (c->opts.fsck && IS_ENABLED(CONFIG_BCACHEFS_DEBUG))
 		c->recovery_passes_explicit |= BIT_ULL(BCH_RECOVERY_PASS_check_topology);
+
+	if (c->opts.fsck)
+		set_bit(BCH_FS_fsck_running, &c->flags);
 
 	ret = bch2_blacklist_table_initialize(c);
 	if (ret) {
@@ -979,6 +975,8 @@ use_clean:
 	if (ret)
 		goto err;
 
+	clear_bit(BCH_FS_fsck_running, &c->flags);
+
 	/* If we fixed errors, verify that fs is actually clean now: */
 	if (IS_ENABLED(CONFIG_BCACHEFS_DEBUG) &&
 	    test_bit(BCH_FS_errors_fixed, &c->flags) &&
@@ -1073,7 +1071,6 @@ use_clean:
 
 	ret = 0;
 out:
-	set_bit(BCH_FS_fsck_done, &c->flags);
 	bch2_flush_fsck_errs(c);
 
 	if (!c->opts.keep_journal &&
@@ -1109,7 +1106,7 @@ int bch2_fs_initialize(struct bch_fs *c)
 	c->disk_sb.sb->compat[0] |= cpu_to_le64(1ULL << BCH_COMPAT_extents_above_btree_updates_done);
 	c->disk_sb.sb->compat[0] |= cpu_to_le64(1ULL << BCH_COMPAT_bformat_overflow_done);
 
-	bch2_sb_maybe_downgrade(c);
+	bch2_check_version_downgrade(c);
 
 	if (c->opts.version_upgrade != BCH_VERSION_UPGRADE_none) {
 		bch2_sb_upgrade(c, bcachefs_metadata_version_current);
@@ -1120,7 +1117,6 @@ int bch2_fs_initialize(struct bch_fs *c)
 
 	c->curr_recovery_pass = ARRAY_SIZE(recovery_pass_fns);
 	set_bit(BCH_FS_may_go_rw, &c->flags);
-	set_bit(BCH_FS_fsck_done, &c->flags);
 
 	for (unsigned i = 0; i < BTREE_ID_NR; i++)
 		bch2_btree_root_alloc(c, i);

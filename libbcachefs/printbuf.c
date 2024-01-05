@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LGPL-2.1+
 /* Copyright (C) 2022 Kent Overstreet */
 
-#include <linux/err.h>
 #include <linux/bitmap.h>
+#include <linux/err.h>
 #include <linux/export.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>

@@ -88,14 +88,11 @@ const char * const bch2_fs_flag_strs[] = {
 
 void __bch2_print(struct bch_fs *c, const char *fmt, ...)
 {
-	struct log_output *output = c->output;
+	struct stdio_redirect *stdio = bch2_fs_stdio_redirect(c);
+
 	va_list args;
-
-	if (c->output_filter && c->output_filter != current)
-		output = NULL;
-
 	va_start(args, fmt);
-	if (likely(!output)) {
+	if (likely(!stdio)) {
 		vprintk(fmt, args);
 	} else {
 		unsigned long flags;
@@ -103,11 +100,11 @@ void __bch2_print(struct bch_fs *c, const char *fmt, ...)
 		if (fmt[0] == KERN_SOH[0])
 			fmt += 2;
 
-		spin_lock_irqsave(&output->lock, flags);
-		prt_vprintf(&output->buf, fmt, args);
-		spin_unlock_irqrestore(&output->lock, flags);
+		spin_lock_irqsave(&stdio->output_lock, flags);
+		prt_vprintf(&stdio->output_buf, fmt, args);
+		spin_unlock_irqrestore(&stdio->output_lock, flags);
 
-		wake_up(&output->wait);
+		wake_up(&stdio->output_wait);
 	}
 	va_end(args);
 }
@@ -724,7 +721,7 @@ static struct bch_fs *bch2_fs_alloc(struct bch_sb *sb, struct bch_opts opts)
 		goto out;
 	}
 
-	c->output = (void *)(unsigned long) opts.log_output;
+	c->stdio = (void *)(unsigned long) opts.stdio;
 
 	__module_get(THIS_MODULE);
 
@@ -871,7 +868,7 @@ static struct bch_fs *bch2_fs_alloc(struct bch_sb *sb, struct bch_opts opts)
 	    !(c->copygc_wq = alloc_workqueue("bcachefs_copygc",
 				WQ_FREEZABLE|WQ_MEM_RECLAIM|WQ_CPU_INTENSIVE, 1)) ||
 	    !(c->io_complete_wq = alloc_workqueue("bcachefs_io",
-				WQ_FREEZABLE|WQ_HIGHPRI|WQ_MEM_RECLAIM, 1)) ||
+				WQ_FREEZABLE|WQ_HIGHPRI|WQ_MEM_RECLAIM, 512)) ||
 	    !(c->write_ref_wq = alloc_workqueue("bcachefs_write_ref",
 				WQ_FREEZABLE, 0)) ||
 #ifndef BCH_WRITE_REF_DEBUG
@@ -1086,17 +1083,22 @@ static int bch2_dev_in_fs(struct bch_sb_handle *fs,
 	    fs->sb->write_time != sb->sb->write_time) {
 		struct printbuf buf = PRINTBUF;
 
-		prt_printf(&buf, "Split brain detected between %pg and %pg:",
-			   sb->bdev, fs->bdev);
+		prt_str(&buf, "Split brain detected between ");
+		prt_bdevname(&buf, sb->bdev);
+		prt_str(&buf, " and ");
+		prt_bdevname(&buf, fs->bdev);
+		prt_char(&buf, ':');
 		prt_newline(&buf);
 		prt_printf(&buf, "seq=%llu but write_time different, got", le64_to_cpu(sb->sb->seq));
 		prt_newline(&buf);
 
-		prt_printf(&buf, "%pg ", fs->bdev);
+		prt_bdevname(&buf, fs->bdev);
+		prt_char(&buf, ' ');
 		bch2_prt_datetime(&buf, le64_to_cpu(fs->sb->write_time));;
 		prt_newline(&buf);
 
-		prt_printf(&buf, "%pg ", sb->bdev);
+		prt_bdevname(&buf, sb->bdev);
+		prt_char(&buf, ' ');
 		bch2_prt_datetime(&buf, le64_to_cpu(sb->sb->write_time));;
 		prt_newline(&buf);
 
@@ -1112,13 +1114,26 @@ static int bch2_dev_in_fs(struct bch_sb_handle *fs,
 	u64 seq_from_member	= le64_to_cpu(sb->sb->seq);
 
 	if (seq_from_fs && seq_from_fs < seq_from_member) {
-		pr_err("Split brain detected between %pg and %pg:\n"
-		       "%pg believes seq of %pg to be %llu, but %pg has %llu\n"
-		       "Not using %pg",
-		       sb->bdev, fs->bdev,
-		       fs->bdev, sb->bdev, seq_from_fs,
-		       sb->bdev, seq_from_member,
-		       sb->bdev);
+		struct printbuf buf = PRINTBUF;
+
+		prt_str(&buf, "Split brain detected between ");
+		prt_bdevname(&buf, sb->bdev);
+		prt_str(&buf, " and ");
+		prt_bdevname(&buf, fs->bdev);
+		prt_char(&buf, ':');
+		prt_newline(&buf);
+
+		prt_bdevname(&buf, fs->bdev);
+		prt_str(&buf, "believes seq of ");
+		prt_bdevname(&buf, sb->bdev);
+		prt_printf(&buf, " to be %llu, but ", seq_from_fs);
+		prt_bdevname(&buf, sb->bdev);
+		prt_printf(&buf, " has %llu\n", seq_from_member);
+		prt_str(&buf, "Not using ");
+		prt_bdevname(&buf, sb->bdev);
+
+		pr_err("%s", buf.buf);
+		printbuf_exit(&buf);
 		return -BCH_ERR_device_splitbrain;
 	}
 
@@ -1367,9 +1382,14 @@ static int bch2_dev_attach_bdev(struct bch_fs *c, struct bch_sb_handle *sb)
 
 	bch2_dev_sysfs_online(c, ca);
 
+	struct printbuf name = PRINTBUF;
+	prt_bdevname(&name, ca->disk_sb.bdev);
+
 	if (c->sb.nr_devices == 1)
-		snprintf(c->name, sizeof(c->name), "%pg", ca->disk_sb.bdev);
-	snprintf(ca->name, sizeof(ca->name), "%pg", ca->disk_sb.bdev);
+		strlcpy(c->name, name.buf, sizeof(c->name));
+	strlcpy(ca->name, name.buf, sizeof(ca->name));
+
+	printbuf_exit(&name);
 
 	rebalance_wakeup(c);
 	return 0;
