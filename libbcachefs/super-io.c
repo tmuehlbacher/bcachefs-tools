@@ -612,7 +612,6 @@ int bch2_sb_from_fs(struct bch_fs *c, struct bch_dev *ca)
 
 static int read_one_super(struct bch_sb_handle *sb, u64 offset, struct printbuf *err)
 {
-	struct bch_csum csum;
 	size_t bytes;
 	int ret;
 reread:
@@ -628,7 +627,9 @@ reread:
 
 	if (!uuid_equal(&sb->sb->magic, &BCACHE_MAGIC) &&
 	    !uuid_equal(&sb->sb->magic, &BCHFS_MAGIC)) {
-		prt_printf(err, "Not a bcachefs superblock");
+		prt_str(err, "Not a bcachefs superblock (got magic ");
+		pr_uuid(err, sb->sb->magic.b);
+		prt_str(err, ")");
 		return -BCH_ERR_invalid_sb_magic;
 	}
 
@@ -651,17 +652,16 @@ reread:
 		goto reread;
 	}
 
-	if (BCH_SB_CSUM_TYPE(sb->sb) >= BCH_CSUM_NR) {
+	enum bch_csum_type csum_type = BCH_SB_CSUM_TYPE(sb->sb);
+	if (csum_type >= BCH_CSUM_NR) {
 		prt_printf(err, "unknown checksum type %llu", BCH_SB_CSUM_TYPE(sb->sb));
 		return -BCH_ERR_invalid_sb_csum_type;
 	}
 
 	/* XXX: verify MACs */
-	csum = csum_vstruct(NULL, BCH_SB_CSUM_TYPE(sb->sb),
-			    null_nonce(), sb->sb);
-
+	struct bch_csum csum = csum_vstruct(NULL, csum_type, null_nonce(), sb->sb);
 	if (bch2_crc_cmp(csum, sb->sb->csum)) {
-		prt_printf(err, "bad checksum");
+		bch2_csum_err_msg(err, csum_type, sb->sb->csum, csum);
 		return -BCH_ERR_invalid_sb_csum;
 	}
 
@@ -1088,13 +1088,22 @@ bool bch2_check_version_downgrade(struct bch_fs *c)
 	/*
 	 * Downgrade, if superblock is at a higher version than currently
 	 * supported:
+	 *
+	 * c->sb will be checked before we write the superblock, so update it as
+	 * well:
 	 */
-	if (BCH_SB_VERSION_UPGRADE_COMPLETE(c->disk_sb.sb) > bcachefs_metadata_version_current)
+	if (BCH_SB_VERSION_UPGRADE_COMPLETE(c->disk_sb.sb) > bcachefs_metadata_version_current) {
 		SET_BCH_SB_VERSION_UPGRADE_COMPLETE(c->disk_sb.sb, bcachefs_metadata_version_current);
-	if (c->sb.version > bcachefs_metadata_version_current)
+		c->sb.version_upgrade_complete = bcachefs_metadata_version_current;
+	}
+	if (c->sb.version > bcachefs_metadata_version_current) {
 		c->disk_sb.sb->version = cpu_to_le16(bcachefs_metadata_version_current);
-	if (c->sb.version_min > bcachefs_metadata_version_current)
+		c->sb.version = bcachefs_metadata_version_current;
+	}
+	if (c->sb.version_min > bcachefs_metadata_version_current) {
 		c->disk_sb.sb->version_min = cpu_to_le16(bcachefs_metadata_version_current);
+		c->sb.version_min = bcachefs_metadata_version_current;
+	}
 	c->disk_sb.sb->compat[0] &= cpu_to_le64((1ULL << BCH_COMPAT_NR) - 1);
 	return ret;
 }
@@ -1259,6 +1268,11 @@ void bch2_sb_to_text(struct printbuf *out, struct bch_sb *sb,
 	prt_printf(out, "Internal UUID:");
 	prt_tab(out);
 	pr_uuid(out, sb->uuid.b);
+	prt_newline(out);
+
+	prt_printf(out, "Magic number:");
+	prt_tab(out);
+	pr_uuid(out, sb->magic.b);
 	prt_newline(out);
 
 	prt_str(out, "Device index:");
