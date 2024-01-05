@@ -34,6 +34,7 @@ static void usage(void)
 	     "  format                   Format a new filesystem\n"
 	     "  show-super               Dump superblock information to stdout\n"
 	     "  set-option               Set a filesystem option\n"
+	     "  reset-counters           Reset all counters on an unmounted device\n"
 	     "\n"
 #ifndef BCACHEFS_NO_RUST
 	     "Mount:\n"
@@ -236,6 +237,8 @@ int main(int argc, char *argv[])
 		return cmd_show_super(argc, argv);
 	if (!strcmp(cmd, "set-option"))
 		return cmd_set_option(argc, argv);
+	if (!strcmp(cmd, "reset-counters"))
+		return cmd_reset_counters(argc, argv);
 
 #if 0
 	if (!strcmp(cmd, "assemble"))
