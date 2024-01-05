@@ -305,6 +305,7 @@ static void show_super_usage(void)
 	     "\n"
 	     "Options:\n"
 	     "  -f, --fields=(fields)       list of sections to print\n"
+	     "      --field-only=fiel)      print superblock section only, no header\n"
 	     "  -l, --layout                print superblock layout\n"
 	     "  -h, --help                  display this help and exit\n"
 	     "Report bugs to <linux-bcachefs@vger.kernel.org>");
@@ -315,11 +316,13 @@ int cmd_show_super(int argc, char *argv[])
 {
 	static const struct option longopts[] = {
 		{ "fields",			1, NULL, 'f' },
+		{ "field-only",			1, NULL, 'F' },
 		{ "layout",			0, NULL, 'l' },
 		{ "help",			0, NULL, 'h' },
 		{ NULL }
 	};
 	unsigned fields = 0;
+	int field_only = -1;
 	bool print_layout = false;
 	bool print_default_fields = true;
 	int opt;
@@ -330,6 +333,11 @@ int cmd_show_super(int argc, char *argv[])
 			fields = !strcmp(optarg, "all")
 				? ~0
 				: read_flag_list_or_die(optarg,
+					bch2_sb_fields, "superblock field");
+			print_default_fields = false;
+			break;
+		case 'F':
+			field_only = read_string_list_or_die(optarg,
 					bch2_sb_fields, "superblock field");
 			print_default_fields = false;
 			break;
@@ -369,7 +377,14 @@ int cmd_show_super(int argc, char *argv[])
 
 	buf.human_readable_units = true;
 
-	bch2_sb_to_text(&buf, sb.sb, print_layout, fields);
+	if (field_only >= 0) {
+		struct bch_sb_field *f = bch2_sb_field_get_id(sb.sb, field_only);
+
+		if (f)
+			__bch2_sb_field_to_text(&buf, sb.sb, f);
+	} else {
+		bch2_sb_to_text(&buf, sb.sb, print_layout, fields);
+	}
 	printf("%s", buf.buf);
 
 	bch2_free_super(&sb);
