@@ -182,4 +182,9 @@ static __always_inline void __write_once_size(volatile void *p, void *res, int s
 #define CONFIG_X86_64	y
 #endif
 
+#define __is_constexpr(x) \
+	(sizeof(int) == sizeof(*(8 ? ((void *)((long)(x) * 0l)) : (int *)8)))
+#define is_signed_type(type) (((type)(-1)) < (__force type)1)
+#define is_unsigned_type(type) (!is_signed_type(type))
+
 #endif /* _TOOLS_LINUX_COMPILER_H */
