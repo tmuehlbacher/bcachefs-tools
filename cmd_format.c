@@ -362,7 +362,7 @@ int cmd_show_super(int argc, char *argv[])
 		fields |= bch2_sb_field_get(sb.sb, members_v2)
 			? 1 << BCH_SB_FIELD_members_v2
 			: 1 << BCH_SB_FIELD_members_v1;
-		fields |= BCH_SB_FIELD_errors;
+		fields |= 1 << BCH_SB_FIELD_errors;
 	}
 
 	struct printbuf buf = PRINTBUF;
