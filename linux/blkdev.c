@@ -165,7 +165,6 @@ sector_t get_capacity(struct gendisk *disk)
 void blkdev_put(struct block_device *bdev, void *holder)
 {
 	fdatasync(bdev->bd_fd);
-	close(bdev->bd_sync_fd);
 	close(bdev->bd_fd);
 	free(bdev);
 }
@@ -174,7 +173,7 @@ struct block_device *blkdev_get_by_path(const char *path, blk_mode_t mode,
 					void *holder, const struct blk_holder_ops *hop)
 {
 	struct block_device *bdev;
-	int fd, sync_fd, buffered_fd, flags = 0;
+	int fd, buffered_fd, flags = 0;
 
 	if ((mode & (BLK_OPEN_READ|BLK_OPEN_WRITE)) == (BLK_OPEN_READ|BLK_OPEN_WRITE))
 		flags = O_RDWR;
@@ -203,15 +202,6 @@ struct block_device *blkdev_get_by_path(const char *path, blk_mode_t mode,
 		return ERR_PTR(-errno);
 	}
 
-	sync_fd	= open(path, flags|O_SYNC);
-	if (sync_fd < 0)
-		sync_fd	= open(path, (flags & ~O_DIRECT)|O_SYNC);
-	if (sync_fd < 0) {
-		close(fd);
-		close(buffered_fd);
-		return ERR_PTR(-errno);
-	}
-
 	bdev = malloc(sizeof(*bdev));
 	memset(bdev, 0, sizeof(*bdev));
 
@@ -220,7 +210,6 @@ struct block_device *blkdev_get_by_path(const char *path, blk_mode_t mode,
 
 	bdev->bd_dev		= xfstat(fd).st_rdev;
 	bdev->bd_fd		= fd;
-	bdev->bd_sync_fd	= sync_fd;
 	bdev->bd_buffered_fd	= buffered_fd;
 	bdev->bd_holder		= holder;
 	bdev->bd_disk		= &bdev->__bd_disk;
@@ -273,19 +262,16 @@ static void sync_cleanup(void)
 static void sync_read(struct bio *bio, struct iovec * iov, unsigned i)
 {
 
-	int fd = bio->bi_opf & REQ_FUA
-			? bio->bi_bdev->bd_sync_fd
-			: bio->bi_bdev->bd_fd;
-	ssize_t ret = preadv(fd, iov, i, bio->bi_iter.bi_sector << 9);
+	ssize_t ret = preadv(bio->bi_bdev->bd_fd, iov, i,
+			     bio->bi_iter.bi_sector << 9);
 	sync_check(bio, ret);
 }
 
 static void sync_write(struct bio *bio, struct iovec * iov, unsigned i)
 {
-	int fd = bio->bi_opf & REQ_FUA
-			? bio->bi_bdev->bd_sync_fd
-			: bio->bi_bdev->bd_fd;
-	ssize_t ret = pwritev(fd, iov, i, bio->bi_iter.bi_sector << 9);
+	ssize_t ret = pwritev2(bio->bi_bdev->bd_fd, iov, i,
+			       bio->bi_iter.bi_sector << 9,
+			       bio->bi_opf & REQ_FUA ? RWF_SYNC : 0);
 	sync_check(bio, ret);
 }
 
@@ -387,9 +373,8 @@ static void aio_op(struct bio *bio, struct iovec *iov, unsigned i, int opcode)
 	ssize_t ret;
 	struct iocb iocb = {
 		.data		= bio,
-		.aio_fildes	= bio->bi_opf & REQ_FUA
-			? bio->bi_bdev->bd_sync_fd
-			: bio->bi_bdev->bd_fd,
+		.aio_fildes	= bio->bi_bdev->bd_fd,
+		.aio_rw_flags	= bio->bi_opf & REQ_FUA ? RWF_SYNC : 0,
 		.aio_lio_opcode	= opcode,
 		.u.c.buf        = iov,
 		.u.c.nbytes     = i,
