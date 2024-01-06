@@ -173,7 +173,7 @@ struct block_device *blkdev_get_by_path(const char *path, blk_mode_t mode,
 					void *holder, const struct blk_holder_ops *hop)
 {
 	struct block_device *bdev;
-	int fd, buffered_fd, flags = 0;
+	int fd, flags = 0;
 
 	if ((mode & (BLK_OPEN_READ|BLK_OPEN_WRITE)) == (BLK_OPEN_READ|BLK_OPEN_WRITE))
 		flags = O_RDWR;
@@ -185,22 +185,12 @@ struct block_device *blkdev_get_by_path(const char *path, blk_mode_t mode,
 	if (!(mode & BLK_OPEN_BUFFERED))
 		flags |= O_DIRECT;
 
-#if 0
-	/* using O_EXCL doesn't work with opening twice for an O_SYNC fd: */
 	if (mode & BLK_OPEN_EXCL)
 		flags |= O_EXCL;
-#endif
-	buffered_fd = open(path, flags & ~O_DIRECT);
-	if (buffered_fd < 0)
-		return ERR_PTR(-errno);
 
 	fd = open(path, flags);
 	if (fd < 0)
-		fd = dup(buffered_fd);
-	if (fd < 0) {
-		close(buffered_fd);
 		return ERR_PTR(-errno);
-	}
 
 	bdev = malloc(sizeof(*bdev));
 	memset(bdev, 0, sizeof(*bdev));
@@ -210,7 +200,6 @@ struct block_device *blkdev_get_by_path(const char *path, blk_mode_t mode,
 
 	bdev->bd_dev		= xfstat(fd).st_rdev;
 	bdev->bd_fd		= fd;
-	bdev->bd_buffered_fd	= buffered_fd;
 	bdev->bd_holder		= holder;
 	bdev->bd_disk		= &bdev->__bd_disk;
 	bdev->bd_disk->bdi	= &bdev->bd_disk->__bdi;

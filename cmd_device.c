@@ -132,9 +132,6 @@ int cmd_device_add(int argc, char *argv[])
 					format_opts,
 					&dev_opts, 1);
 	free(sb);
-	fsync(dev_opts.bdev->bd_buffered_fd);
-	close(dev_opts.bdev->bd_buffered_fd);
-
 	bchu_disk_add(fs, dev_opts.path);
 	return 0;
 }
@@ -424,8 +421,8 @@ int cmd_device_set_state(int argc, char *argv[])
 
 		le64_add_cpu(&sb.sb->seq, 1);
 
-		bch2_super_write(sb.bdev->bd_buffered_fd, sb.sb);
-		ret = fsync(sb.bdev->bd_buffered_fd);
+		bch2_super_write(sb.bdev->bd_fd, sb.sb);
+		ret = fsync(sb.bdev->bd_fd);
 		if (ret)
 			fprintf(stderr, "error writing superblock: fsync error (%m)");
 		bch2_free_super(&sb);

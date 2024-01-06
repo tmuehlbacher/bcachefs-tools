@@ -45,7 +45,7 @@ int cmd_reset_counters(int argc, char *argv[])
 
 	bch2_sb_field_resize(&sb, counters, 0);
 
-	bch2_super_write(sb.bdev->bd_buffered_fd, sb.sb);
+	bch2_super_write(sb.bdev->bd_fd, sb.sb);
 	bch2_free_super(&sb);
 	return 0;
 }

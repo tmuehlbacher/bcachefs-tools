@@ -189,15 +189,16 @@ int open_for_format(struct dev_opts *dev, bool force)
 	const char *fs_type = NULL, *fs_label = NULL;
 	size_t fs_type_len, fs_label_len;
 
-	dev->bdev = blkdev_get_by_path(dev->path, BLK_OPEN_READ|BLK_OPEN_WRITE|BLK_OPEN_EXCL,
-				       dev, NULL);
+	dev->bdev = blkdev_get_by_path(dev->path,
+				BLK_OPEN_READ|BLK_OPEN_WRITE|BLK_OPEN_EXCL|BLK_OPEN_BUFFERED,
+				dev, NULL);
 	int ret = PTR_ERR_OR_ZERO(dev->bdev);
 	if (ret < 0)
 		die("Error opening device to format %s: %s", dev->path, strerror(-ret));
 
 	if (!(pr = blkid_new_probe()))
 		die("blkid error 1");
-	if (blkid_probe_set_device(pr, dev->bdev->bd_buffered_fd, 0, 0))
+	if (blkid_probe_set_device(pr, dev->bdev->bd_fd, 0, 0))
 		die("blkid error 2");
 	if (blkid_probe_enable_partitions(pr, true) ||
 	    blkid_probe_enable_superblocks(pr, true) ||

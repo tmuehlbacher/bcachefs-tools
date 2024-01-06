@@ -678,13 +678,13 @@ static int migrate_fs(const char		*fs_path,
 	dev.path = dev_t_to_path(stat.st_dev);
 	dev.bdev = blkdev_get_by_path(dev.path, BLK_OPEN_READ|BLK_OPEN_WRITE, &dev, NULL);
 
-	opt_set(fs_opts, block_size, get_blocksize(dev.bdev->bd_buffered_fd));
+	opt_set(fs_opts, block_size, get_blocksize(dev.bdev->bd_fd));
 
 	char *file_path = mprintf("%s/bcachefs", fs_path);
 	printf("Creating new filesystem on %s in space reserved at %s\n",
 	       dev.path, file_path);
 
-	dev.size	= get_size(dev.bdev->bd_buffered_fd);
+	dev.size	= get_size(dev.bdev->bd_fd);
 	dev.bucket_size = bch2_pick_bucket_size(fs_opts, &dev);
 	dev.nbuckets	= dev.size / dev.bucket_size;
 
@@ -693,7 +693,7 @@ static int migrate_fs(const char		*fs_path,
 	u64 bcachefs_inum;
 	ranges extents = reserve_new_fs_space(file_path,
 				fs_opts.block_size >> 9,
-				get_size(dev.bdev->bd_buffered_fd) / 5,
+				get_size(dev.bdev->bd_fd) / 5,
 				&bcachefs_inum, stat.st_dev, force);
 
 	find_superblock_space(extents, format_opts, &dev);

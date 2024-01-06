@@ -156,7 +156,7 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 	u64 min_bucket_size = U64_MAX;
 
 	for (i = devs; i < devs + nr_devs; i++)
-		max_dev_block_size = max(max_dev_block_size, get_blocksize(i->bdev->bd_buffered_fd));
+		max_dev_block_size = max(max_dev_block_size, get_blocksize(i->bdev->bd_fd));
 
 	/* calculate block size: */
 	if (!opt_defined(fs_opts, block_size)) {
@@ -168,7 +168,7 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 	/* get device size, if it wasn't specified: */
 	for (i = devs; i < devs + nr_devs; i++)
 		if (!i->size)
-			i->size = get_size(i->bdev->bd_buffered_fd);
+			i->size = get_size(i->bdev->bd_fd);
 
 	/* calculate bucket sizes: */
 	for (i = devs; i < devs + nr_devs; i++)
@@ -328,12 +328,12 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 			/* Zero start of disk */
 			static const char zeroes[BCH_SB_SECTOR << 9];
 
-			xpwrite(i->bdev->bd_buffered_fd, zeroes, BCH_SB_SECTOR << 9, 0,
+			xpwrite(i->bdev->bd_fd, zeroes, BCH_SB_SECTOR << 9, 0,
 				"zeroing start of disk");
 		}
 
-		bch2_super_write(i->bdev->bd_buffered_fd, sb.sb);
-		close(i->bdev->bd_buffered_fd);
+		bch2_super_write(i->bdev->bd_fd, sb.sb);
+		close(i->bdev->bd_fd);
 	}
 
 	return sb.sb;
