@@ -2,6 +2,7 @@ use clap::Subcommand;
 
 pub mod key;
 pub mod logger;
+pub mod cmd_main;
 pub mod cmd_mount;
 pub mod cmd_list;
 pub mod cmd_completions;

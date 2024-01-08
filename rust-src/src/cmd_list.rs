@@ -9,8 +9,7 @@ use bch_bindgen::btree::BtreeIter;
 use bch_bindgen::btree::BtreeNodeIter;
 use bch_bindgen::btree::BtreeIterFlags;
 use clap::{Parser};
-use std::ffi::{c_int, c_char};
-use crate::transform_c_args;
+use std::ffi::{c_int, OsStr};
 
 fn list_keys(fs: &Fs, opt: Cli) -> anyhow::Result<()> {
     let trans = BtreeTrans::new(fs);
@@ -158,13 +157,13 @@ fn cmd_list_inner(opt: Cli) -> anyhow::Result<()> {
     }
 }
 
-#[no_mangle]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn cmd_list(argc: c_int, argv: *const *const c_char) {
-    transform_c_args!(argv, argc, argv);
+pub fn cmd_list(argv: Vec<&OsStr>) -> c_int {
     let opt = Cli::parse_from(argv);
     colored::control::set_override(opt.colorize);
     if let Err(e) = cmd_list_inner(opt) {
         error!("Fatal error: {}", e);
+        1
+    } else {
+        0
     }
 }

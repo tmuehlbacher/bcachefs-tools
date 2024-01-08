@@ -4,10 +4,9 @@ use log::{info, debug, error, LevelFilter};
 use clap::{Parser};
 use uuid::Uuid;
 use std::path::PathBuf;
-use crate::{key, transform_c_args};
+use crate::key;
 use crate::key::KeyLocation;
-use crate::logger::SimpleLogger;
-use std::ffi::{CString, c_int, c_char, c_void};
+use std::ffi::{CString, c_int, c_char, c_void, OsStr};
 use std::os::unix::ffi::OsStrExt;
 
 fn mount_inner(
@@ -222,13 +221,8 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[no_mangle]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn cmd_mount(argc: c_int, argv: *const *const c_char) -> c_int {
-    transform_c_args!(argv, argc, argv);
+pub fn cmd_mount(argv: Vec<&OsStr>) -> c_int {
     let opt = Cli::parse_from(argv);
-
-    log::set_boxed_logger(Box::new(SimpleLogger)).unwrap();
 
     // @TODO : more granular log levels via mount option
     log::set_max_level(match opt.verbose {

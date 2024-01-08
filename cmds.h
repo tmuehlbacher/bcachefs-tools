@@ -37,7 +37,6 @@ int cmd_remove_passphrase(int argc, char *argv[]);
 int cmd_fsck(int argc, char *argv[]);
 
 int cmd_dump(int argc, char *argv[]);
-int cmd_list(int argc, char *argv[]);
 int cmd_list_journal(int argc, char *argv[]);
 int cmd_kill_btree_node(int argc, char *argv[]);
 
@@ -54,7 +53,7 @@ int cmd_subvolume_delete(int argc, char *argv[]);
 int cmd_subvolume_snapshot(int argc, char *argv[]);
 
 int cmd_fusemount(int argc, char *argv[]);
-int cmd_mount(int argc, char *argv[]);
-int cmd_completions(int argc, char *argv[]);
+
+int rust_main(int argc, char *argv[], char *cmd);
 
 #endif /* _CMDS_H */

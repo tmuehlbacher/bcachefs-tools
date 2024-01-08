@@ -207,7 +207,7 @@ int main(int argc, char *argv[])
 
 #ifndef BCACHEFS_NO_RUST
 	if (strstr(full_cmd, "mount"))
-		return cmd_mount(argc, argv);
+		return rust_main(argc, argv, "mount");
 #endif
 
 	setvbuf(stdout, NULL, _IOLBF, 0);
@@ -265,10 +265,6 @@ int main(int argc, char *argv[])
 
 	if (!strcmp(cmd, "dump"))
 		return cmd_dump(argc, argv);
-#ifndef BCACHEFS_NO_RUST
-	if (!strcmp(cmd, "list"))
-		return cmd_list(argc, argv);
-#endif
 	if (!strcmp(cmd, "list_journal"))
 		return cmd_list_journal(argc, argv);
 	if (!strcmp(cmd, "kill_btree_node"))
@@ -277,10 +273,10 @@ int main(int argc, char *argv[])
 	if (!strcmp(cmd, "setattr"))
 		return cmd_setattr(argc, argv);
 #ifndef BCACHEFS_NO_RUST
-	if (!strcmp(cmd, "mount"))
-		return cmd_mount(argc, argv);
-    if (strstr(cmd, "completions"))
-        return cmd_completions(argc, argv);
+	if (!strcmp(cmd, "list") ||
+	    !strcmp(cmd, "mount") ||
+	    !strcmp(cmd, "completions"))
+		return rust_main(argc, argv, cmd);
 #endif
 
 #ifdef BCACHEFS_FUSE
