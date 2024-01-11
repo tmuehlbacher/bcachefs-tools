@@ -342,6 +342,7 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 void bch2_super_write(int fd, struct bch_sb *sb)
 {
 	struct nonce nonce = { 0 };
+	unsigned bs = get_blocksize(fd);
 
 	unsigned i;
 	for (i = 0; i < sb->layout.nr_superblocks; i++) {
@@ -349,13 +350,22 @@ void bch2_super_write(int fd, struct bch_sb *sb)
 
 		if (sb->offset == BCH_SB_SECTOR) {
 			/* Write backup layout */
-			xpwrite(fd, &sb->layout, sizeof(sb->layout),
-				BCH_SB_LAYOUT_SECTOR << 9,
+
+			BUG_ON(bs > 4096);
+
+			char *buf = aligned_alloc(bs, bs);
+			xpread(fd, buf, bs, 4096 - bs);
+			memcpy(buf + bs - sizeof(sb->layout),
+			       &sb->layout,
+			       sizeof(sb->layout));
+			xpwrite(fd, buf, bs, 4096 - bs,
 				"backup layout");
+			free(buf);
+
 		}
 
 		sb->csum = csum_vstruct(NULL, BCH_SB_CSUM_TYPE(sb), nonce, sb);
-		xpwrite(fd, sb, vstruct_bytes(sb),
+		xpwrite(fd, sb, round_up(vstruct_bytes(sb), bs),
 			le64_to_cpu(sb->offset) << 9,
 			"superblock");
 	}
