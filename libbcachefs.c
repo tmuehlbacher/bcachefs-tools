@@ -48,7 +48,7 @@ static void init_layout(struct bch_sb_layout *l,
 	/* Create two superblocks in the allowed range: */
 	for (i = 0; i < l->nr_superblocks; i++) {
 		if (sb_pos != BCH_SB_SECTOR)
-			sb_pos = round_up(sb_pos, block_size);
+			sb_pos = round_up(sb_pos, block_size >> 9);
 
 		l->sb_offset[i] = cpu_to_le64(sb_pos);
 		sb_pos += sb_size;
