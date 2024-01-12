@@ -699,7 +699,7 @@ static int migrate_fs(const char		*fs_path,
 	find_superblock_space(extents, format_opts, &dev);
 
 	struct bch_sb *sb = bch2_format(fs_opt_strs,
-					fs_opts,format_opts, &dev, 1);
+					fs_opts, format_opts, &dev, 1);
 	u64 sb_offset = le64_to_cpu(sb->layout.sb_offset[0]);
 
 	if (format_opts.passphrase)
@@ -733,6 +733,7 @@ static int migrate_fs(const char		*fs_path,
 	printf("Migrate complete, running fsck:\n");
 	opt_set(opts, nostart,	false);
 	opt_set(opts, nochanges, true);
+	opt_set(opts, read_only, true);
 
 	c = bch2_fs_open(path, 1, opts);
 	if (IS_ERR(c))
