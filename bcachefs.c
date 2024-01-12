@@ -104,16 +104,14 @@ static void usage(void)
 	     "  version                  Display the version of the invoked bcachefs tool\n");
 }
 
-static char *full_cmd;
-
 static char *pop_cmd(int *argc, char *argv[])
 {
 	char *cmd = argv[1];
 	if (!(*argc < 2))
-		memmove(&argv[1], &argv[2], *argc * sizeof(argv[0]));
+		memmove(&argv[1], &argv[2], (*argc - 2) * sizeof(argv[0]));
 	(*argc)--;
+	argv[*argc] = NULL;
 
-	full_cmd = mprintf("%s %s", full_cmd, cmd);
 	return cmd;
 }
 
@@ -190,7 +188,7 @@ int main(int argc, char *argv[])
 {
 	raid_init();
 
-	full_cmd = argv[0];
+	char *full_cmd = argv[0];
 
 	/* Are we being called via a symlink? */
 
