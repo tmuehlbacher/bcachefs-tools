@@ -16,6 +16,11 @@ static void propagate_recurse(int dirfd)
 	DIR *dir = fdopendir(dirfd);
 	struct dirent *d;
 
+	if (!dir) {
+		fprintf(stderr, "fdopendir() error: %m\n");
+		return;
+	}
+
 	while ((errno = 0), (d = readdir(dir))) {
 		if (!strcmp(d->d_name, ".") ||
 		    !strcmp(d->d_name, ".."))
