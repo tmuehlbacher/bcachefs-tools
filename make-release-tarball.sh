@@ -7,7 +7,7 @@ version=$1
 git checkout v$version
 git clean -xfd
 
-(cd rust-src; cargo license) > COPYING.rust-dependencies
+cargo license > COPYING.rust-dependencies
 
 git ls-files|
     tar --create --file bcachefs-tools-$version.tar -T -	\
@@ -28,7 +28,7 @@ scp bcachefs-tools-$version.tar.zst	evilpiepirate.org:/var/www/htdocs/bcachefs-t
 scp bcachefs-tools-$version.tar.asc	evilpiepirate.org:/var/www/htdocs/bcachefs-tools/
 scp bcachefs-tools-$version.tar.sign	evilpiepirate.org:/var/www/htdocs/bcachefs-tools/
 
-cargo vendor --manifest-path rust-src/Cargo.toml
+cargo vendor
 
 mkdir .cargo
 cat > .cargo/config.toml <<-ZZ

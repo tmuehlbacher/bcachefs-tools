@@ -78,7 +78,7 @@ jobs:
               uuid-dev zlib1g-dev valgrind libudev-dev python3-docutils libclang-dev
       - name: Extract MSRV
         run: |
-          MSRV=$(cargo metadata --format-version 1 --no-deps --manifest-path rust-src/Cargo.toml |
+          MSRV=$(cargo metadata --format-version 1 --no-deps |
                   jq -r '.packages[] | select(.name == "bcachefs-tools") | .rust_version')
           echo "MSRV=$MSRV" >> $GITHUB_ENV
       - name: Install Rust ${{ env.MSRV }} toolchain

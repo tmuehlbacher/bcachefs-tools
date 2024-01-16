@@ -30,7 +30,7 @@ CFLAGS+=-std=gnu11 -O2 -g -MMD -Wall -fPIC			\
 	-Wno-deprecated-declarations				\
 	-fno-strict-aliasing					\
 	-fno-delete-null-pointer-checks				\
-	-I. -Iinclude -Iraid					\
+	-Ic_src -Ic_src/include					\
 	-D_FILE_OFFSET_BITS=64					\
 	-D_GNU_SOURCE						\
 	-D_LGPL_SOURCE						\
@@ -55,12 +55,11 @@ CARGO_ARGS=${CARGO_TOOLCHAIN}
 CARGO=cargo $(CARGO_ARGS)
 CARGO_PROFILE=release
 # CARGO_PROFILE=debug
-CARGO_MANIFEST=--manifest-path rust-src/Cargo.toml
 
 CARGO_BUILD_ARGS=--$(CARGO_PROFILE)
-CARGO_BUILD=$(CARGO) build $(CARGO_BUILD_ARGS) $(CARGO_MANIFEST)
+CARGO_BUILD=$(CARGO) build $(CARGO_BUILD_ARGS)
 
-CARGO_CLEAN=$(CARGO) clean $(CARGO_CLEAN_ARGS) $(CARGO_MANIFEST)
+CARGO_CLEAN=$(CARGO) clean $(CARGO_CLEAN_ARGS)
 
 include Makefile.compiler
 
@@ -172,13 +171,13 @@ OBJS:=$(SRCS:.c=.o)
 	@echo "    [CC]     $@"
 	$(Q)$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
-BCACHEFS_DEPS=libbcachefs.a
-RUST_SRCS:=$(shell find rust-src/src rust-src/bch_bindgen/src -type f -iname '*.rs')
+BCACHEFS_DEPS=c_src/libbcachefs.a
+RUST_SRCS:=$(shell find src bch_bindgen/src -type f -iname '*.rs')
 
 bcachefs: $(BCACHEFS_DEPS) $(RUST_SRCS)
-	$(CARGO_BUILD)
+	$(Q)$(CARGO_BUILD)
 
-libbcachefs.a: $(filter-out ./tests/%.o, $(OBJS))
+c_src/libbcachefs.a: $(filter-out ./tests/%.o, $(OBJS))
 	@echo "    [AR]     $@"
 	$(Q)ar -rc $@ $+
 
@@ -201,7 +200,7 @@ cmd_version.o : .version
 install: INITRAMFS_HOOK=$(INITRAMFS_DIR)/hooks/bcachefs
 install: INITRAMFS_SCRIPT=$(INITRAMFS_DIR)/scripts/local-premount/bcachefs
 install: bcachefs $(optional_install)
-	$(INSTALL) -m0755 -D rust-src/target/release/bcachefs -t $(DESTDIR)$(ROOT_SBINDIR)
+	$(INSTALL) -m0755 -D target/release/bcachefs -t $(DESTDIR)$(ROOT_SBINDIR)
 	$(INSTALL) -m0644 -D bcachefs.8    -t $(DESTDIR)$(PREFIX)/share/man/man8/
 	$(INSTALL) -m0755 -D initramfs/script $(DESTDIR)$(INITRAMFS_SCRIPT)
 	$(INSTALL) -m0755 -D initramfs/hook   $(DESTDIR)$(INITRAMFS_HOOK)
@@ -224,7 +223,7 @@ install_systemd: $(systemd_services) $(systemd_libexecfiles)
 .PHONY: clean
 clean:
 	@echo "Cleaning all"
-	$(Q)$(RM) libbcachefs.a tests/test_helper .version *.tar.xz $(OBJS) $(DEPS) $(DOCGENERATED)
+	$(Q)$(RM) c_src/libbcachefs.a tests/test_helper .version *.tar.xz $(OBJS) $(DEPS) $(DOCGENERATED)
 	$(Q)$(CARGO_CLEAN)
 	$(Q)$(RM) -f $(built_scripts)
 
@@ -244,8 +243,8 @@ doc: bcachefs-principles-of-operation.pdf
 
 .PHONY: cargo-update-msrv
 cargo-update-msrv:
-	cargo +nightly generate-lockfile --manifest-path rust-src/Cargo.toml -Zmsrv-policy
-	cargo +nightly generate-lockfile --manifest-path rust-src/bch_bindgen/Cargo.toml -Zmsrv-policy
+	cargo +nightly generate-lockfile -Zmsrv-policy
+	cargo +nightly generate-lockfile --manifest-path bch_bindgen/Cargo.toml -Zmsrv-policy
 
 .PHONY: update-bcachefs-sources
 update-bcachefs-sources:

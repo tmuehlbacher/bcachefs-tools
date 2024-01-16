@@ -35,12 +35,12 @@ in stdenv.mkDerivation {
 
   BCACHEFS_FUSE = if fuseSupport then "1" else "";
 
-  cargoRoot = "rust-src";
+  cargoRoot = ".";
   # when git-based crates are updated, run:
   # nix run github:Mic92/nix-update -- --version=skip --flake default
   # to update the hashes
   cargoDeps = rustPlatform.importCargoLock {
-    lockFile = "${src}/rust-src/Cargo.lock";
+    lockFile = "${src}/Cargo.lock";
     outputHashes = {
       "bindgen-0.64.0" = "sha256-GNG8as33HLRYJGYe0nw6qBzq86aHiGonyynEM7gaEE4=";
     };

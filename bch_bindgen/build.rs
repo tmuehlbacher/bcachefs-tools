@@ -19,9 +19,8 @@ fn main() {
         .expect("ENV Var 'CARGO_MANIFEST_DIR' Expected")
         .into();
 
-    let libbcachefs_inc_dir = std::path::Path::new("../..");
+    let libbcachefs_inc_dir = std::path::Path::new("../c_src");
 
-    let _libbcachefs_dir = top_dir.join("libbcachefs").join("libbcachefs");
     let bindings = bindgen::builder()
         .header(
             top_dir
