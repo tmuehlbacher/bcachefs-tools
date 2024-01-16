@@ -1,6 +1,5 @@
 use clap::Subcommand;
 
-pub mod key;
 pub mod logger;
 pub mod cmd_mount;
 pub mod cmd_list;
@@ -30,12 +29,3 @@ macro_rules! c_str {
         }
     };
 }
-
-#[derive(Debug)]
-struct ErrnoError(errno::Errno);
-impl std::fmt::Display for ErrnoError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        self.0.fmt(f)
-    }
-}
-impl std::error::Error for ErrnoError {}

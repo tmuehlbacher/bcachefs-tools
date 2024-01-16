@@ -9,9 +9,6 @@ rust-version = "1.65"
 name = "bcachefs"
 path = "src/bcachefs.rs"
 
-[lib]
-name = "bcachefs"
-
 [dependencies]
 atty = "0.2.14"
 log = { version = "0.4", features = ["std"] }

@@ -1,10 +1,23 @@
+mod commands;
+mod key;
+
 use std::ffi::CString;
 
-use bcachefs::cmd_completions::cmd_completions;
-use bcachefs::cmd_list::cmd_list;
-use bcachefs::cmd_mount::cmd_mount;
-use bcachefs::logger::SimpleLogger;
+use commands::cmd_completions::cmd_completions;
+use commands::cmd_list::cmd_list;
+use commands::cmd_mount::cmd_mount;
+use commands::logger::SimpleLogger;
 use bch_bindgen::c;
+
+#[derive(Debug)]
+pub struct ErrnoError(pub errno::Errno);
+impl std::fmt::Display for ErrnoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        self.0.fmt(f)
+    }
+}
+
+impl std::error::Error for ErrnoError {}
 
 fn handle_c_command(args: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
     let mut argv: Vec<_> = args.clone();
