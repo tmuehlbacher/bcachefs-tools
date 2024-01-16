@@ -9,7 +9,6 @@ use bch_bindgen::btree::BtreeIter;
 use bch_bindgen::btree::BtreeNodeIter;
 use bch_bindgen::btree::BtreeIterFlags;
 use clap::{Parser};
-use std::ffi::{c_int, OsStr};
 
 fn list_keys(fs: &Fs, opt: Cli) -> anyhow::Result<()> {
     let trans = BtreeTrans::new(fs);
@@ -157,7 +156,7 @@ fn cmd_list_inner(opt: Cli) -> anyhow::Result<()> {
     }
 }
 
-pub fn cmd_list(argv: Vec<&OsStr>) -> c_int {
+pub fn cmd_list(argv: Vec<String>) -> i32 {
     let opt = Cli::parse_from(argv);
     colored::control::set_override(opt.colorize);
     if let Err(e) = cmd_list_inner(opt) {

@@ -6,7 +6,7 @@ use uuid::Uuid;
 use std::path::PathBuf;
 use crate::key;
 use crate::key::KeyLocation;
-use std::ffi::{CString, c_int, c_char, c_void, OsStr};
+use std::ffi::{CString, c_char, c_void};
 use std::os::unix::ffi::OsStrExt;
 
 fn mount_inner(
@@ -223,7 +223,14 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn cmd_mount(argv: Vec<&OsStr>) -> c_int {
+pub fn cmd_mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
+    // If the bcachefs tool is being called as "bcachefs mount dev ..." (as opposed to via a
+    // symlink like "/usr/sbin/mount.bcachefs dev ...", then we need to pop the 0th argument
+    // ("bcachefs") since the CLI parser here expects the device at position 1.
+    if symlink_cmd.is_none() {
+        argv.remove(0);
+    }
+
     let opt = Cli::parse_from(argv);
 
     // @TODO : more granular log levels via mount option

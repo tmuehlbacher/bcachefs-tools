@@ -2,7 +2,6 @@ use clap::Subcommand;
 
 pub mod key;
 pub mod logger;
-pub mod cmd_main;
 pub mod cmd_mount;
 pub mod cmd_list;
 pub mod cmd_completions;
@@ -29,18 +28,6 @@ macro_rules! c_str {
                 .to_bytes_with_nul()
                 .as_ptr() as *const std::os::raw::c_char
         }
-    };
-}
-
-#[macro_export]
-macro_rules! transform_c_args {
-    ($var:ident, $argc:expr, $argv:expr) => {
-        // TODO: `OsStr::from_bytes` only exists on *nix
-        use ::std::os::unix::ffi::OsStrExt;
-        let $var: Vec<_> = (0..$argc)
-        .map(|i| unsafe { ::std::ffi::CStr::from_ptr(*$argv.add(i as usize)) })
-        .map(|i| ::std::ffi::OsStr::from_bytes(i.to_bytes()))
-        .collect();
     };
 }
 

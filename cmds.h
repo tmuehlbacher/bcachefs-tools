@@ -54,6 +54,10 @@ int cmd_subvolume_snapshot(int argc, char *argv[]);
 
 int cmd_fusemount(int argc, char *argv[]);
 
-int rust_main(int argc, char *argv[], char *cmd);
+void bcachefs_usage(void);
+int device_cmds(int argc, char *argv[]);
+int fs_cmds(int argc, char *argv[]);
+int data_cmds(int argc, char *argv[]);
+int subvolume_cmds(int argc, char *argv[]);
 
 #endif /* _CMDS_H */

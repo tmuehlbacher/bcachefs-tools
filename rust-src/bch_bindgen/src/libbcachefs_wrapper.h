@@ -11,6 +11,8 @@
 #include "../crypto.h"
 #include "../include/linux/bio.h"
 #include "../include/linux/blkdev.h"
+#include "../cmds.h"
+#include "../raid/raid.h"
 
 
 #define MARK_FIX_753(req_name) const blk_mode_t Fix753_##req_name = req_name;

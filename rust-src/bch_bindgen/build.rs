@@ -10,6 +10,8 @@ impl bindgen::callbacks::ParseCallbacks for Fix753 {
 fn main() {
     use std::path::PathBuf;
 
+    println!("cargo:rerun-if-changed=src/libbcachefs_wrapper.h");
+
     let out_dir: PathBuf = std::env::var_os("OUT_DIR")
         .expect("ENV Var 'OUT_DIR' Expected")
         .into();
@@ -44,6 +46,10 @@ fn main() {
         .default_enum_style(bindgen::EnumVariation::Rust {
             non_exhaustive: true,
         })
+        .allowlist_function("bcachefs_usage")
+        .allowlist_function("raid_init")
+        .allowlist_function("cmd_.*")
+        .allowlist_function(".*_cmds")
         .allowlist_function(".*bch2_.*")
         .allowlist_function("bio_.*")
         .allowlist_function("derive_passphrase")

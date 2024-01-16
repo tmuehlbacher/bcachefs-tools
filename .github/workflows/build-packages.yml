@@ -79,7 +79,7 @@ jobs:
       - name: Extract MSRV
         run: |
           MSRV=$(cargo metadata --format-version 1 --no-deps --manifest-path rust-src/Cargo.toml |
-                  jq -r '.packages[] | select(.name == "bcachefs-rust") | .rust_version')
+                  jq -r '.packages[] | select(.name == "bcachefs-tools") | .rust_version')
           echo "MSRV=$MSRV" >> $GITHUB_ENV
       - name: Install Rust ${{ env.MSRV }} toolchain
         run: |

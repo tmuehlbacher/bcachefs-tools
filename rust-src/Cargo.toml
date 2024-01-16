@@ -1,12 +1,16 @@
 [package]
-name = "bcachefs-rust"
+name = "bcachefs-tools"
 version = "0.3.1"
 authors = ["Yuxuan Shui <yshuiv7@gmail.com>", "Kayla Firestack <dev@kaylafire.me>", "Kent Overstreet <kent.overstreet@linux.dev>" ]
 edition = "2021"
 rust-version = "1.65"
 
+[[bin]]
+name = "bcachefs"
+path = "src/bcachefs.rs"
+
 [lib]
-crate-type = ["staticlib"]
+name = "bcachefs"
 
 [dependencies]
 atty = "0.2.14"
