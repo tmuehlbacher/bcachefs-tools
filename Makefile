@@ -30,7 +30,7 @@ CFLAGS+=-std=gnu11 -O2 -g -MMD -Wall -fPIC			\
 	-Wno-deprecated-declarations				\
 	-fno-strict-aliasing					\
 	-fno-delete-null-pointer-checks				\
-	-Ic_src -Ic_src/include					\
+	-I. -Ic_src -Iinclude -Iraid				\
 	-D_FILE_OFFSET_BITS=64					\
 	-D_GNU_SOURCE						\
 	-D_LGPL_SOURCE						\
@@ -171,13 +171,13 @@ OBJS:=$(SRCS:.c=.o)
 	@echo "    [CC]     $@"
 	$(Q)$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
-BCACHEFS_DEPS=c_src/libbcachefs.a
+BCACHEFS_DEPS=libbcachefs.a
 RUST_SRCS:=$(shell find src bch_bindgen/src -type f -iname '*.rs')
 
 bcachefs: $(BCACHEFS_DEPS) $(RUST_SRCS)
 	$(Q)$(CARGO_BUILD)
 
-c_src/libbcachefs.a: $(filter-out ./tests/%.o, $(OBJS))
+libbcachefs.a: $(filter-out ./tests/%.o, $(OBJS))
 	@echo "    [AR]     $@"
 	$(Q)ar -rc $@ $+
 

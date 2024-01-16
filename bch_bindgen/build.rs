@@ -19,8 +19,6 @@ fn main() {
         .expect("ENV Var 'CARGO_MANIFEST_DIR' Expected")
         .into();
 
-    let libbcachefs_inc_dir = std::path::Path::new("../c_src");
-
     let bindings = bindgen::builder()
         .header(
             top_dir
@@ -29,11 +27,9 @@ fn main() {
                 .display()
                 .to_string(),
         )
-        .clang_arg(format!(
-            "-I{}",
-            libbcachefs_inc_dir.join("include").display()
-        ))
-        .clang_arg(format!("-I{}", libbcachefs_inc_dir.display()))
+        .clang_arg("-I..")
+        .clang_arg("-I../c_src")
+        .clang_arg("-I../include")
         .clang_arg("-DZSTD_STATIC_LINKING_ONLY")
         .clang_arg("-DNO_BCACHEFS_FS")
         .clang_arg("-D_GNU_SOURCE")

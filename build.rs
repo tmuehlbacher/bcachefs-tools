@@ -1,6 +1,6 @@
 fn main() {
-    println!("cargo:rustc-link-search=c_src");
-    println!("cargo:rerun-if-changed=c_src/libbcachefs.a");
+    println!("cargo:rustc-link-search=.");
+    println!("cargo:rerun-if-changed=libbcachefs.a");
     println!("cargo:rustc-link-lib=static:+whole-archive=bcachefs");
 
     println!("cargo:rustc-link-lib=urcu");
