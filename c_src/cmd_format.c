@@ -188,7 +188,7 @@ int cmd_format(int argc, char *argv[])
 		case O_data_allowed:
 			dev_opts.data_allowed =
 				read_flag_list_or_die(optarg,
-					bch2_data_types, "data type");
+					__bch2_data_types, "data type");
 			unconsumed_dev_option = true;
 			break;
 		case O_durability:

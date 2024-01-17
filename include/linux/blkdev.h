@@ -89,10 +89,15 @@ struct blk_holder_ops {
         void (*mark_dead)(struct block_device *bdev);
 };
 
-void blkdev_put(struct block_device *bdev, void *holder);
-void bdput(struct block_device *bdev);
-struct block_device *blkdev_get_by_path(const char *path, blk_mode_t mode,
-					void *holder, const struct blk_holder_ops *hop);
+struct bdev_handle {
+	struct block_device *bdev;
+	void *holder;
+	blk_mode_t mode;
+};
+
+void bdev_release(struct bdev_handle *);
+struct bdev_handle *bdev_open_by_path(const char *, blk_mode_t, void *,
+				      const struct blk_holder_ops *);
 int lookup_bdev(const char *path, dev_t *);
 
 struct super_block {

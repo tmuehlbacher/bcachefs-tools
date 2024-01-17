@@ -119,7 +119,6 @@ static int lookup_inode(struct btree_trans *trans, u64 inode_nr,
 	if (!ret)
 		*snapshot = iter.pos.snapshot;
 err:
-	bch_err_msg(trans->c, ret, "fetching inode %llu:%u", inode_nr, *snapshot);
 	bch2_trans_iter_exit(trans, &iter);
 	return ret;
 }
@@ -250,7 +249,9 @@ static int lookup_lostfound(struct btree_trans *trans, u32 snapshot,
 	 * The bch2_check_dirents pass has already run, dangling dirents
 	 * shouldn't exist here:
 	 */
-	return lookup_inode(trans, inum, lostfound, &snapshot);
+	ret = lookup_inode(trans, inum, lostfound, &snapshot);
+	bch_err_msg(c, ret, "looking up lost+found");
+	return ret;
 
 create_lostfound:
 	/*

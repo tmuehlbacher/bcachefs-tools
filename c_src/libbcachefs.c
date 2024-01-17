@@ -20,6 +20,7 @@
 #include "crypto.h"
 #include "libbcachefs/bcachefs_format.h"
 #include "libbcachefs/btree_cache.h"
+#include "libbcachefs/buckets.h"
 #include "libbcachefs/checksum.h"
 #include "libbcachefs/disk_groups.h"
 #include "libbcachefs/journal_seq_blacklist.h"
@@ -531,7 +532,7 @@ int bchu_data(struct bchfs_handle fs, struct bch_ioctl_data cmd)
 		       e.p.sectors_total
 		       ? e.p.sectors_done * 100 / e.p.sectors_total
 		       : 0,
-		       bch2_data_types[e.p.data_type]);
+		       bch2_data_type_str(e.p.data_type));
 
 		switch (e.p.data_type) {
 		case BCH_DATA_btree:

@@ -676,7 +676,12 @@ static int migrate_fs(const char		*fs_path,
 	struct dev_opts dev = dev_opts_default();
 
 	dev.path = dev_t_to_path(stat.st_dev);
-	dev.bdev = blkdev_get_by_path(dev.path, BLK_OPEN_READ|BLK_OPEN_WRITE, &dev, NULL);
+	dev.handle = bdev_open_by_path(dev.path, BLK_OPEN_READ|BLK_OPEN_WRITE, &dev, NULL);
+
+	int ret = PTR_ERR_OR_ZERO(dev.handle);
+	if (ret < 0)
+		die("Error opening device to format %s: %s", dev.path, strerror(-ret));
+	dev.bdev = dev.handle->bdev;
 
 	opt_set(fs_opts, block_size, get_blocksize(dev.bdev->bd_fd));
 
@@ -722,7 +727,7 @@ static int migrate_fs(const char		*fs_path,
 
 	mark_unreserved_space(c, extents);
 
-	int ret = bch2_fs_start(c);
+	ret = bch2_fs_start(c);
 	if (ret)
 		die("Error starting new filesystem: %s", bch2_err_str(ret));
 

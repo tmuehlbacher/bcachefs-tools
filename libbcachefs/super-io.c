@@ -2,7 +2,6 @@
 
 #include "bcachefs.h"
 #include "checksum.h"
-#include "counters.h"
 #include "disk_groups.h"
 #include "ec.h"
 #include "error.h"
@@ -13,6 +12,7 @@
 #include "replicas.h"
 #include "quota.h"
 #include "sb-clean.h"
+#include "sb-counters.h"
 #include "sb-downgrade.h"
 #include "sb-errors.h"
 #include "sb-members.h"
@@ -142,8 +142,8 @@ void bch2_sb_field_delete(struct bch_sb_handle *sb,
 void bch2_free_super(struct bch_sb_handle *sb)
 {
 	kfree(sb->bio);
-	if (!IS_ERR_OR_NULL(sb->bdev))
-		blkdev_put(sb->bdev, sb->holder);
+	if (!IS_ERR_OR_NULL(sb->bdev_handle))
+		bdev_release(sb->bdev_handle);
 	kfree(sb->holder);
 	kfree(sb->sb_name);
 
@@ -704,21 +704,22 @@ retry:
 	if (!opt_get(*opts, nochanges))
 		sb->mode |= BLK_OPEN_WRITE;
 
-	sb->bdev = blkdev_get_by_path(path, sb->mode, sb->holder, &bch2_sb_handle_bdev_ops);
-	if (IS_ERR(sb->bdev) &&
-	    PTR_ERR(sb->bdev) == -EACCES &&
+	sb->bdev_handle = bdev_open_by_path(path, sb->mode, sb->holder, &bch2_sb_handle_bdev_ops);
+	if (IS_ERR(sb->bdev_handle) &&
+	    PTR_ERR(sb->bdev_handle) == -EACCES &&
 	    opt_get(*opts, read_only)) {
 		sb->mode &= ~BLK_OPEN_WRITE;
 
-		sb->bdev = blkdev_get_by_path(path, sb->mode, sb->holder, &bch2_sb_handle_bdev_ops);
-		if (!IS_ERR(sb->bdev))
+		sb->bdev_handle = bdev_open_by_path(path, sb->mode, sb->holder, &bch2_sb_handle_bdev_ops);
+		if (!IS_ERR(sb->bdev_handle))
 			opt_set(*opts, nochanges, true);
 	}
 
-	if (IS_ERR(sb->bdev)) {
-		ret = PTR_ERR(sb->bdev);
+	if (IS_ERR(sb->bdev_handle)) {
+		ret = PTR_ERR(sb->bdev_handle);
 		goto out;
 	}
+	sb->bdev = sb->bdev_handle->bdev;
 
 	ret = bch2_sb_realloc(sb, 0);
 	if (ret) {
@@ -1320,7 +1321,9 @@ void bch2_sb_to_text(struct printbuf *out, struct bch_sb *sb,
 
 	prt_printf(out, "Superblock size:");
 	prt_tab(out);
-	prt_printf(out, "%zu", vstruct_bytes(sb));
+	prt_units_u64(out, vstruct_bytes(sb));
+	prt_str(out, "/");
+	prt_units_u64(out, 512ULL << sb->layout.sb_max_size_bits);
 	prt_newline(out);
 
 	prt_printf(out, "Clean:");

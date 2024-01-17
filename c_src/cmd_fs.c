@@ -5,8 +5,10 @@
 #include <uuid/uuid.h>
 
 #include "linux/sort.h"
+#include "linux/rcupdate.h"
 
 #include "libbcachefs/bcachefs_ioctl.h"
+#include "libbcachefs/buckets.h"
 #include "libbcachefs/darray.h"
 #include "libbcachefs/opts.h"
 #include "libbcachefs/super-io.h"
@@ -15,11 +17,12 @@
 #include "libbcachefs.h"
 
 static void __dev_usage_type_to_text(struct printbuf *out,
-				     const char *type,
+				     enum bch_data_type type,
 				     unsigned bucket_size,
 				     u64 buckets, u64 sectors, u64 frag)
 {
-	prt_printf(out, "%s:", type);
+	bch2_prt_data_type(out, type);
+	prt_char(out, ':');
 	prt_tab(out);
 
 	prt_units_u64(out, sectors << 9);
@@ -51,7 +54,7 @@ static void dev_usage_type_to_text(struct printbuf *out,
 		sectors = u->d[type].sectors;
 	}
 
-	__dev_usage_type_to_text(out, bch2_data_types[type],
+	__dev_usage_type_to_text(out, type,
 			u->bucket_size,
 			u->d[type].buckets,
 			sectors,
@@ -153,7 +156,8 @@ static void replicas_usage_to_text(struct printbuf *out,
 	*d++ = ']';
 	*d++ = '\0';
 
-	prt_printf(out, "%s: ", bch2_data_types[r->r.data_type]);
+	bch2_prt_data_type(out, r->r.data_type);
+	prt_char(out, ':');
 	prt_tab(out);
 
 	prt_printf(out, "%u/%u ", r->r.nr_required, r->r.nr_devs);

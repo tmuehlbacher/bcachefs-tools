@@ -10,6 +10,7 @@
 
 #include "libbcachefs/bcachefs.h"
 #include "libbcachefs/btree_cache.h"
+#include "libbcachefs/btree_io.h"
 #include "libbcachefs/btree_iter.h"
 #include "libbcachefs/error.h"
 #include "libbcachefs/extents.h"
@@ -76,7 +77,7 @@ static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
 					if (ptr->dev == ca->dev_idx)
 						range_add(&data,
 							  ptr->offset << 9,
-							  btree_bytes(c));
+							  btree_ptr_sectors_written(&b->key));
 			}
 		}
 
@@ -91,7 +92,7 @@ static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
 				if (ptr->dev == ca->dev_idx)
 					range_add(&data,
 						  ptr->offset << 9,
-						  btree_bytes(c));
+						  btree_ptr_sectors_written(&b->key));
 		}
 
 		bch2_trans_iter_exit(trans, &iter);
@@ -99,7 +100,7 @@ static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
 	}
 
 	qcow2_write_image(ca->disk_sb.bdev->bd_fd, fd, &data,
-			  max_t(unsigned, btree_bytes(c) / 8, block_bytes(c)));
+			  max_t(unsigned, c->opts.btree_node_size / 8, block_bytes(c)));
 	darray_exit(&data);
 }
 

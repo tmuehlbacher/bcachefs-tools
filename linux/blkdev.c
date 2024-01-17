@@ -162,17 +162,17 @@ sector_t get_capacity(struct gendisk *disk)
 	return bytes >> 9;
 }
 
-void blkdev_put(struct block_device *bdev, void *holder)
+void bdev_release(struct bdev_handle *handle)
 {
-	fdatasync(bdev->bd_fd);
-	close(bdev->bd_fd);
-	free(bdev);
+	fdatasync(handle->bdev->bd_fd);
+	close(handle->bdev->bd_fd);
+	free(handle->bdev);
+	free(handle);
 }
 
-struct block_device *blkdev_get_by_path(const char *path, blk_mode_t mode,
-					void *holder, const struct blk_holder_ops *hop)
+struct bdev_handle *bdev_open_by_path(const char *path, blk_mode_t mode,
+				      void *holder, const struct blk_holder_ops *hop)
 {
-	struct block_device *bdev;
 	int fd, flags = 0;
 
 	if ((mode & (BLK_OPEN_READ|BLK_OPEN_WRITE)) == (BLK_OPEN_READ|BLK_OPEN_WRITE))
@@ -192,7 +192,7 @@ struct block_device *blkdev_get_by_path(const char *path, blk_mode_t mode,
 	if (fd < 0)
 		return ERR_PTR(-errno);
 
-	bdev = malloc(sizeof(*bdev));
+	struct block_device *bdev = malloc(sizeof(*bdev));
 	memset(bdev, 0, sizeof(*bdev));
 
 	strncpy(bdev->name, path, sizeof(bdev->name));
@@ -205,12 +205,12 @@ struct block_device *blkdev_get_by_path(const char *path, blk_mode_t mode,
 	bdev->bd_disk->bdi	= &bdev->bd_disk->__bdi;
 	bdev->queue.backing_dev_info = bdev->bd_disk->bdi;
 
-	return bdev;
-}
+	struct bdev_handle *handle = calloc(sizeof(*handle), 1);
+	handle->bdev	= bdev;
+	handle->holder	= holder;
+	handle->mode	= mode;
 
-void bdput(struct block_device *bdev)
-{
-	BUG();
+	return handle;
 }
 
 int lookup_bdev(const char *path, dev_t *dev)
