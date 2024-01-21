@@ -33,7 +33,7 @@ in stdenv.mkDerivation {
     udev
   ] ++ lib.optional fuseSupport fuse3;
 
-  BCACHEFS_FUSE = if fuseSupport then "1" else "";
+  ${if fuseSupport then "BCACHEFS_FUSE" else null} = "1";
 
   cargoRoot = ".";
   # when git-based crates are updated, run:
@@ -49,7 +49,7 @@ in stdenv.mkDerivation {
   makeFlags = [ "DESTDIR=${placeholder "out"}" "PREFIX=" "VERSION=${commit}" ];
 
   dontStrip = true;
-  checkPhase = "./bcachefs version";
+  checkPhase = "./target/release/bcachefs version";
   doCheck = true;
 
   meta = {
