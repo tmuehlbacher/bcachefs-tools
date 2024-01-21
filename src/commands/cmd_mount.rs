@@ -101,13 +101,10 @@ fn mount(
 }
 
 fn read_super_silent(path: &std::path::PathBuf) -> anyhow::Result<bch_sb_handle> {
-    // Stop libbcachefs from spamming the output
-    let _gag = gag::BufferRedirect::stdout().unwrap();
-
     let mut opts = bcachefs::bch_opts::default();
     opt_set!(opts, noexcl, 1);
 
-    bch_bindgen::rs::read_super_opts(&path, opts)
+    bch_bindgen::sb_io::read_super_silent(&path, opts)
 }
 
 fn get_devices_by_uuid(uuid: Uuid) -> anyhow::Result<Vec<(PathBuf, bch_sb_handle)>> {

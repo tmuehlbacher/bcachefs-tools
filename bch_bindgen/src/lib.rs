@@ -3,7 +3,7 @@ pub mod btree;
 pub mod bkey;
 pub mod errcode;
 pub mod keyutils;
-pub mod rs;
+pub mod sb_io;
 pub mod fs;
 pub mod opts;
 pub use paste::paste;
