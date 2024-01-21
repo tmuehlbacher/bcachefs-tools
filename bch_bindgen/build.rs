@@ -19,6 +19,7 @@ fn main() {
         .expect("ENV Var 'CARGO_MANIFEST_DIR' Expected")
         .into();
 
+    let urcu = pkg_config::probe_library("liburcu").expect("Failed to find urcu lib");
     let bindings = bindgen::builder()
         .header(
             top_dir
@@ -26,6 +27,12 @@ fn main() {
                 .join("libbcachefs_wrapper.h")
                 .display()
                 .to_string(),
+        )
+        .clang_args(
+            urcu
+                .include_paths
+                .iter()
+                .map(|p| format!("-I{}", p.display())),
         )
         .clang_arg("-I..")
         .clang_arg("-I../c_src")
