@@ -21,6 +21,8 @@ tests/__pycache__/
 
 bcachefs-principles-of-operation.*
 
+bch_bindgen/Cargo.lock
+
 # will have compiled files and executables
 debug/
 target/
