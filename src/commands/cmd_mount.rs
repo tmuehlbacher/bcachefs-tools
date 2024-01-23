@@ -137,7 +137,7 @@ pub struct Cli {
     #[arg(short, long, default_value = "ask", verbatim_doc_comment)]
     key_location:   KeyLocation,
 
-    /// Device, or UUID=<UUID>
+    /// Device, or UUID=\<UUID\>
     dev:            String,
 
     /// Where the filesystem should be mounted. If not set, then the filesystem
