@@ -41,9 +41,6 @@ in stdenv.mkDerivation {
   # to update the hashes
   cargoDeps = rustPlatform.importCargoLock {
     lockFile = "${src}/Cargo.lock";
-    outputHashes = {
-      "bindgen-0.64.0" = "sha256-GNG8as33HLRYJGYe0nw6qBzq86aHiGonyynEM7gaEE4=";
-    };
   };
 
   makeFlags = [ "DESTDIR=${placeholder "out"}" "PREFIX=" "VERSION=${commit}" ];

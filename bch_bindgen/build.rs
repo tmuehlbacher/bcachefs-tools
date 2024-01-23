@@ -1,4 +1,3 @@
-
 #[derive(Debug)]
 pub struct Fix753 {}
 impl bindgen::callbacks::ParseCallbacks for Fix753 {
@@ -21,6 +20,7 @@ fn main() {
 
     let urcu = pkg_config::probe_library("liburcu").expect("Failed to find urcu lib");
     let bindings = bindgen::builder()
+        .formatter(bindgen::Formatter::Prettyplease)
         .header(
             top_dir
                 .join("src")
@@ -60,9 +60,6 @@ fn main() {
         .allowlist_function("keyctl_search")
         .allowlist_function("match_string")
         .allowlist_function("printbuf.*")
-        .blocklist_type("bch_extent_ptr")
-        .blocklist_type("btree_node")
-        .blocklist_type("bch_extent_crc32")
         .blocklist_type("rhash_lock_head")
         .blocklist_type("srcu_struct")
         .allowlist_var("BCH_.*")
@@ -92,9 +89,12 @@ fn main() {
         .parse_callbacks(Box::new(Fix753 {}))
         .generate()
         .expect("BindGen Generation Failiure: [libbcachefs_wrapper]");
-    bindings
-        .write_to_file(out_dir.join("bcachefs.rs"))
-        .expect("Writing to output file failed for: `bcachefs.rs`");
+
+    std::fs::write(
+        out_dir.join("bcachefs.rs"),
+        packed_and_align_fix(bindings.to_string()),
+    )
+    .expect("Writing to output file failed for: `bcachefs.rs`");
 
     let keyutils = pkg_config::probe_library("libkeyutils").expect("Failed to find keyutils lib");
     let bindings = bindgen::builder()
@@ -116,4 +116,42 @@ fn main() {
     bindings
         .write_to_file(out_dir.join("keyutils.rs"))
         .expect("Writing to output file failed for: `keyutils.rs`");
+}
+
+// rustc has a limitation where it does not allow structs to have both a "packed" and "align"
+// attribute. This means that bindgen cannot copy all attributes from some C types, like struct
+// bkey, that are both packed and aligned.
+//
+// bindgen tries to handle this situation smartly and for many types it will only apply a
+// "packed(N)" attribute if that is good enough. However, there are a few types where bindgen
+// does end up generating both a packed(N) and align(N) attribute. These types can't be compiled
+// by rustc.
+//
+// To work around this, we can remove either the "packed" or "align" attribute. It happens that
+// for all the types with this problem in bcachefs, removing the "packed" attribute and keeping
+// the "align" attribute results in a type with the correct ABI.
+//
+// This function applies that transformation to the following bcachefs types that need it:
+//   - bkey
+//   - bch_extent_crc32
+//   - bch_extent_ptr
+//   - btree_node
+fn packed_and_align_fix(bindings: std::string::String) -> std::string::String {
+    bindings
+        .replace(
+            "#[repr(C, packed(8))]\n#[repr(align(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bkey {",
+            "#[repr(C, align(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bkey {",
+        )
+        .replace(
+            "#[repr(C, packed(8))]\n#[repr(align(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bch_extent_crc32 {",
+            "#[repr(C, align(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bch_extent_crc32 {",
+        )
+        .replace(
+            "#[repr(C, packed(8))]\n#[repr(align(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bch_extent_ptr {",
+            "#[repr(C, align(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bch_extent_ptr {",
+        )
+        .replace(
+            "#[repr(C, packed(8))]\npub struct btree_node {",
+            "#[repr(C, align(8))]\npub struct btree_node {",
+        )
 }
