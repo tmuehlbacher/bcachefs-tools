@@ -379,7 +379,7 @@ struct bch_ioctl_disk_resize_journal {
 
 struct bch_ioctl_subvolume {
 	__u32			flags;
-	__u32			dirfd;
+	__s32			dirfd;
 	__u16			mode;
 	__u16			pad[3];
 	__u64			dst_ptr;
