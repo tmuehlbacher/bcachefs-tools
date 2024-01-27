@@ -199,6 +199,13 @@ do {									\
 struct bpos bpos_parse(char *);
 struct bbpos bbpos_parse(char *);
 
+struct bbpos_range {
+	struct bbpos	start;
+	struct bbpos	end;
+};
+
+struct bbpos_range bbpos_range_parse(char *);
+
 darray_str get_or_split_cmdline_devs(int argc, char *argv[]);
 
 #endif /* _TOOLS_UTIL_H */

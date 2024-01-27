@@ -28,6 +28,7 @@ static void list_journal_usage(void)
 	     "  -a                                Read entire journal, not just dirty entries\n"
 	     "  -n, --nr-entries=nr               Number of journal entries to print, starting from the most recent\n"
 	     "  -t, --transaction-filter=bbpos    Filter transactions not updating <bbpos>\n"
+	     "                                    Or entries not matching the range <bbpos-bbpos>\n"
 	     "  -k, --key-filter=btree            Filter keys not updating btree\n"
 	     "  -v, --verbose                     Verbose mode\n"
 	     "  -h, --help                        Display this help and exit\n"
@@ -50,28 +51,24 @@ static inline bool entry_is_transaction_start(struct jset_entry *entry)
 	return entry->type == BCH_JSET_ENTRY_log && !entry->level;
 }
 
-typedef DARRAY(struct bbpos) d_bbpos;
+typedef DARRAY(struct bbpos_range) d_bbpos_range;
 typedef DARRAY(enum btree_id) d_btree_id;
 
-static bool bkey_matches_filter(d_bbpos filter, struct jset_entry *entry, struct bkey_i *k)
+static bool bkey_matches_filter(d_bbpos_range filter, struct jset_entry *entry, struct bkey_i *k)
 {
 	darray_for_each(filter, i) {
-		if (i->btree != entry->btree_id)
-			continue;
+		struct bbpos k_start	= BBPOS(entry->btree_id, bkey_start_pos(&k->k));
+		struct bbpos k_end	= BBPOS(entry->btree_id, k->k.p);
 
-		if (bkey_eq(i->pos, k->k.p))
-			return true;
-
-		if (btree_node_type_is_extents(i->btree) &&
-		    bkey_ge(i->pos, bkey_start_pos(&k->k)) &&
-		    bkey_lt(i->pos, k->k.p))
+		if (bbpos_cmp(k_start, i->end) < 0 &&
+		    bbpos_cmp(k_end, i->start) > 0)
 			return true;
 	}
 	return false;
 }
 
 static bool entry_matches_transaction_filter(struct jset_entry *entry,
-					     d_bbpos filter)
+					     d_bbpos_range filter)
 {
 	if (entry->type == BCH_JSET_ENTRY_btree_root ||
 	    entry->type == BCH_JSET_ENTRY_btree_keys ||
@@ -87,7 +84,7 @@ static bool entry_matches_transaction_filter(struct jset_entry *entry,
 }
 
 static bool should_print_transaction(struct jset_entry *entry, struct jset_entry *end,
-				     d_bbpos filter)
+				     d_bbpos_range filter)
 {
 	if (!filter.nr)
 		return true;
@@ -122,7 +119,7 @@ static bool should_print_entry(struct jset_entry *entry, d_btree_id filter)
 }
 
 static void journal_entries_print(struct bch_fs *c, unsigned nr_entries,
-				  d_bbpos transaction_filter,
+				  d_bbpos_range transaction_filter,
 				  d_btree_id key_filter)
 {
 	struct journal_replay *p, **_p;
@@ -222,7 +219,7 @@ int cmd_list_journal(int argc, char *argv[])
 	};
 	struct bch_opts opts = bch2_opts_empty();
 	u32 nr_entries = U32_MAX;
-	d_bbpos		transaction_filter = { 0 };
+	d_bbpos_range	transaction_filter = { 0 };
 	d_btree_id	key_filter = { 0 };
 	int opt;
 
@@ -247,7 +244,7 @@ int cmd_list_journal(int argc, char *argv[])
 			opt_set(opts, read_entire_journal, true);
 			break;
 		case 't':
-			darray_push(&transaction_filter, bbpos_parse(optarg));
+			darray_push(&transaction_filter, bbpos_range_parse(optarg));
 			break;
 		case 'k':
 			darray_push(&key_filter, read_string_list_or_die(optarg, __bch2_btree_ids, "btree id"));

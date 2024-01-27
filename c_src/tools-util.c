@@ -653,6 +653,18 @@ struct bbpos bbpos_parse(char *buf)
 	return ret;
 }
 
+struct bbpos_range bbpos_range_parse(char *buf)
+{
+	char *s = buf;
+	char *start_str = strsep(&s, "-");
+	char *end_str	= strsep(&s, "-");
+
+	struct bbpos start = bbpos_parse(start_str);
+	struct bbpos end = end_str ? bbpos_parse(end_str) : start;
+
+	return (struct bbpos_range) { .start = start, .end = end };
+}
+
 darray_str get_or_split_cmdline_devs(int argc, char *argv[])
 {
 	darray_str ret = {};
