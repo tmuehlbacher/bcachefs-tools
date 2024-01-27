@@ -64,7 +64,7 @@ fn main() {
         .blocklist_type("srcu_struct")
         .allowlist_var("BCH_.*")
         .allowlist_var("KEY_SPEC_.*")
-        .allowlist_var("Fix753_FMODE_.*")
+        .allowlist_var("Fix753_.*")
         .allowlist_var("bch.*")
         .allowlist_var("__bch2.*")
         .allowlist_var("__BTREE_ITER.*")
