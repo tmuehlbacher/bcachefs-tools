@@ -164,5 +164,5 @@ pub fn printbuf_to_formatter<F>(f: &mut fmt::Formatter<'_>, func: F) -> fmt::Res
     func(&mut buf);
 
     let s = unsafe { CStr::from_ptr(buf.buf) };
-    f.write_str(s.to_str().unwrap())
+    f.write_str(&s.to_string_lossy())
 }
