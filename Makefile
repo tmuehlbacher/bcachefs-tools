@@ -214,6 +214,7 @@ install: bcachefs $(optional_install)
 
 	sed -i '/^# Note: make install replaces/,$$d' $(DESTDIR)$(INITRAMFS_HOOK)
 	echo "copy_exec $(ROOT_SBINDIR)/bcachefs /sbin/bcachefs" >> $(DESTDIR)$(INITRAMFS_HOOK)
+	echo "copy_exec $(ROOT_SBINDIR)/mount.bcachefs /sbin/mount.bcachefs" >> $(DESTDIR)$(INITRAMFS_HOOK)
 
 .PHONY: install_systemd
 install_systemd: $(systemd_services) $(systemd_libexecfiles)
