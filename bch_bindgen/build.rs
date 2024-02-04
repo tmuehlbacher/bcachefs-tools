@@ -120,40 +120,15 @@ fn main() {
         .expect("Writing to output file failed for: `keyutils.rs`");
 }
 
-// rustc has a limitation where it does not allow structs to have both a "packed" and "align"
-// attribute. This means that bindgen cannot copy all attributes from some C types, like struct
-// bkey, that are both packed and aligned.
+// rustc has a limitation where it does not allow structs with a "packed" attribute to contain a
+// member with an "align(N)" attribute. There is one type in bcachefs with this issue:
+// struct btree_node.
 //
-// bindgen tries to handle this situation smartly and for many types it will only apply a
-// "packed(N)" attribute if that is good enough. However, there are a few types where bindgen
-// does end up generating both a packed(N) and align(N) attribute. These types can't be compiled
-// by rustc.
-//
-// To work around this, we can remove either the "packed" or "align" attribute. It happens that
-// for all the types with this problem in bcachefs, removing the "packed" attribute and keeping
-// the "align" attribute results in a type with the correct ABI.
-//
-// This function applies that transformation to the following bcachefs types that need it:
-//   - bkey
-//   - bch_extent_crc32
-//   - bch_extent_ptr
-//   - btree_node
+// Luckily, it happens that this type does not need the "packed(N)" attribute in Rust to have the
+// same ABI as C, so we can strip it off the bindgen output.
 fn packed_and_align_fix(bindings: std::string::String) -> std::string::String {
-    bindings
-        .replace(
-            "#[repr(C, packed(8))]\n#[repr(align(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bkey {",
-            "#[repr(C, align(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bkey {",
-        )
-        .replace(
-            "#[repr(C, packed(8))]\n#[repr(align(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bch_extent_crc32 {",
-            "#[repr(C, align(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bch_extent_crc32 {",
-        )
-        .replace(
-            "#[repr(C, packed(8))]\n#[repr(align(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bch_extent_ptr {",
-            "#[repr(C, align(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bch_extent_ptr {",
-        )
-        .replace(
-            "#[repr(C, packed(8))]\npub struct btree_node {",
-            "#[repr(C, align(8))]\npub struct btree_node {",
-        )
+    bindings.replace(
+        "#[repr(C, packed(8))]\npub struct btree_node {",
+        "#[repr(C, align(8))]\npub struct btree_node {",
+    )
 }
