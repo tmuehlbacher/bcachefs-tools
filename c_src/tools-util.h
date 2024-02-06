@@ -20,7 +20,7 @@
 #include <linux/uuid.h>
 #include "libbcachefs/bcachefs.h"
 #include "libbcachefs/bbpos.h"
-#include "libbcachefs/darray.h"
+#include "linux/darray.h"
 
 #define noreturn __attribute__((noreturn))
 

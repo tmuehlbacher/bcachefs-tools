@@ -9,12 +9,13 @@
 
 #include "libbcachefs/bcachefs_ioctl.h"
 #include "libbcachefs/buckets.h"
-#include "libbcachefs/darray.h"
 #include "libbcachefs/opts.h"
 #include "libbcachefs/super-io.h"
 
 #include "cmds.h"
 #include "libbcachefs.h"
+
+#include "linux/darray.h"
 
 static void __dev_usage_type_to_text(struct printbuf *out,
 				     enum bch_data_type type,

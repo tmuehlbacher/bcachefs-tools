@@ -23,11 +23,12 @@
 #include "cmds.h"
 #include "libbcachefs.h"
 #include "crypto.h"
-#include "libbcachefs/darray.h"
 #include "libbcachefs/errcode.h"
 #include "libbcachefs/opts.h"
 #include "libbcachefs/super-io.h"
 #include "libbcachefs/util.h"
+
+#include "linux/darray.h"
 
 #define OPTS						\
 x(0,	replicas,		required_argument)	\

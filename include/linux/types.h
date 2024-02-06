@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <linux/posix_types.h>
 
 #define __SANE_USERSPACE_TYPES__	/* For PPC64, to get LL64 types */
 #include <asm/types.h>
@@ -77,6 +78,10 @@ typedef __u64 __bitwise __be64;
 
 typedef u64 sector_t;
 
+typedef void (*swap_r_func_t)(void *a, void *b, int size, const void *priv);
+typedef void (*swap_func_t)(void *a, void *b, int size);
+
+typedef int (*cmp_r_func_t)(const void *a, const void *b, const void *priv);
 typedef int (*cmp_func_t)(const void *a, const void *b);
 
 typedef unsigned int __bitwise slab_flags_t;

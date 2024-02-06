@@ -273,11 +273,20 @@ update-bcachefs-sources:
 	git add include/linux/kmemleak.h
 	cp $(LINUX_DIR)/lib/math/int_sqrt.c linux/
 	git add linux/int_sqrt.c
-	git rm -f libbcachefs/mean_and_variance_test.c
-#	cp $(LINUX_DIR)/lib/math/mean_and_variance.c linux/
-#	git add linux/mean_and_variance.c
-#	cp $(LINUX_DIR)/include/linux/mean_and_variance.h include/linux/
-#	git add include/linux/mean_and_variance.h
+	cp $(LINUX_DIR)/lib/math/mean_and_variance.c linux/
+	git add linux/mean_and_variance.c
+	cp $(LINUX_DIR)/include/linux/mean_and_variance.h include/linux/
+	git add include/linux/mean_and_variance.h
+	cp $(LINUX_DIR)/lib/time_stats.c linux/
+	git add linux/time_stats.c
+	cp $(LINUX_DIR)/include/linux/time_stats.h include/linux/
+	git add include/linux/time_stats.h
+	cp $(LINUX_DIR)/include/linux/darray.h include/linux/
+	git add include/linux/darray.h
+	cp $(LINUX_DIR)/include/linux/darray_types.h include/linux/
+	git add include/linux/darray_types.h
+	cp $(LINUX_DIR)/include/linux/eytzinger.h include/linux/
+	git add include/linux/eytzinger.h
 	cp $(LINUX_DIR)/scripts/Makefile.compiler ./
 	git add Makefile.compiler
 	$(RM) libbcachefs/*.mod.c

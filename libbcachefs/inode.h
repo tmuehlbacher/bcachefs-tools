@@ -95,6 +95,8 @@ struct bkey_i *bch2_inode_to_v3(struct btree_trans *, struct bkey_i *);
 
 void bch2_inode_unpacked_to_text(struct printbuf *, struct bch_inode_unpacked *);
 
+int bch2_inode_peek_nowarn(struct btree_trans *, struct btree_iter *,
+		    struct bch_inode_unpacked *, subvol_inum, unsigned);
 int bch2_inode_peek(struct btree_trans *, struct btree_iter *,
 		    struct bch_inode_unpacked *, subvol_inum, unsigned);
 
@@ -107,6 +109,9 @@ static inline int bch2_inode_write(struct btree_trans *trans,
 {
 	return bch2_inode_write_flags(trans, iter, inode, 0);
 }
+
+int __bch2_fsck_write_inode(struct btree_trans *, struct bch_inode_unpacked *, u32);
+int bch2_fsck_write_inode(struct btree_trans *, struct bch_inode_unpacked *, u32);
 
 void bch2_inode_init_early(struct bch_fs *,
 			   struct bch_inode_unpacked *);

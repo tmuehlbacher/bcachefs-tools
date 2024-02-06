@@ -61,7 +61,7 @@ impl BcachefsHandle {
     pub fn create_subvolume<P: AsRef<Path>>(&self, dst: P) -> Result<(), Errno> {
         let dst = CString::new(dst.as_ref().as_os_str().as_bytes()).expect("Failed to cast destination path for subvolume in a C-style string");
         self.ioctl(BcachefsIoctl::SubvolumeCreate, &BcachefsIoctlPayload::Subvolume(bch_ioctl_subvolume {
-            dirfd: libc::AT_FDCWD,
+            dirfd: libc::AT_FDCWD as u32,
             mode: 0o777,
             dst_ptr: dst.as_ptr() as u64,
             ..Default::default()
@@ -73,7 +73,7 @@ impl BcachefsHandle {
     pub fn delete_subvolume<P: AsRef<Path>>(&self, dst: P) -> Result<(), Errno> {
         let dst = CString::new(dst.as_ref().as_os_str().as_bytes()).expect("Failed to cast destination path for subvolume in a C-style string");
         self.ioctl(BcachefsIoctl::SubvolumeDestroy, &BcachefsIoctlPayload::Subvolume(bch_ioctl_subvolume {
-            dirfd: libc::AT_FDCWD,
+            dirfd: libc::AT_FDCWD as u32,
             mode: 0o777,
             dst_ptr: dst.as_ptr() as u64,
             ..Default::default()
@@ -88,7 +88,7 @@ impl BcachefsHandle {
 
         let res = self.ioctl(BcachefsIoctl::SubvolumeCreate, &BcachefsIoctlPayload::Subvolume(bch_ioctl_subvolume {
             flags: BCH_SUBVOL_SNAPSHOT_CREATE | extra_flags,
-            dirfd: libc::AT_FDCWD,
+            dirfd: libc::AT_FDCWD as u32,
             mode: 0o777,
             src_ptr: src.as_ref().map_or(0, |x| x.as_ptr() as u64),
             //src_ptr: if let Some(src) = src { src.as_ptr() } else { std::ptr::null() } as u64,
