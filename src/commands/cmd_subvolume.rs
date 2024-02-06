@@ -53,7 +53,9 @@ pub fn cmd_subvolumes(argv: Vec<String>) -> i32 {
         },
         Subcommands::Snapshot { read_only, source, dest } => {
             if let Some(dirname) = dest.parent() {
-                let fs = unsafe { BcachefsHandle::open(dirname) };
+                let dot = PathBuf::from(".");
+                let dir = if dirname.as_os_str().is_empty() { &dot } else { dirname };
+                let fs = unsafe { BcachefsHandle::open(dir) };
 
                 fs.snapshot_subvolume(if read_only { BCH_SUBVOL_SNAPSHOT_RO } else { 0x0 }, source, dest).expect("Failed to snapshot the subvolume");
             }
