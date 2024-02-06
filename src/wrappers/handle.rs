@@ -82,17 +82,23 @@ impl BcachefsHandle {
 
     /// Snapshot a subvolume for this bcachefs filesystem
     /// at the given path
-    pub fn snapshot_subvolume<P: AsRef<Path>>(&self, extra_flags: u32, src: P, dst: P) -> Result<(), Errno> {
-        let src = CString::new(src.as_ref().as_os_str().as_bytes()).expect("Failed to cast source path for subvolume in a C-style string");
+    pub fn snapshot_subvolume<P: AsRef<Path>>(&self, extra_flags: u32, src: Option<P>, dst: P) -> Result<(), Errno> {
+        let src = src.map(|src| CString::new(src.as_ref().as_os_str().as_bytes()).expect("Failed to cast source path for subvolume in a C-style string"));
         let dst = CString::new(dst.as_ref().as_os_str().as_bytes()).expect("Failed to cast destination path for subvolume in a C-style string");
-        self.ioctl(BcachefsIoctl::SubvolumeCreate, &BcachefsIoctlPayload::Subvolume(bch_ioctl_subvolume {
+
+        let res = self.ioctl(BcachefsIoctl::SubvolumeCreate, &BcachefsIoctlPayload::Subvolume(bch_ioctl_subvolume {
             flags: BCH_SUBVOL_SNAPSHOT_CREATE | extra_flags,
             dirfd: libc::AT_FDCWD,
             mode: 0o777,
-            src_ptr: src.as_ptr() as u64,
+            src_ptr: src.as_ref().map_or(0, |x| x.as_ptr() as u64),
+            //src_ptr: if let Some(src) = src { src.as_ptr() } else { std::ptr::null() } as u64,
             dst_ptr: dst.as_ptr() as u64,
             ..Default::default()
-        }))
+        }));
+
+        drop(src);
+        drop(dst);
+        res
     }
 }
 
