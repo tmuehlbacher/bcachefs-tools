@@ -1,3 +1,5 @@
+use std::io::{stdin, IsTerminal};
+
 use log::{info};
 use bch_bindgen::bcachefs::bch_sb_handle;
 use clap::builder::PossibleValue;
@@ -86,11 +88,11 @@ fn ask_for_key(sb: &bch_sb_handle) -> anyhow::Result<()> {
 
     let bch_key_magic = BCH_KEY_MAGIC.as_bytes().read_u64::<LittleEndian>().unwrap();
     let crypt = sb.sb().crypt().unwrap();
-    let pass = if atty::is(atty::Stream::Stdin) {
+    let pass = if stdin().is_terminal() {
         rpassword::prompt_password("Enter passphrase: ")?
     } else {
         let mut line = String::new();
-        std::io::stdin().read_line(&mut line)?;
+        stdin().read_line(&mut line)?;
         line
     };
     let pass = std::ffi::CString::new(pass.trim_end())?; // bind to keep the CString alive

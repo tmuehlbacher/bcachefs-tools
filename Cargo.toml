@@ -10,7 +10,6 @@ name = "bcachefs"
 path = "src/bcachefs.rs"
 
 [dependencies]
-atty = "0.2.14"
 log = { version = "0.4", features = ["std"] }
 colored = "2"
 clap = { version = "4.0.32", features = ["derive", "wrap_help"] }

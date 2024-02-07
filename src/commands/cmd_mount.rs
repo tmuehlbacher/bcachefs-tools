@@ -1,8 +1,8 @@
-use atty::Stream;
 use bch_bindgen::{bcachefs, bcachefs::bch_sb_handle, opt_set};
 use log::{info, debug, error, LevelFilter};
 use clap::{Parser};
 use uuid::Uuid;
+use std::io::{stdout, IsTerminal};
 use std::path::PathBuf;
 use crate::key;
 use crate::key::KeyLocation;
@@ -150,7 +150,7 @@ pub struct Cli {
     options:        String,
 
     /// Force color on/off. Default: autodetect tty
-    #[arg(short, long, action = clap::ArgAction::Set, default_value_t=atty::is(Stream::Stdout))]
+    #[arg(short, long, action = clap::ArgAction::Set, default_value_t=stdout().is_terminal())]
     colorize:       bool,
 
     /// Verbose mode
