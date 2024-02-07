@@ -21,6 +21,10 @@ impl std::fmt::Display for ErrnoError {
 
 impl std::error::Error for ErrnoError {}
 
+fn to_mut<T>(p: *const T) -> *mut T {
+    p as *mut T
+}
+
 fn handle_c_command(args: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
     let mut argv: Vec<_> = args.clone();
 
@@ -35,8 +39,8 @@ fn handle_c_command(args: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
         .iter()
         .map(|s| CString::new(s.as_str()).unwrap())
         .collect();
-    let argv: Vec<_> = argv.iter().map(|s| s.as_ptr()).collect();
-    let argv = argv.as_ptr() as *mut *mut i8;
+    let mut argv: Vec<_> = argv.iter().map(|s| to_mut(s.as_ptr())).collect();
+    let argv = argv.as_mut_ptr();
 
     // The C functions will mutate argv. It shouldn't be used after this block.
     unsafe {
