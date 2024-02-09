@@ -113,7 +113,7 @@ pub struct Cli {
     mode:       Mode,
 
     /// Check (fsck) the filesystem first
-    #[arg(short, long, default_value_t=false)]
+    #[arg(short, long)]
     fsck:       bool,
 
     /// Force color on/off. Default: autodetect tty

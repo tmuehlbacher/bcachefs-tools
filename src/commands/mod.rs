@@ -18,6 +18,7 @@ enum Subcommands {
     List(cmd_list::Cli),
     Mount(cmd_mount::Cli),
     Completions(cmd_completions::Cli),
+    #[command(visible_aliases = ["subvol"])]
     Subvolume(cmd_subvolume::Cli),
 }
 
