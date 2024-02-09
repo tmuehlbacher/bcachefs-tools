@@ -14,15 +14,19 @@ pub struct Cli {
 /// Subvolumes-related commands
 #[derive(Subcommand, Debug)]
 enum Subcommands {
+    #[command(visible_aliases = ["new"])]
     Create {
         /// Paths
         targets: Vec<PathBuf>
     },
+
+    #[command(visible_aliases = ["del"])]
     Delete {
         /// Path
         target: PathBuf
     },
-    #[command(allow_missing_positional = true)]
+
+    #[command(allow_missing_positional = true, visible_aliases = ["snap"])]
     Snapshot {
         /// Make snapshot read only
         #[arg(long, short)]
