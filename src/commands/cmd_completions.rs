@@ -3,7 +3,7 @@ use clap_complete::{generate, Generator, Shell};
 use std::io;
 
 /// Generate shell completions
-#[derive(clap::Parser, Debug)]
+#[derive(Parser, Debug)]
 pub struct Cli {
     shell: Shell,
 }

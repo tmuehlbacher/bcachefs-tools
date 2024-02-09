@@ -25,7 +25,7 @@ enum Subcommands {
     #[command(allow_missing_positional = true)]
     Snapshot {
         /// Make snapshot read only
-        #[arg(long, short = 'r')]
+        #[arg(long, short)]
         read_only: bool,
         source: Option<PathBuf>,
         dest: PathBuf
