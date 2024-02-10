@@ -102,6 +102,8 @@ EXPORT_SYMBOL_GPL(mean_and_variance_get_stddev);
  * mean_and_variance_weighted_update() - exponentially weighted variant of mean_and_variance_update()
  * @s: mean and variance number of samples and their sums
  * @x: new value to include in the &mean_and_variance_weighted
+ * @initted: caller must track whether this is the first use or not
+ * @weight: ewma weight
  *
  * see linked pdf: function derived from equations 140-143 where alpha = 2^w.
  * values are stored bitshifted for performance and added precision.
@@ -132,6 +134,7 @@ EXPORT_SYMBOL_GPL(mean_and_variance_weighted_update);
 /**
  * mean_and_variance_weighted_get_mean() - get mean from @s
  * @s: mean and variance number of samples and their sums
+ * @weight: ewma weight
  */
 s64 mean_and_variance_weighted_get_mean(struct mean_and_variance_weighted s,
 		u8 weight)
@@ -143,6 +146,7 @@ EXPORT_SYMBOL_GPL(mean_and_variance_weighted_get_mean);
 /**
  * mean_and_variance_weighted_get_variance() -- get variance from @s
  * @s: mean and variance number of samples and their sums
+ * @weight: ewma weight
  */
 u64 mean_and_variance_weighted_get_variance(struct mean_and_variance_weighted s,
 		u8 weight)
@@ -155,6 +159,7 @@ EXPORT_SYMBOL_GPL(mean_and_variance_weighted_get_variance);
 /**
  * mean_and_variance_weighted_get_stddev() - get standard deviation from @s
  * @s: mean and variance number of samples and their sums
+ * @weight: ewma weight
  */
 u32 mean_and_variance_weighted_get_stddev(struct mean_and_variance_weighted s,
 		u8 weight)
