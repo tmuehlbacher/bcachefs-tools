@@ -97,6 +97,7 @@ int cmd_kill_btree_node(int argc, char *argv[])
 					goto done;
 				}
 			}
+			ret = 0;
 			goto done;
 		}
 
