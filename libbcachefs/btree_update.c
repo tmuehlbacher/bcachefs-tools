@@ -217,7 +217,8 @@ overwrite_interior_snapshot_key(struct btree_trans *trans,
 		return ret;
 
 	if (!bkey_deleted(old.k)) {
-		if (old.k->p.snapshot != k->k.p.snapshot) {
+		if (btree_type_snapshots_unreffed(iter->btree_id) &&
+		    old.k->p.snapshot != k->k.p.snapshot) {
 			/*
 			 * We're overwriting a key in a different snapshot:
 			 * check if it's also been overwritten in siblings

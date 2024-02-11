@@ -705,6 +705,17 @@ static inline bool btree_type_has_snapshots(enum btree_id id)
 	return (1U << id) & mask;
 }
 
+static inline bool btree_type_snapshots_unreffed(enum btree_id id)
+{
+	const unsigned mask = 0
+#define x(name, nr, flags, ...)	|((!!((flags) & BTREE_ID_SNAPSHOTS_UNREFFED)) << nr)
+	BCH_BTREE_IDS()
+#undef x
+	;
+
+	return (1U << id) & mask;
+}
+
 static inline bool btree_type_has_snapshot_field(enum btree_id id)
 {
 	const unsigned mask = 0

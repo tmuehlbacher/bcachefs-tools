@@ -1699,10 +1699,10 @@ static int check_dirent_target(struct btree_trans *trans,
 		bkey_reassemble(&n->k_i, d.s_c);
 		n->v.d_type = inode_d_type(target);
 		if (n->v.d_type == DT_SUBVOL) {
-			n->v.d_parent_subvol = target->bi_parent_subvol;
-			n->v.d_child_subvol = target->bi_subvol;
+			n->v.d_parent_subvol = cpu_to_le32(target->bi_parent_subvol);
+			n->v.d_child_subvol = cpu_to_le32(target->bi_subvol);
 		} else {
-			n->v.d_inum = target->bi_inum;
+			n->v.d_inum = cpu_to_le64(target->bi_inum);
 		}
 
 		ret = bch2_trans_update(trans, iter, &n->k_i, 0);
@@ -1809,7 +1809,7 @@ static int check_dirent_to_subvol(struct btree_trans *trans, struct btree_iter *
 		if (ret)
 			goto err;
 
-		n->v.fs_path_parent = le32_to_cpu(parent_subvol);
+		n->v.fs_path_parent = cpu_to_le32(parent_subvol);
 	}
 
 	u64 target_inum = le64_to_cpu(s.v->inode);

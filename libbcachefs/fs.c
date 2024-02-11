@@ -710,7 +710,7 @@ err:
 			   src_inode,
 			   dst_inode);
 
-	return ret;
+	return bch2_err_class(ret);
 }
 
 static void bch2_setattr_copy(struct mnt_idmap *idmap,
