@@ -6,6 +6,7 @@
 #include "libbcachefs/error.h"
 #include "libbcachefs.h"
 #include "libbcachefs/super.h"
+#include "libbcachefs/super-io.h"
 #include "tools-util.h"
 
 static void fsck_usage(void)
@@ -68,10 +69,13 @@ static int splice_fd_to_stdinout(int fd)
 
 		select(fd + 1, &fds, NULL, NULL, NULL);
 
-		int r = do_splice(fd, STDOUT_FILENO) ?:
-			do_splice(STDIN_FILENO, fd);
+		int r = do_splice(fd, STDOUT_FILENO);
 		if (r)
 			return r < 0 ? r : 0;
+
+		r = do_splice(STDIN_FILENO, fd);
+		if (r < 0)
+			return r;
 	}
 
 	return 0;
@@ -98,16 +102,64 @@ static void append_opt(struct printbuf *out, const char *opt)
 	prt_str(out, opt);
 }
 
+static bool should_use_kernel_fsck(darray_str devs)
+{
+	unsigned kernel_version = !access("/sys/module/bcachefs/parameters/version", R_OK)
+	    ? read_file_u64(AT_FDCWD, "/sys/module/bcachefs/parameters/version")
+	    : 0;
+
+	if (!kernel_version)
+		return false;
+
+	if (kernel_version == bcachefs_metadata_version_current)
+		return false;
+
+	struct bch_opts opts = bch2_opts_empty();
+	opt_set(opts, nostart, true);
+	opt_set(opts, noexcl, true);
+	opt_set(opts, nochanges, true);
+	opt_set(opts, read_only, true);
+
+	struct bch_fs *c = bch2_fs_open(devs.data, devs.nr, opts);
+	if (IS_ERR(c))
+		return false;
+
+	bool ret = ((bcachefs_metadata_version_current < kernel_version &&
+		     kernel_version <= c->sb.version) ||
+		    (c->sb.version <= kernel_version &&
+		     kernel_version < bcachefs_metadata_version_current));
+
+	if (ret) {
+		struct printbuf buf = PRINTBUF;
+
+		prt_str(&buf, "fsck binary is version ");
+		bch2_version_to_text(&buf, bcachefs_metadata_version_current);
+		prt_str(&buf, " but filesystem is ");
+		bch2_version_to_text(&buf, c->sb.version);
+		prt_str(&buf, " and kernel is ");
+		bch2_version_to_text(&buf, kernel_version);
+		prt_str(&buf, ", using kernel fsck\n");
+
+		printf("%s", buf.buf);
+		printbuf_exit(&buf);
+	}
+
+	bch2_fs_stop(c);
+
+	return ret;
+}
+
 int cmd_fsck(int argc, char *argv[])
 {
 	static const struct option longopts[] = {
 		{ "ratelimit_errors",	no_argument,		NULL, 'r' },
 		{ "reconstruct_alloc",	no_argument,		NULL, 'R' },
 		{ "kernel",		no_argument,		NULL, 'k' },
+		{ "no-kernel",		no_argument,		NULL, 'K' },
 		{ "help",		no_argument,		NULL, 'h' },
 		{ NULL }
 	};
-	bool kernel = false;
+	int kernel = -1; /* unset */
 	int opt, ret = 0;
 	struct printbuf opts_str = PRINTBUF;
 
@@ -144,6 +196,9 @@ int cmd_fsck(int argc, char *argv[])
 		case 'k':
 			kernel = true;
 			break;
+		case 'K':
+			kernel = false;
+			break;
 		case 'v':
 			append_opt(&opts_str, "verbose");
 			break;
@@ -159,6 +214,9 @@ int cmd_fsck(int argc, char *argv[])
 	}
 
 	darray_str devs = get_or_split_cmdline_devs(argc, argv);
+
+	if (kernel < 0)
+		kernel = should_use_kernel_fsck(devs);
 
 	if (!kernel) {
 		struct bch_opts opts = bch2_opts_empty();
