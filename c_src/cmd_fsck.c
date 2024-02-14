@@ -215,10 +215,32 @@ int cmd_fsck(int argc, char *argv[])
 
 	darray_str devs = get_or_split_cmdline_devs(argc, argv);
 
-	if (kernel < 0)
-		kernel = should_use_kernel_fsck(devs);
+	int kernel_probed = kernel;
+	if (kernel_probed < 0)
+		kernel_probed = should_use_kernel_fsck(devs);
 
-	if (!kernel) {
+	if (kernel_probed) {
+		struct bch_ioctl_fsck_offline *fsck = calloc(sizeof(*fsck) +
+							     sizeof(u64) * devs.nr, 1);
+
+		fsck->opts = (unsigned long)opts_str.buf;
+		darray_for_each(devs, i)
+			fsck->devs[i - devs.data] = (unsigned long) *i;
+		fsck->nr_devs = devs.nr;
+
+		int ctl_fd = bcachectl_open();
+		int fsck_fd = ioctl(ctl_fd, BCH_IOCTL_FSCK_OFFLINE, fsck);
+		free(fsck);
+
+		if (fsck_fd < 0 && kernel < 0)
+			goto userland_fsck;
+
+		if (fsck_fd < 0)
+			die("BCH_IOCTL_FSCK_OFFLINE error: %s", bch2_err_str(fsck_fd));
+
+		ret = splice_fd_to_stdinout(fsck_fd);
+	} else {
+userland_fsck:
 		struct bch_opts opts = bch2_opts_empty();
 		ret = bch2_parse_mount_opts(NULL, &opts, opts_str.buf);
 		if (ret)
@@ -242,23 +264,6 @@ int cmd_fsck(int argc, char *argv[])
 		}
 
 		bch2_fs_stop(c);
-	} else {
-		struct bch_ioctl_fsck_offline *fsck = calloc(sizeof(*fsck) +
-							     sizeof(u64) * devs.nr, 1);
-
-		fsck->opts = (unsigned long)opts_str.buf;
-		darray_for_each(devs, i)
-			fsck->devs[i - devs.data] = (unsigned long) *i;
-		fsck->nr_devs = devs.nr;
-
-		int ctl_fd = bcachectl_open();
-
-		int fsck_fd = ioctl(ctl_fd, BCH_IOCTL_FSCK_OFFLINE, fsck);
-		if (fsck_fd < 0)
-			die("BCH_IOCTL_FSCK_OFFLINE error: %s", bch2_err_str(fsck_fd));
-
-		ret = splice_fd_to_stdinout(fsck_fd);
-		free(fsck);
 	}
 
 	printbuf_exit(&opts_str);
