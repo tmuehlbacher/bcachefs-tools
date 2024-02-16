@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <uuid/uuid.h>
 
@@ -6,6 +7,7 @@
 #include "libbcachefs/checksum.h"
 #include "crypto.h"
 #include "libbcachefs.h"
+#include "tools-util.h"
 
 static void unlock_usage(void)
 {
@@ -16,6 +18,7 @@ static void unlock_usage(void)
 	     "  -c                     Check if a device is encrypted\n"
 	     "  -k (session|user|user_session)\n"
 	     "                         Keyring to add to (default: user)\n"
+	     "  -f                     Keyfile to read from (disables password prompt)\n"
 	     "  -h                     Display this help and exit\n"
 	     "Report bugs to <linux-bcachefs@vger.kernel.org>");
 }
@@ -24,15 +27,21 @@ int cmd_unlock(int argc, char *argv[])
 {
 	const char *keyring = "user";
 	bool check = false;
+	const char *key_file_path = NULL;
+	char *passphrase = NULL;
+
 	int opt;
 
-	while ((opt = getopt(argc, argv, "ck:h")) != -1)
+	while ((opt = getopt(argc, argv, "cf:k:h")) != -1)
 		switch (opt) {
 		case 'c':
 			check = true;
 			break;
 		case 'k':
 			keyring = strdup(optarg);
+			break;
+		case 'f':
+			key_file_path = strdup(optarg);
 			break;
 		case 'h':
 			unlock_usage();
@@ -62,8 +71,11 @@ int cmd_unlock(int argc, char *argv[])
 
 	if (check)
 		exit(EXIT_SUCCESS);
-
-	char *passphrase = read_passphrase("Enter passphrase: ");
+	if (key_file_path){
+		passphrase = read_file_str(AT_FDCWD, key_file_path);
+	} else {
+		passphrase = read_passphrase("Enter passphrase: ");
+	}
 
 	bch2_add_key(sb.sb, "user", keyring, passphrase);
 
