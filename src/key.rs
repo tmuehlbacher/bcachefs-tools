@@ -1,6 +1,6 @@
 use std::{fmt, fs, io::{stdin, IsTerminal}};
 
-use log::{info};
+use log::info;
 use bch_bindgen::bcachefs::bch_sb_handle;
 use clap::builder::PossibleValue;
 use crate::c_str;

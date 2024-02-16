@@ -1,6 +1,6 @@
 use bch_bindgen::{bcachefs, bcachefs::bch_sb_handle, opt_set};
 use log::{info, debug, error, LevelFilter};
-use clap::{Parser};
+use clap::Parser;
 use uuid::Uuid;
 use std::io::{stdout, IsTerminal};
 use std::path::PathBuf;
