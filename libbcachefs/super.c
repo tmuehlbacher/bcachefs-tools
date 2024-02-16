@@ -87,6 +87,23 @@ const char * const bch2_fs_flag_strs[] = {
 	NULL
 };
 
+void bch2_print_opts(struct bch_opts *opts, const char *fmt, ...)
+{
+	struct stdio_redirect *stdio = (void *)(unsigned long)opts->stdio;
+
+	va_list args;
+	va_start(args, fmt);
+	if (likely(!stdio)) {
+		vprintk(fmt, args);
+	} else {
+		if (fmt[0] == KERN_SOH[0])
+			fmt += 2;
+
+		stdio_redirect_vprintf(stdio, true, fmt, args);
+	}
+	va_end(args);
+}
+
 void __bch2_print(struct bch_fs *c, const char *fmt, ...)
 {
 	struct stdio_redirect *stdio = bch2_fs_stdio_redirect(c);
@@ -1592,27 +1609,27 @@ int bch2_dev_remove(struct bch_fs *c, struct bch_dev *ca, int flags)
 	__bch2_dev_read_only(c, ca);
 
 	ret = bch2_dev_data_drop(c, ca->dev_idx, flags);
-	bch_err_msg(ca, ret, "dropping data");
+	bch_err_msg(ca, ret, "bch2_dev_data_drop()");
 	if (ret)
 		goto err;
 
 	ret = bch2_dev_remove_alloc(c, ca);
-	bch_err_msg(ca, ret, "deleting alloc info");
+	bch_err_msg(ca, ret, "bch2_dev_remove_alloc()");
 	if (ret)
 		goto err;
 
 	ret = bch2_journal_flush_device_pins(&c->journal, ca->dev_idx);
-	bch_err_msg(ca, ret, "flushing journal");
+	bch_err_msg(ca, ret, "bch2_journal_flush_device_pins()");
 	if (ret)
 		goto err;
 
 	ret = bch2_journal_flush(&c->journal);
-	bch_err(ca, "journal error");
+	bch_err_msg(ca, ret, "bch2_journal_flush()");
 	if (ret)
 		goto err;
 
 	ret = bch2_replicas_gc2(c);
-	bch_err_msg(ca, ret, "in replicas_gc2()");
+	bch_err_msg(ca, ret, "bch2_replicas_gc2()");
 	if (ret)
 		goto err;
 

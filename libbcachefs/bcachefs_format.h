@@ -222,7 +222,36 @@ struct bkey {
 
 	__u8		pad[1];
 #endif
-} __packed __aligned(8);
+} __packed
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+/*
+ * The big-endian version of bkey can't be compiled by rustc with the "aligned"
+ * attr since it doesn't allow types to have both "packed" and "aligned" attrs.
+ * So for Rust compatibility, don't include this. It can be included in the LE
+ * version because the "packed" attr is redundant in that case.
+ *
+ * History: (quoting Kent)
+ *
+ * Specifically, when i was designing bkey, I wanted the header to be no
+ * bigger than necessary so that bkey_packed could use the rest. That means that
+ * decently offten extent keys will fit into only 8 bytes, instead of spilling over
+ * to 16.
+ *
+ * But packed_bkey treats the part after the header - the packed section -
+ * as a single multi word, variable length integer. And bkey, the unpacked
+ * version, is just a special case version of a bkey_packed; all the packed
+ * bkey code will work on keys in any packed format, the in-memory
+ * representation of an unpacked key also is just one type of packed key...
+ *
+ * So that constrains the key part of a bkig endian bkey to start right
+ * after the header.
+ *
+ * If we ever do a bkey_v2 and need to expand the hedaer by another byte for
+ * some reason - that will clean up this wart.
+ */
+__aligned(8)
+#endif
+;
 
 struct bkey_packed {
 	__u64		_data[0];
@@ -1426,17 +1455,14 @@ LE32_BITMASK(JSET_NO_FLUSH,	struct jset, flags, 5, 6);
 /* Btree: */
 
 enum btree_id_flags {
-	/* key size field is nonzero, btree iterators handle as ranges  */
-	BTREE_ID_EXTENTS		= BIT(0),
-	BTREE_ID_SNAPSHOTS		= BIT(1),
-	BTREE_ID_SNAPSHOT_FIELD		= BIT(2),
-	BTREE_ID_SNAPSHOTS_UNREFFED	= BIT(3),
-	BTREE_ID_DATA			= BIT(3),
+	BTREE_ID_EXTENTS	= BIT(0),
+	BTREE_ID_SNAPSHOTS	= BIT(1),
+	BTREE_ID_SNAPSHOT_FIELD	= BIT(2),
+	BTREE_ID_DATA		= BIT(3),
 };
 
 #define BCH_BTREE_IDS()								\
-	x(extents,		0,	BTREE_ID_EXTENTS|BTREE_ID_SNAPSHOTS|	\
-					BTREE_ID_SNAPSHOTS_UNREFFED|BTREE_ID_DATA,\
+	x(extents,		0,	BTREE_ID_EXTENTS|BTREE_ID_SNAPSHOTS|BTREE_ID_DATA,\
 	  BIT_ULL(KEY_TYPE_whiteout)|						\
 	  BIT_ULL(KEY_TYPE_error)|						\
 	  BIT_ULL(KEY_TYPE_cookie)|						\
@@ -1454,7 +1480,7 @@ enum btree_id_flags {
 	  BIT_ULL(KEY_TYPE_whiteout)|						\
 	  BIT_ULL(KEY_TYPE_hash_whiteout)|					\
 	  BIT_ULL(KEY_TYPE_dirent))						\
-	x(xattrs,		3,	BTREE_ID_SNAPSHOTS|BTREE_ID_SNAPSHOTS_UNREFFED,\
+	x(xattrs,		3,	BTREE_ID_SNAPSHOTS,			\
 	  BIT_ULL(KEY_TYPE_whiteout)|						\
 	  BIT_ULL(KEY_TYPE_cookie)|						\
 	  BIT_ULL(KEY_TYPE_hash_whiteout)|					\
