@@ -64,6 +64,7 @@ fn main() {
         .allowlist_function("printbuf.*")
         .blocklist_type("rhash_lock_head")
         .blocklist_type("srcu_struct")
+        .blocklist_type("bch_ioctl_data.*")
         .allowlist_var("BCH_.*")
         .allowlist_var("KEY_SPEC_.*")
         .allowlist_var("Fix753_.*")
@@ -121,14 +122,42 @@ fn main() {
 }
 
 // rustc has a limitation where it does not allow structs with a "packed" attribute to contain a
-// member with an "align(N)" attribute. There is one type in bcachefs with this issue:
-// struct btree_node.
+// member with an "align(N)" attribute. There are a few types in bcachefs with this problem. We can
+// "fix" these types by stripping off "packed" from the outer type, or "align(N)" from the inner
+// type. For all of the affected types, stripping "packed" from the outer type happens to preserve
+// the same layout in Rust as in C.
 //
-// Luckily, it happens that this type does not need the "packed(N)" attribute in Rust to have the
-// same ABI as C, so we can strip it off the bindgen output.
+// Some types are only affected on attributes on architectures where the natural alignment of u64
+// is 4 instead of 8, for example i686 or ppc64: struct bch_csum and struct bch_sb_layout have
+// "align(8)" added on such architecutres. These types are included by several "packed" types:
+//   - bch_extent_crc128
+//   - jset
+//   - btree_node_entry
+//   - bch_sb
+//
+// TODO: find a way to conditionally include arch-specific modifications when compiling for that
+// target arch. Regular conditional compilation won't work here since build scripts are always
+// compiled for the host arch, not the target arch, so that won't work when cross-compiling.
 fn packed_and_align_fix(bindings: std::string::String) -> std::string::String {
-    bindings.replace(
-        "#[repr(C, packed(8))]\npub struct btree_node {",
-        "#[repr(C, align(8))]\npub struct btree_node {",
-    )
+    bindings
+        .replace(
+            "#[repr(C, packed(8))]\npub struct btree_node {",
+            "#[repr(C, align(8))]\npub struct btree_node {",
+        )
+        .replace(
+            "#[repr(C, packed(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bch_extent_crc128 {",
+            "#[repr(C, align(8))]\n#[derive(Debug, Default, Copy, Clone)]\npub struct bch_extent_crc128 {",
+        )
+        .replace(
+            "#[repr(C, packed(8))]\npub struct jset {",
+            "#[repr(C, align(8))]\npub struct jset {",
+        )
+        .replace(
+            "#[repr(C, packed(8))]\npub struct btree_node_entry {",
+            "#[repr(C, align(8))]\npub struct btree_node_entry {",
+        )
+        .replace(
+            "#[repr(C, packed(8))]\npub struct bch_sb {",
+            "#[repr(C, align(8))]\npub struct bch_sb {",
+        )
 }
