@@ -128,6 +128,14 @@ fn get_devices_by_uuid(uuid: Uuid) -> anyhow::Result<Vec<(PathBuf, bch_sb_handle
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
+    /// Path to password key file
+    ///
+    /// Precedes key_location: if the filesystem can be decrypted by the
+    /// specified key_file; it is decrypted. (i.e. Regardless if "fail"
+    /// is specified for key_location.)
+    #[arg(short = 'f', long)]
+    key_file:       Option<PathBuf>,
+
     /// Where the password would be loaded from.
     ///
     /// Possible values are:
@@ -143,7 +151,7 @@ pub struct Cli {
     /// Where the filesystem should be mounted. If not set, then the filesystem
     /// won't actually be mounted. But all steps preceeding mounting the
     /// filesystem (e.g. asking for passphrase) will still be performed.
-    mountpoint:     Option<std::path::PathBuf>,
+    mountpoint:     Option<PathBuf>,
 
     /// Mount options
     #[arg(short, default_value = "")]
@@ -196,8 +204,31 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
 
     if sbs.len() == 0 {
         Err(anyhow::anyhow!("No device found from specified parameters"))?;
-    } else if unsafe { bcachefs::bch2_sb_is_encrypted(sbs[0].sb) } {
-        key::prepare_key(&sbs[0], opt.key_location)?;
+    }
+    // Check if the filesystem's master key is encrypted
+    if unsafe { bcachefs::bch2_sb_is_encrypted(sbs[0].sb) } {
+        // Filesystem's master key is encrypted, attempt to decrypt
+        // First by key_file, if available
+        let fallback_to_prepare_key = if let Some(key_file) = &opt.key_file {
+            match key::read_from_key_file(&sbs[0], key_file.as_path()) {
+                Ok(()) => {
+                    // Decryption succeeded
+                    false
+                }
+                Err(err) => {
+                    // Decryption failed, fall back to prepare_key
+                    error!("Failed to decrypt using key_file: {}", err);
+                    true
+                }
+            }
+        } else {
+            // No key_file specified, fall back to prepare_key
+            true
+        };
+        // If decryption by key_file was unsuccesful, prompt for password (or follow key_policy)
+        if fallback_to_prepare_key {
+            key::prepare_key(&sbs[0], opt.key_location)?;
+        };
     }
 
     if let Some(mountpoint) = opt.mountpoint {

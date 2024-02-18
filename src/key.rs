@@ -1,4 +1,4 @@
-use std::{fmt, io::{stdin, IsTerminal}};
+use std::{fmt, fs, io::{stdin, IsTerminal}};
 
 use log::{info};
 use bch_bindgen::bcachefs::bch_sb_handle;
@@ -148,6 +148,16 @@ fn decrypt_master_key(sb: &bch_sb_handle, pass: String) -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+pub fn read_from_key_file(sb: &bch_sb_handle, key_file: &std::path::Path) -> anyhow::Result<()> {
+    // Attempts to decrypt the master key by key_file
+    // Return true if decryption was successful, false otherwise
+    info!("Attempting to decrypt master key for filesystem {}, using key file {}", sb.sb().uuid(), key_file.display());
+    // Read the contents of the key file into a string
+    let pass = fs::read_to_string(key_file)?;
+    // Call decrypt_master_key with the read string
+    decrypt_master_key(sb, pass)
 }
 
 pub fn prepare_key(sb: &bch_sb_handle, password: KeyLocation) -> anyhow::Result<()> {
