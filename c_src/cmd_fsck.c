@@ -70,15 +70,17 @@ static int splice_fd_to_stdinout(int fd)
 		select(fd + 1, &fds, NULL, NULL, NULL);
 
 		int r = do_splice(fd, STDOUT_FILENO);
+		if (r < 0)
+			return r;
 		if (r)
-			return r < 0 ? r : 0;
+			break;
 
 		r = do_splice(STDIN_FILENO, fd);
 		if (r < 0)
 			return r;
 	}
 
-	return 0;
+	return close(fd);
 }
 
 static int fsck_online(const char *dev_path)
