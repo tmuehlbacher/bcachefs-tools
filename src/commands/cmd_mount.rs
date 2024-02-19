@@ -157,7 +157,7 @@ pub struct Cli {
     #[arg(short, default_value = "")]
     options:        String,
 
-    /// Force color on/off. Default: autodetect tty
+    /// Force color on/off. Autodetect tty is used to define default:
     #[arg(short, long, action = clap::ArgAction::Set, default_value_t=stdout().is_terminal())]
     colorize:       bool,
 
