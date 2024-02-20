@@ -185,32 +185,32 @@ fn devs_str_sbs_from_uuid(uuid: String) -> anyhow::Result<(String, Vec<bch_sb_ha
 }
 
 fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
-    let (devs, sbs) = if opt.dev.starts_with("UUID=") {
+    let (devices, block_devices_to_mount) = if opt.dev.starts_with("UUID=") {
         let uuid = opt.dev.replacen("UUID=", "", 1);
         devs_str_sbs_from_uuid(uuid)?
     } else if opt.dev.starts_with("OLD_BLKID_UUID=") {
         let uuid = opt.dev.replacen("OLD_BLKID_UUID=", "", 1);
         devs_str_sbs_from_uuid(uuid)?
     } else {
-        let mut sbs = Vec::new();
+        let mut block_devices_to_mount = Vec::new();
 
         for dev in opt.dev.split(':') {
             let dev = PathBuf::from(dev);
-            sbs.push(read_super_silent(&dev)?);
+            block_devices_to_mount.push(read_super_silent(&dev)?);
         }
 
-        (opt.dev, sbs)
+        (opt.dev, block_devices_to_mount)
     };
 
-    if sbs.len() == 0 {
+    if block_devices_to_mount.len() == 0 {
         Err(anyhow::anyhow!("No device found from specified parameters"))?;
     }
     // Check if the filesystem's master key is encrypted
-    if unsafe { bcachefs::bch2_sb_is_encrypted(sbs[0].sb) } {
+    if unsafe { bcachefs::bch2_sb_is_encrypted(block_devices_to_mount[0].sb) } {
         // Filesystem's master key is encrypted, attempt to decrypt
         // First by key_file, if available
         let fallback_to_prepare_key = if let Some(key_file) = &opt.key_file {
-            match key::read_from_key_file(&sbs[0], key_file.as_path()) {
+            match key::read_from_key_file(&block_devices_to_mount[0], key_file.as_path()) {
                 Ok(()) => {
                     // Decryption succeeded
                     false
@@ -227,23 +227,23 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
         };
         // If decryption by key_file was unsuccesful, prompt for password (or follow key_policy)
         if fallback_to_prepare_key {
-            key::prepare_key(&sbs[0], opt.key_location)?;
+            key::prepare_key(&block_devices_to_mount[0], opt.key_location)?;
         };
     }
 
     if let Some(mountpoint) = opt.mountpoint {
         info!(
             "mounting with params: device: {}, target: {}, options: {}",
-            devs,
+            devices,
             mountpoint.to_string_lossy(),
             &opt.options
         );
 
-        mount(devs, mountpoint, &opt.options)?;
+        mount(devices, mountpoint, &opt.options)?;
     } else {
         info!(
             "would mount with params: device: {}, options: {}",
-            devs,
+            devices,
             &opt.options
         );
     }
