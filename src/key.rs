@@ -22,7 +22,7 @@ impl std::str::FromStr for KeyPolicy {
             "fail"    => Ok(KeyPolicy::Fail),
             "wait"    => Ok(KeyPolicy::Wait),
             "ask"     => Ok(KeyPolicy::Ask),
-            _         => Err(anyhow!("invalid password option")),
+            _         => Err(anyhow!("Invalid key policy provided")),
         }
     }
 }
