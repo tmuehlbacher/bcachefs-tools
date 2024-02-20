@@ -150,22 +150,22 @@ fn decrypt_master_key(sb: &bch_sb_handle, pass: String) -> anyhow::Result<()> {
     }
 }
 
-pub fn read_from_key_file(sb: &bch_sb_handle, key_file: &std::path::Path) -> anyhow::Result<()> {
+pub fn read_from_key_file(block_device: &bch_sb_handle, key_file: &std::path::Path) -> anyhow::Result<()> {
     // Attempts to decrypt the master key by key_file
     // Return true if decryption was successful, false otherwise
-    info!("Attempting to decrypt master key for filesystem {}, using key file {}", sb.sb().uuid(), key_file.display());
+    info!("Attempting to decrypt master key for filesystem {}, using key file {}", block_device.sb().uuid(), key_file.display());
     // Read the contents of the key file into a string
     let pass = fs::read_to_string(key_file)?;
     // Call decrypt_master_key with the read string
-    decrypt_master_key(sb, pass)
+    decrypt_master_key(block_device, pass)
 }
 
-pub fn prepare_key(sb: &bch_sb_handle, password_policy: KeyPolicy) -> anyhow::Result<()> {
-    info!("Attempting to decrypt master key for filesystem {}, using key policy {}", sb.sb().uuid(), password_policy);
+pub fn prepare_key(block_device: &bch_sb_handle, password_policy: KeyPolicy) -> anyhow::Result<()> {
+    info!("Attempting to decrypt master key for filesystem {}, using key policy {}", block_device.sb().uuid(), password_policy);
     match password_policy {
         KeyPolicy::Fail => Err(anyhow!("no key available")),
-        KeyPolicy::Wait => Ok(wait_for_key(&sb.sb().uuid())?),
-        KeyPolicy::Ask => ask_for_key(sb),
+        KeyPolicy::Wait => Ok(wait_for_key(&block_device.sb().uuid())?),
+        KeyPolicy::Ask => ask_for_key(block_device),
         _ => Err(anyhow!("no keyoption specified for locked filesystem")),
     }
 }
