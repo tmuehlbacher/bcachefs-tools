@@ -65,7 +65,7 @@ fn check_for_key(key_name: &std::ffi::CStr) -> anyhow::Result<bool> {
 
     let key_id = unsafe { keyctl_search(keyutils::KEY_SPEC_USER_KEYRING, key_type, key_name, 0) };
     if key_id > 0 {
-        info!("Key has became available");
+        info!("Key has become available");
         Ok(true)
     } else {
         match errno::errno().0 {
