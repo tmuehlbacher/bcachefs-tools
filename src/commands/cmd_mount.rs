@@ -5,7 +5,7 @@ use uuid::Uuid;
 use std::io::{stdout, IsTerminal};
 use std::path::PathBuf;
 use crate::key;
-use crate::key::KeyLocation;
+use crate::key::KeyPolicy;
 use std::ffi::{CString, c_char, c_void};
 use std::os::unix::ffi::OsStrExt;
 
@@ -136,14 +136,14 @@ pub struct Cli {
     #[arg(short = 'f', long)]
     key_file:       Option<PathBuf>,
 
-    /// Where the password would be loaded from.
+    /// Password policy to use in case of encrypted filesystem.
     ///
     /// Possible values are:
     /// "fail" - don't ask for password, fail if filesystem is encrypted;
     /// "wait" - wait for password to become available before mounting;
     /// "ask" -  prompt the user for password;
-    #[arg(short, long, default_value = "ask", verbatim_doc_comment)]
-    key_location:   KeyLocation,
+    #[arg(short = 'k', long = "key_location", default_value = "ask", verbatim_doc_comment)]
+    key_policy:     KeyPolicy,
 
     /// Device, or UUID=\<UUID\>
     dev:            String,
@@ -227,7 +227,7 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
         };
         // If decryption by key_file was unsuccesful, prompt for password (or follow key_policy)
         if fallback_to_prepare_key {
-            key::prepare_key(&block_devices_to_mount[0], opt.key_location)?;
+            key::prepare_key(&block_devices_to_mount[0], opt.key_policy)?;
         };
     }
 

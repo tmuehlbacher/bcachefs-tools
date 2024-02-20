@@ -7,33 +7,33 @@ use crate::c_str;
 use anyhow::anyhow;
 
 #[derive(Clone, Debug)]
-pub enum KeyLocation {
+pub enum KeyPolicy {
     None,
     Fail,
     Wait,
     Ask,
 }
 
-impl std::str::FromStr for KeyLocation {
+impl std::str::FromStr for KeyPolicy {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> anyhow::Result<Self> {
         match s {
-            ""|"none" => Ok(KeyLocation::None),
-            "fail"    => Ok(KeyLocation::Fail),
-            "wait"    => Ok(KeyLocation::Wait),
-            "ask"     => Ok(KeyLocation::Ask),
+            ""|"none" => Ok(KeyPolicy::None),
+            "fail"    => Ok(KeyPolicy::Fail),
+            "wait"    => Ok(KeyPolicy::Wait),
+            "ask"     => Ok(KeyPolicy::Ask),
             _         => Err(anyhow!("invalid password option")),
         }
     }
 }
 
-impl clap::ValueEnum for KeyLocation {
+impl clap::ValueEnum for KeyPolicy {
     fn value_variants<'a>() -> &'a [Self] {
         &[
-            KeyLocation::None,
-            KeyLocation::Fail,
-            KeyLocation::Wait,
-            KeyLocation::Ask,
+            KeyPolicy::None,
+            KeyPolicy::Fail,
+            KeyPolicy::Wait,
+            KeyPolicy::Ask,
         ]
     }
 
@@ -47,13 +47,13 @@ impl clap::ValueEnum for KeyLocation {
     }
 }
 
-impl fmt::Display for KeyLocation {
+impl fmt::Display for KeyPolicy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            KeyLocation::None => write!(f, "None"),
-            KeyLocation::Fail => write!(f, "Fail"),
-            KeyLocation::Wait => write!(f, "Wait"),
-            KeyLocation::Ask => write!(f, "Ask"),
+            KeyPolicy::None => write!(f, "None"),
+            KeyPolicy::Fail => write!(f, "Fail"),
+            KeyPolicy::Wait => write!(f, "Wait"),
+            KeyPolicy::Ask => write!(f, "Ask"),
         }
     }
 }
@@ -160,12 +160,12 @@ pub fn read_from_key_file(sb: &bch_sb_handle, key_file: &std::path::Path) -> any
     decrypt_master_key(sb, pass)
 }
 
-pub fn prepare_key(sb: &bch_sb_handle, password: KeyLocation) -> anyhow::Result<()> {
-    info!("checking if key exists for filesystem {}", sb.sb().uuid());
+pub fn prepare_key(sb: &bch_sb_handle, password: KeyPolicy) -> anyhow::Result<()> {
+    info!("Attempting to decrypt master key for filesystem {}, using key policy {}", sb.sb().uuid(), password_policy);
     match password {
-        KeyLocation::Fail => Err(anyhow!("no key available")),
-        KeyLocation::Wait => Ok(wait_for_key(&sb.sb().uuid())?),
-        KeyLocation::Ask => ask_for_key(sb),
+        KeyPolicy::Fail => Err(anyhow!("no key available")),
+        KeyPolicy::Wait => Ok(wait_for_key(&sb.sb().uuid())?),
+        KeyPolicy::Ask => ask_for_key(sb),
         _ => Err(anyhow!("no keyoption specified for locked filesystem")),
     }
 }
