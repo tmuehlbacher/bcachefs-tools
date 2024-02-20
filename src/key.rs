@@ -160,9 +160,9 @@ pub fn read_from_key_file(sb: &bch_sb_handle, key_file: &std::path::Path) -> any
     decrypt_master_key(sb, pass)
 }
 
-pub fn prepare_key(sb: &bch_sb_handle, password: KeyPolicy) -> anyhow::Result<()> {
+pub fn prepare_key(sb: &bch_sb_handle, password_policy: KeyPolicy) -> anyhow::Result<()> {
     info!("Attempting to decrypt master key for filesystem {}, using key policy {}", sb.sb().uuid(), password_policy);
-    match password {
+    match password_policy {
         KeyPolicy::Fail => Err(anyhow!("no key available")),
         KeyPolicy::Wait => Ok(wait_for_key(&sb.sb().uuid())?),
         KeyPolicy::Ask => ask_for_key(sb),
