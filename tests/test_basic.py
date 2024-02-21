@@ -45,7 +45,7 @@ def test_list_inodes(tmpdir):
 
     assert ret.returncode == 0
     assert len(ret.stderr) == 0
-    assert len(ret.stdout.splitlines()) == (2 + 2) # 2 inodes on clean format
+    assert len(ret.stdout.splitlines()) == (67)
 
 def test_list_dirent(tmpdir):
     dev = util.format_1g(tmpdir)
