@@ -75,8 +75,19 @@ fn wait_for_key(uuid: &uuid::Uuid) -> anyhow::Result<()> {
     }
 }
 
-const BCH_KEY_MAGIC: &str = "bch**key";
 fn ask_for_key(sb: &bch_sb_handle) -> anyhow::Result<()> {
+    let pass = if stdin().is_terminal() {
+        rpassword::prompt_password("Enter passphrase: ")?
+    } else {
+        let mut line = String::new();
+        stdin().read_line(&mut line)?;
+        line
+    };
+    decrypt_master_key(sb, pass)
+}
+
+const BCH_KEY_MAGIC: &str = "bch**key";
+fn decrypt_master_key(sb: &bch_sb_handle, pass: String) -> anyhow::Result<()> {
     use bch_bindgen::bcachefs::{self, bch2_chacha_encrypt_key, bch_encrypted_key, bch_key};
     use byteorder::{LittleEndian, ReadBytesExt};
     use std::os::raw::c_char;
@@ -88,13 +99,6 @@ fn ask_for_key(sb: &bch_sb_handle) -> anyhow::Result<()> {
 
     let bch_key_magic = BCH_KEY_MAGIC.as_bytes().read_u64::<LittleEndian>().unwrap();
     let crypt = sb.sb().crypt().unwrap();
-    let pass = if stdin().is_terminal() {
-        rpassword::prompt_password("Enter passphrase: ")?
-    } else {
-        let mut line = String::new();
-        stdin().read_line(&mut line)?;
-        line
-    };
     let pass = std::ffi::CString::new(pass.trim_end())?; // bind to keep the CString alive
     let mut output: bch_key = unsafe {
         bcachefs::derive_passphrase(
