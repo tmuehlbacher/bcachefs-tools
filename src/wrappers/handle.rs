@@ -22,7 +22,7 @@ impl BcachefsHandle {
 
 /// I/O control commands that can be sent to a bcachefs filesystem
 /// Those are non-exhaustive 
-#[repr(u64)]
+#[repr(u32)]
 #[non_exhaustive]
 pub enum BcachefsIoctl {
     SubvolumeCreate = BCH_IOCTL_SUBVOLUME_CREATE,
@@ -47,7 +47,7 @@ impl BcachefsHandle {
     /// Type-safe [`libc::ioctl`] for bcachefs filesystems
     pub fn ioctl(&self, request: BcachefsIoctl, payload: &BcachefsIoctlPayload) -> Result<(), Errno> {
         let payload_ptr: *const libc::c_void = payload.into();
-        let ret = unsafe { libc::ioctl(self.inner.ioctl_fd, request as u64, payload_ptr) };
+        let ret = unsafe { libc::ioctl(self.inner.ioctl_fd, request as libc::Ioctl, payload_ptr) };
 
         if ret == -1 {
             Err(errno::errno())
