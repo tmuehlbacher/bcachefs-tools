@@ -1,4 +1,4 @@
-use std::io::{stdin, IsTerminal};
+use std::{fmt, io::{stdin, IsTerminal}};
 
 use log::{info};
 use bch_bindgen::bcachefs::bch_sb_handle;
@@ -44,6 +44,17 @@ impl clap::ValueEnum for KeyLocation {
             Self::Wait => PossibleValue::new("wait"),
             Self::Ask => PossibleValue::new("ask"),
         })
+    }
+}
+
+impl fmt::Display for KeyLocation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            KeyLocation::None => write!(f, "None"),
+            KeyLocation::Fail => write!(f, "Fail"),
+            KeyLocation::Wait => write!(f, "Wait"),
+            KeyLocation::Ask => write!(f, "Ask"),
+        }
     }
 }
 
