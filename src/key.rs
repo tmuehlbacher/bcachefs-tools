@@ -7,33 +7,33 @@ use crate::c_str;
 use anyhow::anyhow;
 
 #[derive(Clone, Debug)]
-pub enum KeyPolicy {
+pub enum UnlockPolicy {
     None,
     Fail,
     Wait,
     Ask,
 }
 
-impl std::str::FromStr for KeyPolicy {
+impl std::str::FromStr for UnlockPolicy {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> anyhow::Result<Self> {
         match s {
-            ""|"none" => Ok(KeyPolicy::None),
-            "fail"    => Ok(KeyPolicy::Fail),
-            "wait"    => Ok(KeyPolicy::Wait),
-            "ask"     => Ok(KeyPolicy::Ask),
-            _         => Err(anyhow!("Invalid key policy provided")),
+            ""|"none" => Ok(UnlockPolicy::None),
+            "fail"    => Ok(UnlockPolicy::Fail),
+            "wait"    => Ok(UnlockPolicy::Wait),
+            "ask"     => Ok(UnlockPolicy::Ask),
+            _         => Err(anyhow!("Invalid unlock policy provided")),
         }
     }
 }
 
-impl clap::ValueEnum for KeyPolicy {
+impl clap::ValueEnum for UnlockPolicy {
     fn value_variants<'a>() -> &'a [Self] {
         &[
-            KeyPolicy::None,
-            KeyPolicy::Fail,
-            KeyPolicy::Wait,
-            KeyPolicy::Ask,
+            UnlockPolicy::None,
+            UnlockPolicy::Fail,
+            UnlockPolicy::Wait,
+            UnlockPolicy::Ask,
         ]
     }
 
@@ -47,13 +47,13 @@ impl clap::ValueEnum for KeyPolicy {
     }
 }
 
-impl fmt::Display for KeyPolicy {
+impl fmt::Display for UnlockPolicy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            KeyPolicy::None => write!(f, "None"),
-            KeyPolicy::Fail => write!(f, "Fail"),
-            KeyPolicy::Wait => write!(f, "Wait"),
-            KeyPolicy::Ask => write!(f, "Ask"),
+            UnlockPolicy::None => write!(f, "None"),
+            UnlockPolicy::Fail => write!(f, "Fail"),
+            UnlockPolicy::Wait => write!(f, "Wait"),
+            UnlockPolicy::Ask => write!(f, "Ask"),
         }
     }
 }
@@ -75,7 +75,7 @@ fn check_for_key(key_name: &std::ffi::CStr) -> anyhow::Result<bool> {
     }
 }
 
-fn wait_for_key(uuid: &uuid::Uuid) -> anyhow::Result<()> {
+fn wait_for_unlock(uuid: &uuid::Uuid) -> anyhow::Result<()> {
     let key_name = std::ffi::CString::new(format!("bcachefs:{}", uuid)).unwrap();
     loop {
         if check_for_key(&key_name)? {
@@ -86,19 +86,19 @@ fn wait_for_key(uuid: &uuid::Uuid) -> anyhow::Result<()> {
     }
 }
 
-fn ask_for_key(sb: &bch_sb_handle) -> anyhow::Result<()> {
-    let pass = if stdin().is_terminal() {
+fn ask_for_passphrase(sb: &bch_sb_handle) -> anyhow::Result<()> {
+    let passphrase = if stdin().is_terminal() {
         rpassword::prompt_password("Enter passphrase: ")?
     } else {
         let mut line = String::new();
         stdin().read_line(&mut line)?;
         line
     };
-    decrypt_master_key(sb, pass)
+    unlock_master_key(sb, &passphrase)
 }
 
 const BCH_KEY_MAGIC: &str = "bch**key";
-fn decrypt_master_key(sb: &bch_sb_handle, pass: String) -> anyhow::Result<()> {
+fn unlock_master_key(sb: &bch_sb_handle, passphrase: &String) -> anyhow::Result<()> {
     use bch_bindgen::bcachefs::{self, bch2_chacha_encrypt_key, bch_encrypted_key, bch_key};
     use byteorder::{LittleEndian, ReadBytesExt};
     use std::os::raw::c_char;
@@ -110,11 +110,11 @@ fn decrypt_master_key(sb: &bch_sb_handle, pass: String) -> anyhow::Result<()> {
 
     let bch_key_magic = BCH_KEY_MAGIC.as_bytes().read_u64::<LittleEndian>().unwrap();
     let crypt = sb.sb().crypt().unwrap();
-    let pass = std::ffi::CString::new(pass.trim_end())?; // bind to keep the CString alive
+    let passphrase = std::ffi::CString::new(passphrase.trim_end())?; // bind to keep the CString alive
     let mut output: bch_key = unsafe {
         bcachefs::derive_passphrase(
             crypt as *const _ as *mut _,
-            pass.as_c_str().to_bytes_with_nul().as_ptr() as *const _,
+            passphrase.as_c_str().to_bytes_with_nul().as_ptr() as *const _,
         )
     };
 
@@ -150,22 +150,22 @@ fn decrypt_master_key(sb: &bch_sb_handle, pass: String) -> anyhow::Result<()> {
     }
 }
 
-pub fn read_from_key_file(block_device: &bch_sb_handle, key_file: &std::path::Path) -> anyhow::Result<()> {
-    // Attempts to decrypt the master key by key_file
-    // Return true if decryption was successful, false otherwise
-    info!("Attempting to decrypt master key for filesystem {}, using key file {}", block_device.sb().uuid(), key_file.display());
-    // Read the contents of the key file into a string
-    let pass = fs::read_to_string(key_file)?;
+pub fn read_from_passphrase_file(block_device: &bch_sb_handle, passphrase_file: &std::path::Path) -> anyhow::Result<()> {
+    // Attempts to unlock the master key by password_file
+    // Return true if unlock was successful, false otherwise
+    info!("Attempting to unlock master key for filesystem {}, using password from file {}", block_device.sb().uuid(), passphrase_file.display());
+    // Read the contents of the password_file into a string
+    let passphrase = fs::read_to_string(passphrase_file)?;
     // Call decrypt_master_key with the read string
-    decrypt_master_key(block_device, pass)
+    unlock_master_key(block_device, &passphrase)
 }
 
-pub fn prepare_key(block_device: &bch_sb_handle, password_policy: KeyPolicy) -> anyhow::Result<()> {
-    info!("Attempting to decrypt master key for filesystem {}, using key policy {}", block_device.sb().uuid(), password_policy);
-    match password_policy {
-        KeyPolicy::Fail => Err(anyhow!("no key available")),
-        KeyPolicy::Wait => Ok(wait_for_key(&block_device.sb().uuid())?),
-        KeyPolicy::Ask => ask_for_key(block_device),
-        _ => Err(anyhow!("no keyoption specified for locked filesystem")),
+pub fn apply_key_unlocking_policy(block_device: &bch_sb_handle, unlock_policy: UnlockPolicy) -> anyhow::Result<()> {
+    info!("Attempting to unlock master key for filesystem {}, using unlock policy {}", block_device.sb().uuid(), unlock_policy);
+    match unlock_policy {
+        UnlockPolicy::Fail => Err(anyhow!("no passphrase available")),
+        UnlockPolicy::Wait => Ok(wait_for_unlock(&block_device.sb().uuid())?),
+        UnlockPolicy::Ask => ask_for_passphrase(block_device),
+        _ => Err(anyhow!("no unlock policy specified for locked filesystem")),
     }
 }

@@ -5,7 +5,7 @@ use uuid::Uuid;
 use std::io::{stdout, IsTerminal};
 use std::path::PathBuf;
 use crate::key;
-use crate::key::KeyPolicy;
+use crate::key::UnlockPolicy;
 use std::ffi::{CString, c_char, c_void};
 use std::os::unix::ffi::OsStrExt;
 
@@ -128,13 +128,13 @@ fn get_devices_by_uuid(uuid: Uuid) -> anyhow::Result<Vec<(PathBuf, bch_sb_handle
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
-    /// Path to password key file
+    /// Path to passphrase/key file
     ///
-    /// Precedes key_location: if the filesystem can be decrypted by the
-    /// specified key_file; it is decrypted. (i.e. Regardless if "fail"
-    /// is specified for key_location.)
+    /// Precedes key_location/unlock_policy: if the filesystem can be decrypted
+    /// by the specified passphrase file; it is decrypted. (i.e. Regardless
+    /// if "fail" is specified for key_location/unlock_policy.)
     #[arg(short = 'f', long)]
-    key_file:       Option<PathBuf>,
+    passphrase_file:       Option<PathBuf>,
 
     /// Password policy to use in case of encrypted filesystem.
     ///
@@ -143,7 +143,7 @@ pub struct Cli {
     /// "wait" - wait for password to become available before mounting;
     /// "ask" -  prompt the user for password;
     #[arg(short = 'k', long = "key_location", default_value = "ask", verbatim_doc_comment)]
-    key_policy:     KeyPolicy,
+    unlock_policy:     UnlockPolicy,
 
     /// Device, or UUID=\<UUID\>
     dev:            String,
@@ -207,27 +207,26 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
     }
     // Check if the filesystem's master key is encrypted
     if unsafe { bcachefs::bch2_sb_is_encrypted(block_devices_to_mount[0].sb) } {
-        // Filesystem's master key is encrypted, attempt to decrypt
-        // First by key_file, if available
-        let fallback_to_prepare_key = if let Some(key_file) = &opt.key_file {
-            match key::read_from_key_file(&block_devices_to_mount[0], key_file.as_path()) {
+        // First by password_file, if available
+        let fallback_to_unlock_policy = if let Some(passphrase_file) = &opt.passphrase_file {
+            match key::read_from_passphrase_file(&block_devices_to_mount[0], passphrase_file.as_path()) {
                 Ok(()) => {
                     // Decryption succeeded
                     false
                 }
                 Err(err) => {
-                    // Decryption failed, fall back to prepare_key
-                    error!("Failed to decrypt using key_file: {}", err);
+                    // Decryption failed, fall back to unlock_policy
+                    error!("Failed to decrypt using passphrase_file: {}", err);
                     true
                 }
             }
         } else {
-            // No key_file specified, fall back to prepare_key
+            // No passphrase_file specified, fall back to unlock_policy
             true
         };
-        // If decryption by key_file was unsuccesful, prompt for password (or follow key_policy)
-        if fallback_to_prepare_key {
-            key::prepare_key(&block_devices_to_mount[0], opt.key_policy)?;
+        // If decryption by key_file was unsuccesful, prompt for passphrase (or follow key_policy)
+        if fallback_to_unlock_policy {
+            key::apply_key_unlocking_policy(&block_devices_to_mount[0], opt.unlock_policy)?;
         };
     }
 

@@ -18,7 +18,7 @@ static void unlock_usage(void)
 	     "  -c                     Check if a device is encrypted\n"
 	     "  -k (session|user|user_session)\n"
 	     "                         Keyring to add to (default: user)\n"
-	     "  -f                     Keyfile to read from (disables password prompt)\n"
+	     "  -f                     Passphrase file to read from (disables passphrase prompt)\n"
 	     "  -h                     Display this help and exit\n"
 	     "Report bugs to <linux-bcachefs@vger.kernel.org>");
 }
@@ -27,7 +27,7 @@ int cmd_unlock(int argc, char *argv[])
 {
 	const char *keyring = "user";
 	bool check = false;
-	const char *key_file_path = NULL;
+	const char *passphrase_file_path = NULL;
 	char *passphrase = NULL;
 
 	int opt;
@@ -41,7 +41,7 @@ int cmd_unlock(int argc, char *argv[])
 			keyring = strdup(optarg);
 			break;
 		case 'f':
-			key_file_path = strdup(optarg);
+			passphrase_file_path = strdup(optarg);
 			break;
 		case 'h':
 			unlock_usage();
@@ -71,8 +71,8 @@ int cmd_unlock(int argc, char *argv[])
 
 	if (check)
 		exit(EXIT_SUCCESS);
-	if (key_file_path){
-		passphrase = read_file_str(AT_FDCWD, key_file_path);
+	if (passphrase_file_path){
+		passphrase = read_file_str(AT_FDCWD, passphrase_file_path);
 	} else {
 		passphrase = read_passphrase("Enter passphrase: ");
 	}
