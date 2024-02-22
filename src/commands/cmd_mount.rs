@@ -206,7 +206,7 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
         Err(anyhow::anyhow!("No device found from specified parameters"))?;
     }
     // Check if the filesystem's master key is encrypted
-    if unsafe { bcachefs::bch2_sb_is_encrypted(block_devices_to_mount[0].sb) } {
+    if unsafe { bcachefs::bch2_sb_is_encrypted_and_locked(block_devices_to_mount[0].sb) } {
         // First by password_file, if available
         let fallback_to_unlock_policy = if let Some(passphrase_file) = &opt.passphrase_file {
             match key::read_from_passphrase_file(&block_devices_to_mount[0], passphrase_file.as_path()) {
