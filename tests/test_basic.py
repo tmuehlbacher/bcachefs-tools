@@ -63,5 +63,5 @@ def test_list_dirent(tmpdir):
     # stripes_read... done
     # snapshots_read... done
     # u64s 8 type dirent 4096:453699834857023875:U32_MAX len 0 ver 0: lost+found -> 4097 type dir
-    last = ret.stdout.splitlines()[-1]
+    last = ret.stdout.splitlines()[0]
     assert re.match(r'^.*type dirent.*: lost\+found ->.*$', last)
