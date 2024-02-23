@@ -42,6 +42,7 @@ CFLAGS+=-std=gnu11 -O2 -g -MMD -Wall -fPIC			\
 	-DNO_BCACHEFS_FS					\
 	-DNO_BCACHEFS_SYSFS					\
 	-DVERSION_STRING='"$(VERSION)"'				\
+	-D__SANE_USERSPACE_TYPES__				\
 	$(EXTRA_CFLAGS)
 
 # Intenionally not doing the above to $(LDFLAGS) because we rely on
