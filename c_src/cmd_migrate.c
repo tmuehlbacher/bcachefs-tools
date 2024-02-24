@@ -665,7 +665,7 @@ static int migrate_fs(const char		*fs_path,
 		      bool force)
 {
 	if (!path_is_fs_root(fs_path))
-		die("%s is not a filysestem root", fs_path);
+		die("%s is not a filesystem root", fs_path);
 
 	int fs_fd = xopen(fs_path, O_RDONLY|O_NOATIME);
 	struct stat stat = xfstat(fs_fd);
