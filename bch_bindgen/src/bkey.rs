@@ -61,46 +61,48 @@ impl<'a, 'b> BkeySC<'a> {
     }
 
     pub fn v(&'a self) -> BkeyValC {
-        let ty: c::bch_bkey_type = unsafe { transmute(self.k.type_ as u32) };
+        unsafe {
+            let ty: c::bch_bkey_type = transmute(self.k.type_ as u32);
 
-        use c::bch_bkey_type::*;
-        use BkeyValC::*;
-        match ty {
-            KEY_TYPE_deleted                => deleted,
-            KEY_TYPE_whiteout               => whiteout,
-            KEY_TYPE_error                  => error,
-            KEY_TYPE_cookie                 => cookie(unsafe { transmute(self.v) }),
-            KEY_TYPE_hash_whiteout          => hash_whiteout(unsafe { transmute(self.v) }),
-            KEY_TYPE_btree_ptr              => btree_ptr(unsafe { transmute(self.v) }),
-            KEY_TYPE_extent                 => extent(unsafe { transmute(self.v) }),
-            KEY_TYPE_reservation            => reservation(unsafe { transmute(self.v) }),
-            KEY_TYPE_inode                  => inode(unsafe { transmute(self.v) }),
-            KEY_TYPE_inode_generation       => inode_generation(unsafe { transmute(self.v) }),
-            KEY_TYPE_dirent                 => dirent(unsafe { transmute(self.v) }),
-            KEY_TYPE_xattr                  => xattr(unsafe { transmute(self.v) }),
-            KEY_TYPE_alloc                  => alloc(unsafe { transmute(self.v) }),
-            KEY_TYPE_quota                  => quota(unsafe { transmute(self.v) }),
-            KEY_TYPE_stripe                 => stripe(unsafe { transmute(self.v) }),
-            KEY_TYPE_reflink_p              => reflink_p(unsafe { transmute(self.v) }),
-            KEY_TYPE_reflink_v              => reflink_v(unsafe { transmute(self.v) }),
-            KEY_TYPE_inline_data            => inline_data(unsafe { transmute(self.v) }),
-            KEY_TYPE_btree_ptr_v2           => btree_ptr_v2(unsafe { transmute(self.v) }),
-            KEY_TYPE_indirect_inline_data   => indirect_inline_data(unsafe { transmute(self.v) }),
-            KEY_TYPE_alloc_v2               => alloc_v2(unsafe { transmute(self.v) }),
-            KEY_TYPE_subvolume              => subvolume(unsafe { transmute(self.v) }),
-            KEY_TYPE_snapshot               => snapshot(unsafe { transmute(self.v) }),
-            KEY_TYPE_inode_v2               => inode_v2(unsafe { transmute(self.v) }),
-            KEY_TYPE_alloc_v3               => inode_v3(unsafe { transmute(self.v) }),
-            KEY_TYPE_set                    => set,
-            KEY_TYPE_lru                    => lru(unsafe { transmute(self.v) }),
-            KEY_TYPE_alloc_v4               => alloc_v4(unsafe { transmute(self.v) }),
-            KEY_TYPE_backpointer            => backpointer(unsafe { transmute(self.v) }),
-            KEY_TYPE_inode_v3               => inode_v3(unsafe { transmute(self.v) }),
-            KEY_TYPE_bucket_gens            => bucket_gens(unsafe { transmute(self.v) }),
-            KEY_TYPE_snapshot_tree          => snapshot_tree(unsafe { transmute(self.v) }),
-            KEY_TYPE_logged_op_truncate     => logged_op_truncate(unsafe { transmute(self.v) }),
-            KEY_TYPE_logged_op_finsert      => logged_op_finsert(unsafe { transmute(self.v) }),
-            KEY_TYPE_MAX                    => unreachable!(),
+            use c::bch_bkey_type::*;
+            use BkeyValC::*;
+            match ty {
+                KEY_TYPE_deleted                => deleted,
+                KEY_TYPE_whiteout               => whiteout,
+                KEY_TYPE_error                  => error,
+                KEY_TYPE_cookie                 => cookie(transmute(self.v)),
+                KEY_TYPE_hash_whiteout          => hash_whiteout(transmute(self.v)),
+                KEY_TYPE_btree_ptr              => btree_ptr(transmute(self.v)),
+                KEY_TYPE_extent                 => extent(transmute(self.v)),
+                KEY_TYPE_reservation            => reservation(transmute(self.v)),
+                KEY_TYPE_inode                  => inode(transmute(self.v)),
+                KEY_TYPE_inode_generation       => inode_generation(transmute(self.v)),
+                KEY_TYPE_dirent                 => dirent(transmute(self.v)),
+                KEY_TYPE_xattr                  => xattr(transmute(self.v)),
+                KEY_TYPE_alloc                  => alloc(transmute(self.v)),
+                KEY_TYPE_quota                  => quota(transmute(self.v)),
+                KEY_TYPE_stripe                 => stripe(transmute(self.v)),
+                KEY_TYPE_reflink_p              => reflink_p(transmute(self.v)),
+                KEY_TYPE_reflink_v              => reflink_v(transmute(self.v)),
+                KEY_TYPE_inline_data            => inline_data(transmute(self.v)),
+                KEY_TYPE_btree_ptr_v2           => btree_ptr_v2(transmute(self.v)),
+                KEY_TYPE_indirect_inline_data   => indirect_inline_data(transmute(self.v)),
+                KEY_TYPE_alloc_v2               => alloc_v2(transmute(self.v)),
+                KEY_TYPE_subvolume              => subvolume(transmute(self.v)),
+                KEY_TYPE_snapshot               => snapshot(transmute(self.v)),
+                KEY_TYPE_inode_v2               => inode_v2(transmute(self.v)),
+                KEY_TYPE_alloc_v3               => inode_v3(transmute(self.v)),
+                KEY_TYPE_set                    => set,
+                KEY_TYPE_lru                    => lru(transmute(self.v)),
+                KEY_TYPE_alloc_v4               => alloc_v4(transmute(self.v)),
+                KEY_TYPE_backpointer            => backpointer(transmute(self.v)),
+                KEY_TYPE_inode_v3               => inode_v3(transmute(self.v)),
+                KEY_TYPE_bucket_gens            => bucket_gens(transmute(self.v)),
+                KEY_TYPE_snapshot_tree          => snapshot_tree(transmute(self.v)),
+                KEY_TYPE_logged_op_truncate     => logged_op_truncate(transmute(self.v)),
+                KEY_TYPE_logged_op_finsert      => logged_op_finsert(transmute(self.v)),
+                KEY_TYPE_MAX                    => unreachable!(),
+            }
         }
     }
 }
