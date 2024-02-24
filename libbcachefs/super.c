@@ -286,7 +286,12 @@ static void __bch2_fs_read_only(struct bch_fs *c)
 	if (test_bit(JOURNAL_REPLAY_DONE, &c->journal.flags) &&
 	    !test_bit(BCH_FS_emergency_ro, &c->flags))
 		set_bit(BCH_FS_clean_shutdown, &c->flags);
+
 	bch2_fs_journal_stop(&c->journal);
+
+	bch_info(c, "%sshutdown complete, journal seq %llu",
+		 test_bit(BCH_FS_clean_shutdown, &c->flags) ? "" : "un",
+		 c->journal.seq_ondisk);
 
 	/*
 	 * After stopping journal:
@@ -461,6 +466,7 @@ static int __bch2_fs_read_write(struct bch_fs *c, bool early)
 	 * at least one non-flush write in the journal or recovery will fail:
 	 */
 	set_bit(JOURNAL_NEED_FLUSH_WRITE, &c->journal.flags);
+	set_bit(JOURNAL_RUNNING, &c->journal.flags);
 
 	for_each_rw_member(c, ca)
 		bch2_dev_allocator_add(c, ca);

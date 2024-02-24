@@ -653,7 +653,7 @@ struct bch_encrypted_key {
 
 /*
  * If this field is present in the superblock, it stores an encryption key which
- * is used to encrypt all other data/metadata. The key will normally be encrypted
+ * is used encrypt all other data/metadata. The key will normally be encrypted
  * with the key userspace provides, but if encryption has been turned off we'll
  * just store the master key unencrypted in the superblock so we can access the
  * previously encrypted data.
