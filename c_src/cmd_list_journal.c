@@ -72,14 +72,10 @@ static bool entry_matches_transaction_filter(struct jset_entry *entry,
 {
 	if (entry->type == BCH_JSET_ENTRY_btree_root ||
 	    entry->type == BCH_JSET_ENTRY_btree_keys ||
-	    entry->type == BCH_JSET_ENTRY_overwrite) {
-		struct bkey_i *k;
-
+	    entry->type == BCH_JSET_ENTRY_overwrite)
 		jset_entry_for_each_key(entry, k)
 			if (bkey_matches_filter(filter, entry, k))
 				return true;
-	}
-
 	return false;
 }
 
@@ -100,8 +96,6 @@ static bool should_print_transaction(struct jset_entry *entry, struct jset_entry
 
 static bool should_print_entry(struct jset_entry *entry, d_btree_id filter)
 {
-	struct bkey_i *k;
-
 	if (!filter.nr)
 		return true;
 
