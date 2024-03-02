@@ -70,6 +70,11 @@ impl fmt::Display for c::btree_id {
 
 use std::str::FromStr;
 use std::ffi::CString;
+use std::{path::Path,os::unix::ffi::OsStrExt};
+
+pub fn path_to_cstr<P: AsRef<Path>>(p: P) -> CString {
+    CString::new(p.as_ref().as_os_str().as_bytes()).unwrap()
+}
 
 use std::error::Error;
 

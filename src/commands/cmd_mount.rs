@@ -1,4 +1,4 @@
-use bch_bindgen::{bcachefs, bcachefs::bch_sb_handle, opt_set};
+use bch_bindgen::{path_to_cstr, bcachefs, bcachefs::bch_sb_handle, opt_set};
 use log::{info, debug, error, LevelFilter};
 use clap::Parser;
 use uuid::Uuid;
@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use crate::key;
 use crate::key::UnlockPolicy;
 use std::ffi::{CString, c_char, c_void};
-use std::os::unix::ffi::OsStrExt;
 
 fn mount_inner(
     src: String,
@@ -19,7 +18,7 @@ fn mount_inner(
 
     // bind the CStrings to keep them alive
     let src = CString::new(src)?;
-    let target = CString::new(target.as_ref().as_os_str().as_bytes())?;
+    let target = path_to_cstr(target);
     let data = data.map(CString::new).transpose()?;
     let fstype = CString::new(fstype)?;
 

@@ -1,6 +1,7 @@
-use std::{path::Path, os::unix::ffi::OsStrExt, ffi::CString};
+use std::path::Path;
 
 use bch_bindgen::c::{bchfs_handle, BCH_IOCTL_SUBVOLUME_CREATE, BCH_IOCTL_SUBVOLUME_DESTROY, bch_ioctl_subvolume, bcache_fs_open, BCH_SUBVOL_SNAPSHOT_CREATE, bcache_fs_close};
+use bch_bindgen::path_to_cstr;
 use errno::Errno;
 
 /// A handle to a bcachefs filesystem
@@ -13,7 +14,7 @@ impl BcachefsHandle {
     /// Opens a bcachefs filesystem and returns its handle
     /// TODO(raitobezarius): how can this not be faillible?
     pub(crate) unsafe fn open<P: AsRef<Path>>(path: P) -> Self {
-        let path = CString::new(path.as_ref().as_os_str().as_bytes()).expect("Failed to cast path into a C-style string");
+        let path = path_to_cstr(path);
         Self {
             inner: bcache_fs_open(path.as_ptr())
         }
@@ -59,7 +60,7 @@ impl BcachefsHandle {
     /// Create a subvolume for this bcachefs filesystem
     /// at the given path
     pub fn create_subvolume<P: AsRef<Path>>(&self, dst: P) -> Result<(), Errno> {
-        let dst = CString::new(dst.as_ref().as_os_str().as_bytes()).expect("Failed to cast destination path for subvolume in a C-style string");
+        let dst = path_to_cstr(dst);
         self.ioctl(BcachefsIoctl::SubvolumeCreate, &BcachefsIoctlPayload::Subvolume(bch_ioctl_subvolume {
             dirfd: libc::AT_FDCWD as u32,
             mode: 0o777,
@@ -71,7 +72,7 @@ impl BcachefsHandle {
     /// Delete the subvolume at the given path
     /// for this bcachefs filesystem
     pub fn delete_subvolume<P: AsRef<Path>>(&self, dst: P) -> Result<(), Errno> {
-        let dst = CString::new(dst.as_ref().as_os_str().as_bytes()).expect("Failed to cast destination path for subvolume in a C-style string");
+        let dst = path_to_cstr(dst);
         self.ioctl(BcachefsIoctl::SubvolumeDestroy, &BcachefsIoctlPayload::Subvolume(bch_ioctl_subvolume {
             dirfd: libc::AT_FDCWD as u32,
             mode: 0o777,
@@ -83,8 +84,8 @@ impl BcachefsHandle {
     /// Snapshot a subvolume for this bcachefs filesystem
     /// at the given path
     pub fn snapshot_subvolume<P: AsRef<Path>>(&self, extra_flags: u32, src: Option<P>, dst: P) -> Result<(), Errno> {
-        let src = src.map(|src| CString::new(src.as_ref().as_os_str().as_bytes()).expect("Failed to cast source path for subvolume in a C-style string"));
-        let dst = CString::new(dst.as_ref().as_os_str().as_bytes()).expect("Failed to cast destination path for subvolume in a C-style string");
+        let src = src.map(|src| path_to_cstr(src));
+        let dst = path_to_cstr(dst);
 
         let res = self.ioctl(BcachefsIoctl::SubvolumeCreate, &BcachefsIoctlPayload::Subvolume(bch_ioctl_subvolume {
             flags: BCH_SUBVOL_SNAPSHOT_CREATE | extra_flags,
