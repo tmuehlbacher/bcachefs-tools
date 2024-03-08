@@ -124,6 +124,7 @@ int cmd_dump(int argc, char *argv[])
 	opt_set(opts, nochanges,	true);
 	opt_set(opts, norecovery,	true);
 	opt_set(opts, degraded,		true);
+	opt_set(opts, very_degraded,	true);
 	opt_set(opts, errors,		BCH_ON_ERROR_continue);
 	opt_set(opts, fix_errors,	FSCK_FIX_no);
 
