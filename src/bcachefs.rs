@@ -2,7 +2,7 @@ mod wrappers;
 mod commands;
 mod key;
 
-use std::ffi::CString;
+use std::ffi::{c_char, CString};
 
 use commands::cmd_completions::cmd_completions;
 use commands::cmd_list::cmd_list;
@@ -21,13 +21,7 @@ impl std::fmt::Display for ErrnoError {
 
 impl std::error::Error for ErrnoError {}
 
-fn to_mut<T>(p: *const T) -> *mut T {
-    p as *mut T
-}
-
-fn handle_c_command(args: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
-    let mut argv: Vec<_> = args.clone();
-
+fn handle_c_command(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
     let cmd = match symlink_cmd {
         Some(s) => s.to_string(),
         None => argv.remove(1),
@@ -36,10 +30,13 @@ fn handle_c_command(args: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
     let argc: i32 = argv.len().try_into().unwrap();
 
     let argv: Vec<_> = argv
-        .iter()
-        .map(|s| CString::new(s.as_str()).unwrap())
+        .into_iter()
+        .map(|s| CString::new(s).unwrap())
         .collect();
-    let mut argv: Vec<_> = argv.iter().map(|s| to_mut(s.as_ptr())).collect();
+    let mut argv = argv
+        .into_iter()
+        .map(|s| Box::into_raw(s.into_boxed_c_str()) as *mut c_char)
+        .collect::<Box<[*mut c_char]>>();
     let argv = argv.as_mut_ptr();
 
     // The C functions will mutate argv. It shouldn't be used after this block.
