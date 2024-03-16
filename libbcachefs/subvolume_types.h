@@ -2,7 +2,7 @@
 #ifndef _BCACHEFS_SUBVOLUME_TYPES_H
 #define _BCACHEFS_SUBVOLUME_TYPES_H
 
-#include <linux/darray_types.h>
+#include "darray.h"
 
 typedef DARRAY(u32) snapshot_id_list;
 

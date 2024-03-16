@@ -56,6 +56,7 @@
 #include "super.h"
 #include "super-io.h"
 #include "sysfs.h"
+#include "thread_with_file.h"
 #include "trace.h"
 
 #include <linux/backing-dev.h>
@@ -67,7 +68,6 @@
 #include <linux/percpu.h>
 #include <linux/random.h>
 #include <linux/sysfs.h>
-#include <linux/thread_with_file.h>
 #include <crypto/hash.h>
 
 MODULE_LICENSE("GPL");
@@ -87,20 +87,27 @@ const char * const bch2_fs_flag_strs[] = {
 	NULL
 };
 
+static void bch2_print_maybe_redirect(struct stdio_redirect *stdio, const char *fmt, va_list args)
+{
+#ifdef __KERNEL__
+	if (unlikely(stdio)) {
+		if (fmt[0] == KERN_SOH[0])
+			fmt += 2;
+
+		bch2_stdio_redirect_vprintf(stdio, true, fmt, args);
+		return;
+	}
+#endif
+	vprintk(fmt, args);
+}
+
 void bch2_print_opts(struct bch_opts *opts, const char *fmt, ...)
 {
 	struct stdio_redirect *stdio = (void *)(unsigned long)opts->stdio;
 
 	va_list args;
 	va_start(args, fmt);
-	if (likely(!stdio)) {
-		vprintk(fmt, args);
-	} else {
-		if (fmt[0] == KERN_SOH[0])
-			fmt += 2;
-
-		stdio_redirect_vprintf(stdio, true, fmt, args);
-	}
+	bch2_print_maybe_redirect(stdio, fmt, args);
 	va_end(args);
 }
 
@@ -110,14 +117,7 @@ void __bch2_print(struct bch_fs *c, const char *fmt, ...)
 
 	va_list args;
 	va_start(args, fmt);
-	if (likely(!stdio)) {
-		vprintk(fmt, args);
-	} else {
-		if (fmt[0] == KERN_SOH[0])
-			fmt += 2;
-
-		stdio_redirect_vprintf(stdio, true, fmt, args);
-	}
+	bch2_print_maybe_redirect(stdio, fmt, args);
 	va_end(args);
 }
 
@@ -532,7 +532,7 @@ static void __bch2_fs_free(struct bch_fs *c)
 	unsigned i;
 
 	for (i = 0; i < BCH_TIME_STAT_NR; i++)
-		time_stats_exit(&c->times[i]);
+		bch2_time_stats_exit(&c->times[i]);
 
 	bch2_free_pending_node_rewrites(c);
 	bch2_fs_sb_errors_exit(c);
@@ -765,7 +765,7 @@ static struct bch_fs *bch2_fs_alloc(struct bch_sb *sb, struct bch_opts opts)
 	c->journal_keys.initial_ref_held = true;
 
 	for (i = 0; i < BCH_TIME_STAT_NR; i++)
-		time_stats_init(&c->times[i]);
+		bch2_time_stats_init(&c->times[i]);
 
 	bch2_fs_copygc_init(c);
 	bch2_fs_btree_key_cache_init_early(&c->btree_key_cache);
@@ -830,12 +830,12 @@ static struct bch_fs *bch2_fs_alloc(struct bch_sb *sb, struct bch_opts opts)
 		goto err;
 
 	pr_uuid(&name, c->sb.user_uuid.b);
-	strscpy(c->name, name.buf, sizeof(c->name));
-	printbuf_exit(&name);
-
 	ret = name.allocation_failure ? -BCH_ERR_ENOMEM_fs_name_alloc : 0;
 	if (ret)
 		goto err;
+
+	strscpy(c->name, name.buf, sizeof(c->name));
+	printbuf_exit(&name);
 
 	/* Compat: */
 	if (le16_to_cpu(sb->version) <= bcachefs_metadata_version_inode_v2 &&
@@ -1073,7 +1073,8 @@ static int bch2_dev_may_add(struct bch_sb *sb, struct bch_fs *c)
 }
 
 static int bch2_dev_in_fs(struct bch_sb_handle *fs,
-			  struct bch_sb_handle *sb)
+			  struct bch_sb_handle *sb,
+			  struct bch_opts *opts)
 {
 	if (fs == sb)
 		return 0;
@@ -1114,11 +1115,14 @@ static int bch2_dev_in_fs(struct bch_sb_handle *fs,
 		bch2_prt_datetime(&buf, le64_to_cpu(sb->sb->write_time));;
 		prt_newline(&buf);
 
-		prt_printf(&buf, "Not using older sb");
+		if (!opts->no_splitbrain_check)
+			prt_printf(&buf, "Not using older sb");
 
 		pr_err("%s", buf.buf);
 		printbuf_exit(&buf);
-		return -BCH_ERR_device_splitbrain;
+
+		if (!opts->no_splitbrain_check)
+			return -BCH_ERR_device_splitbrain;
 	}
 
 	struct bch_member m = bch2_sb_member_get(fs->sb, sb->sb->dev_idx);
@@ -1141,12 +1145,17 @@ static int bch2_dev_in_fs(struct bch_sb_handle *fs,
 		prt_printf(&buf, " to be %llu, but ", seq_from_fs);
 		prt_bdevname(&buf, sb->bdev);
 		prt_printf(&buf, " has %llu\n", seq_from_member);
-		prt_str(&buf, "Not using ");
-		prt_bdevname(&buf, sb->bdev);
+
+		if (!opts->no_splitbrain_check) {
+			prt_str(&buf, "Not using ");
+			prt_bdevname(&buf, sb->bdev);
+		}
 
 		pr_err("%s", buf.buf);
 		printbuf_exit(&buf);
-		return -BCH_ERR_device_splitbrain;
+
+		if (!opts->no_splitbrain_check)
+			return -BCH_ERR_device_splitbrain;
 	}
 
 	return 0;
@@ -1180,8 +1189,8 @@ static void bch2_dev_free(struct bch_dev *ca)
 	bch2_dev_buckets_free(ca);
 	free_page((unsigned long) ca->sb_read_scratch);
 
-	time_stats_quantiles_exit(&ca->io_latency[WRITE]);
-	time_stats_quantiles_exit(&ca->io_latency[READ]);
+	bch2_time_stats_quantiles_exit(&ca->io_latency[WRITE]);
+	bch2_time_stats_quantiles_exit(&ca->io_latency[READ]);
 
 	percpu_ref_exit(&ca->io_ref);
 	percpu_ref_exit(&ca->ref);
@@ -1272,8 +1281,8 @@ static struct bch_dev *__bch2_dev_alloc(struct bch_fs *c,
 
 	INIT_WORK(&ca->io_error_work, bch2_io_error_work);
 
-	time_stats_quantiles_init(&ca->io_latency[READ]);
-	time_stats_quantiles_init(&ca->io_latency[WRITE]);
+	bch2_time_stats_quantiles_init(&ca->io_latency[READ]);
+	bch2_time_stats_quantiles_init(&ca->io_latency[WRITE]);
 
 	ca->mi = bch2_mi_to_cpu(member);
 
@@ -1847,7 +1856,7 @@ int bch2_dev_online(struct bch_fs *c, const char *path)
 
 	dev_idx = sb.sb->dev_idx;
 
-	ret = bch2_dev_in_fs(&c->disk_sb, &sb);
+	ret = bch2_dev_in_fs(&c->disk_sb, &sb, &c->opts);
 	bch_err_msg(c, ret, "bringing %s online", path);
 	if (ret)
 		goto err;
@@ -2035,7 +2044,7 @@ struct bch_fs *bch2_fs_open(char * const *devices, unsigned nr_devices,
 			best = sb;
 
 	darray_for_each_reverse(sbs, sb) {
-		ret = bch2_dev_in_fs(best, sb);
+		ret = bch2_dev_in_fs(best, sb, &opts);
 
 		if (ret == -BCH_ERR_device_has_been_removed ||
 		    ret == -BCH_ERR_device_splitbrain) {

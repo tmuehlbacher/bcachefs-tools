@@ -28,7 +28,7 @@
 #include "libbcachefs/super-io.h"
 #include "libbcachefs/util.h"
 
-#include "linux/darray.h"
+#include "libbcachefs/darray.h"
 
 #define OPTS						\
 x(0,	replicas,		required_argument)	\

@@ -200,8 +200,6 @@
 #include <linux/seqlock.h>
 #include <linux/shrinker.h>
 #include <linux/srcu.h>
-#include <linux/thread_with_file_types.h>
-#include <linux/time_stats.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
 #include <linux/zstd.h>
@@ -214,6 +212,7 @@
 #include "recovery_types.h"
 #include "sb-errors_types.h"
 #include "seqmutex.h"
+#include "time_stats.h"
 #include "util.h"
 
 #ifdef CONFIG_BCACHEFS_DEBUG
@@ -470,6 +469,7 @@ enum bch_time_stats {
 #include "replicas_types.h"
 #include "subvolume_types.h"
 #include "super_types.h"
+#include "thread_with_file_types.h"
 
 /* Number of nodes btree coalesce will try to coalesce at once */
 #define GC_MERGE_NODES		4U
@@ -598,7 +598,7 @@ struct bch_dev {
 
 	/* The rest of this all shows up in sysfs */
 	atomic64_t		cur_latency[2];
-	struct time_stats_quantiles	io_latency[2];
+	struct bch2_time_stats_quantiles io_latency[2];
 
 #define CONGESTED_MAX		1024
 	atomic_t		congested;
@@ -645,8 +645,8 @@ struct btree_debug {
 #define BCH_TRANSACTIONS_NR 128
 
 struct btree_transaction_stats {
-	struct time_stats	duration;
-	struct time_stats	lock_hold_times;
+	struct bch2_time_stats	duration;
+	struct bch2_time_stats	lock_hold_times;
 	struct mutex		lock;
 	unsigned		nr_max_paths;
 	unsigned		journal_entries_size;
@@ -1111,7 +1111,7 @@ struct bch_fs {
 	unsigned		copy_gc_enabled:1;
 	bool			promote_whole_extents;
 
-	struct time_stats	times[BCH_TIME_STAT_NR];
+	struct bch2_time_stats	times[BCH_TIME_STAT_NR];
 
 	struct btree_transaction_stats btree_transaction_stats[BCH_TRANSACTIONS_NR];
 

@@ -86,9 +86,12 @@ static void __journal_replay_free(struct bch_fs *c,
 	kvfree(i);
 }
 
-static void journal_replay_free(struct bch_fs *c, struct journal_replay *i)
+static void journal_replay_free(struct bch_fs *c, struct journal_replay *i, bool blacklisted)
 {
-	i->ignore = true;
+	if (blacklisted)
+		i->ignore_blacklisted = true;
+	else
+		i->ignore_not_dirty = true;
 
 	if (!c->opts.read_entire_journal)
 		__journal_replay_free(c, i);
@@ -138,12 +141,13 @@ static int journal_entry_add(struct bch_fs *c, struct bch_dev *ca,
 				       journal_entry_radix_idx(c, jlist->last_seq)) {
 			i = *_i;
 
-			if (!i || i->ignore)
+			if (journal_replay_ignore(i))
 				continue;
 
 			if (le64_to_cpu(i->j.seq) >= last_seq)
 				break;
-			journal_replay_free(c, i);
+
+			journal_replay_free(c, i, false);
 		}
 	}
 
@@ -199,8 +203,9 @@ replace:
 		return -BCH_ERR_ENOMEM_journal_entry_add;
 
 	darray_init(&i->ptrs);
-	i->csum_good	= entry_ptr.csum_good;
-	i->ignore	= false;
+	i->csum_good		= entry_ptr.csum_good;
+	i->ignore_blacklisted	= false;
+	i->ignore_not_dirty	= false;
 	unsafe_memcpy(&i->j, j, bytes, "embedded variable length struct");
 
 	if (dup) {
@@ -1255,20 +1260,20 @@ int bch2_journal_read(struct bch_fs *c,
 
 		i = *_i;
 
-		if (!i || i->ignore)
+		if (journal_replay_ignore(i))
 			continue;
 
 		if (!*start_seq)
 			*blacklist_seq = *start_seq = le64_to_cpu(i->j.seq) + 1;
 
 		if (JSET_NO_FLUSH(&i->j)) {
-			i->ignore = true;
+			i->ignore_blacklisted = true;
 			continue;
 		}
 
 		if (!last_write_torn && !i->csum_good) {
 			last_write_torn = true;
-			i->ignore = true;
+			i->ignore_blacklisted = true;
 			continue;
 		}
 
@@ -1307,12 +1312,12 @@ int bch2_journal_read(struct bch_fs *c,
 	genradix_for_each(&c->journal_entries, radix_iter, _i) {
 		i = *_i;
 
-		if (!i || i->ignore)
+		if (journal_replay_ignore(i))
 			continue;
 
 		seq = le64_to_cpu(i->j.seq);
 		if (seq < *last_seq) {
-			journal_replay_free(c, i);
+			journal_replay_free(c, i, false);
 			continue;
 		}
 
@@ -1320,7 +1325,7 @@ int bch2_journal_read(struct bch_fs *c,
 			fsck_err_on(!JSET_NO_FLUSH(&i->j), c,
 				    jset_seq_blacklisted,
 				    "found blacklisted journal entry %llu", seq);
-			i->ignore = true;
+			i->ignore_blacklisted = true;
 		}
 	}
 
@@ -1329,7 +1334,7 @@ int bch2_journal_read(struct bch_fs *c,
 	genradix_for_each(&c->journal_entries, radix_iter, _i) {
 		i = *_i;
 
-		if (!i || i->ignore)
+		if (journal_replay_ignore(i))
 			continue;
 
 		BUG_ON(seq > le64_to_cpu(i->j.seq));
@@ -1382,7 +1387,7 @@ int bch2_journal_read(struct bch_fs *c,
 		};
 
 		i = *_i;
-		if (!i || i->ignore)
+		if (journal_replay_ignore(i))
 			continue;
 
 		darray_for_each(i->ptrs, ptr) {
@@ -1602,9 +1607,9 @@ static CLOSURE_CALLBACK(journal_write_done)
 	u64 v, seq = le64_to_cpu(w->data->seq);
 	int err = 0;
 
-	time_stats_update(!JSET_NO_FLUSH(w->data)
-			  ? j->flush_write_time
-			  : j->noflush_write_time, j->write_start_time);
+	bch2_time_stats_update(!JSET_NO_FLUSH(w->data)
+			       ? j->flush_write_time
+			       : j->noflush_write_time, j->write_start_time);
 
 	if (!w->devs_written.nr) {
 		bch_err(c, "unable to write journal to sufficient devices");
@@ -1667,6 +1672,7 @@ static CLOSURE_CALLBACK(journal_write_done)
 			new.unwritten_idx++;
 		} while ((v = atomic64_cmpxchg(&j->reservations.counter, old.v, new.v)) != old.v);
 
+		closure_wake_up(&w->wait);
 		completed = true;
 	}
 
@@ -1676,7 +1682,6 @@ static CLOSURE_CALLBACK(journal_write_done)
 
 		track_event_change(&c->times[BCH_TIME_blocked_journal_max_in_flight], false);
 
-		closure_wake_up(&w->wait);
 		journal_wake(j);
 	}
 
@@ -1930,6 +1935,7 @@ static int bch2_journal_write_pick_flush(struct journal *j, struct journal_buf *
 
 		j->nr_noflush_writes++;
 	} else {
+		w->must_flush = true;
 		j->last_flush_write = jiffies;
 		j->nr_flush_writes++;
 		clear_bit(JOURNAL_NEED_FLUSH_WRITE, &j->flags);

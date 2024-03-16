@@ -661,7 +661,7 @@ out:
 	bch2_btree_keys_init(b);
 	set_btree_node_accessed(b);
 
-	time_stats_update(&c->times[BCH_TIME_btree_node_mem_alloc],
+	bch2_time_stats_update(&c->times[BCH_TIME_btree_node_mem_alloc],
 			       start_time);
 
 	memalloc_nofs_restore(flags);

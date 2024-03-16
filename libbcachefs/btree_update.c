@@ -14,8 +14,6 @@
 #include "snapshot.h"
 #include "trace.h"
 
-#include <linux/darray.h>
-
 static inline int btree_insert_entry_cmp(const struct btree_insert_entry *l,
 					 const struct btree_insert_entry *r)
 {
@@ -454,7 +452,7 @@ bch2_trans_update_by_path(struct btree_trans *trans, btree_path_idx_t path_idx,
 	 * the key cache - but the key has to exist in the btree for that to
 	 * work:
 	 */
-	if (path->cached && bkey_deleted(&i->old_k))
+	if (path->cached && !i->old_btree_u64s)
 		return flush_new_cached_update(trans, i, flags, ip);
 
 	return 0;

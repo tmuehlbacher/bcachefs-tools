@@ -84,12 +84,8 @@ static void bch2_journal_buf_to_text(struct printbuf *out, struct journal *j, u6
 		prt_str(out, "separate_flush ");
 	if (buf->need_flush_to_write_buffer)
 		prt_str(out, "need_flush_to_write_buffer ");
-	if (buf->need_flush_to_write_buffer)
-		prt_str(out, "need_flush_to_write_buffer ");
-	if (buf->write_done)
-		prt_str(out, "write done ");
 	if (buf->write_started)
-		prt_str(out, "write started ");
+		prt_str(out, "write_started ");
 	if (buf->write_allocated)
 		prt_str(out, "write allocated ");
 	if (buf->write_done)
@@ -715,7 +711,7 @@ recheck_need_open:
 			return ret;
 
 		seq = res.seq;
-		buf = j->buf + (seq & JOURNAL_BUF_MASK);
+		buf = journal_seq_to_buf(j, seq);
 		buf->must_flush = true;
 
 		if (!buf->flush_time) {
@@ -733,8 +729,8 @@ recheck_need_open:
 	}
 
 	/*
-	 * if write was kicked off without a flush, flush the next sequence
-	 * number instead
+	 * if write was kicked off without a flush, or if we promised it
+	 * wouldn't be a flush, flush the next sequence number instead
 	 */
 	buf = journal_seq_to_buf(j, seq);
 	if (buf->noflush) {
@@ -768,7 +764,7 @@ int bch2_journal_flush_seq(struct journal *j, u64 seq)
 	ret = wait_event_interruptible(j->wait, (ret2 = bch2_journal_flush_seq_async(j, seq, NULL)));
 
 	if (!ret)
-		time_stats_update(j->flush_seq_time, start_time);
+		bch2_time_stats_update(j->flush_seq_time, start_time);
 
 	return ret ?: ret2 < 0 ? ret2 : 0;
 }
@@ -812,8 +808,8 @@ bool bch2_journal_noflush_seq(struct journal *j, u64 seq)
 	     unwritten_seq++) {
 		struct journal_buf *buf = journal_seq_to_buf(j, unwritten_seq);
 
-		/* journal write is already in flight, and was a flush write: */
-		if (unwritten_seq == journal_last_unwritten_seq(j) && !buf->noflush)
+		/* journal flush already in flight, or flush requseted */
+		if (buf->must_flush)
 			goto out;
 
 		buf->noflush = true;
@@ -1203,7 +1199,7 @@ int bch2_fs_journal_start(struct journal *j, u64 cur_seq)
 	genradix_for_each_reverse(&c->journal_entries, iter, _i) {
 		i = *_i;
 
-		if (!i || i->ignore)
+		if (journal_replay_ignore(i))
 			continue;
 
 		last_seq = le64_to_cpu(i->j.last_seq);
@@ -1236,7 +1232,7 @@ int bch2_fs_journal_start(struct journal *j, u64 cur_seq)
 	genradix_for_each(&c->journal_entries, iter, _i) {
 		i = *_i;
 
-		if (!i || i->ignore)
+		if (journal_replay_ignore(i))
 			continue;
 
 		seq = le64_to_cpu(i->j.seq);

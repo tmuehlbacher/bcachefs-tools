@@ -5,21 +5,23 @@
 #include <linux/bio.h>
 #include <linux/blkdev.h>
 #include <linux/closure.h>
-#include <linux/darray.h>
 #include <linux/errno.h>
 #include <linux/freezer.h>
 #include <linux/kernel.h>
+#include <linux/sched/clock.h>
 #include <linux/llist.h>
 #include <linux/log2.h>
 #include <linux/percpu.h>
 #include <linux/preempt.h>
 #include <linux/ratelimit.h>
-#include <linux/sched/clock.h>
 #include <linux/slab.h>
-#include <linux/time_stats.h>
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
-#include <linux/mean_and_variance.h>
+
+#include "mean_and_variance.h"
+
+#include "darray.h"
+#include "time_stats.h"
 
 struct closure;
 
@@ -328,7 +330,7 @@ static inline void prt_bdevname(struct printbuf *out, struct block_device *bdev)
 #endif
 }
 
-void bch2_time_stats_to_text(struct printbuf *, struct time_stats *);
+void bch2_time_stats_to_text(struct printbuf *, struct bch2_time_stats *);
 
 #define ewma_add(ewma, val, weight)					\
 ({									\
@@ -629,6 +631,34 @@ static inline void memset_u64s_tail(void *s, int c, unsigned bytes)
 	memset(s + bytes, c, rem);
 }
 
+void sort_cmp_size(void *base, size_t num, size_t size,
+	  int (*cmp_func)(const void *, const void *, size_t),
+	  void (*swap_func)(void *, void *, size_t));
+
+/* just the memmove, doesn't update @_nr */
+#define __array_insert_item(_array, _nr, _pos)				\
+	memmove(&(_array)[(_pos) + 1],					\
+		&(_array)[(_pos)],					\
+		sizeof((_array)[0]) * ((_nr) - (_pos)))
+
+#define array_insert_item(_array, _nr, _pos, _new_item)			\
+do {									\
+	__array_insert_item(_array, _nr, _pos);				\
+	(_nr)++;							\
+	(_array)[(_pos)] = (_new_item);					\
+} while (0)
+
+#define array_remove_items(_array, _nr, _pos, _nr_to_remove)		\
+do {									\
+	(_nr) -= (_nr_to_remove);					\
+	memmove(&(_array)[(_pos)],					\
+		&(_array)[(_pos) + (_nr_to_remove)],			\
+		sizeof((_array)[0]) * ((_nr) - (_pos)));		\
+} while (0)
+
+#define array_remove_item(_array, _nr, _pos)				\
+	array_remove_items(_array, _nr, _pos, 1)
+
 static inline void __move_gap(void *array, size_t element_size,
 			      size_t nr, size_t size,
 			      size_t old_gap, size_t new_gap)
@@ -742,5 +772,26 @@ static inline bool qstr_eq(const struct qstr l, const struct qstr r)
 
 void bch2_darray_str_exit(darray_str *);
 int bch2_split_devs(const char *, darray_str *);
+
+#ifdef __KERNEL__
+
+__must_check
+static inline int copy_to_user_errcode(void __user *to, const void *from, unsigned long n)
+{
+	return copy_to_user(to, from, n) ? -EFAULT : 0;
+}
+
+__must_check
+static inline int copy_from_user_errcode(void *to, const void __user *from, unsigned long n)
+{
+	return copy_from_user(to, from, n) ? -EFAULT : 0;
+}
+
+#endif
+
+static inline void __set_bit_le64(size_t bit, __le64 *addr)
+{
+	addr[bit / 64] |= cpu_to_le64(BIT_ULL(bit % 64));
+}
 
 #endif /* _BCACHEFS_UTIL_H */

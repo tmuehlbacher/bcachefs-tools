@@ -15,7 +15,7 @@
 #include "cmds.h"
 #include "libbcachefs.h"
 
-#include "linux/darray.h"
+#include "libbcachefs/darray.h"
 
 static void __dev_usage_type_to_text(struct printbuf *out,
 				     enum bch_data_type type,

@@ -1,26 +1,34 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-/*
- * (C) 2022-2024 Kent Overstreet <kent.overstreet@linux.dev>
- */
-#ifndef _LINUX_DARRAY_H
-#define _LINUX_DARRAY_H
+#ifndef _BCACHEFS_DARRAY_H
+#define _BCACHEFS_DARRAY_H
 
 /*
- * Dynamic arrays
+ * Dynamic arrays:
  *
  * Inspired by CCAN's darray
  */
 
-#include <linux/darray_types.h>
 #include <linux/slab.h>
 
-int __darray_resize_slowpath(darray_char *, size_t, size_t, gfp_t);
+#define DARRAY_PREALLOCATED(_type, _nr)					\
+struct {								\
+	size_t nr, size;						\
+	_type *data;							\
+	_type preallocated[_nr];					\
+}
+
+#define DARRAY(_type) DARRAY_PREALLOCATED(_type, 0)
+
+typedef DARRAY(char)	darray_char;
+typedef DARRAY(char *) darray_str;
+
+int __bch2_darray_resize(darray_char *, size_t, size_t, gfp_t);
 
 static inline int __darray_resize(darray_char *d, size_t element_size,
 				  size_t new_size, gfp_t gfp)
 {
 	return unlikely(new_size > d->size)
-		? __darray_resize_slowpath(d, element_size, new_size, gfp)
+		? __bch2_darray_resize(d, element_size, new_size, gfp)
 		: 0;
 }
 
@@ -61,28 +69,6 @@ static inline int __darray_make_room(darray_char *d, size_t t_size, size_t more,
 #define darray_first(_d)	((_d).data[0])
 #define darray_last(_d)		((_d).data[(_d).nr - 1])
 
-/* Insert/remove items into the middle of a darray: */
-
-#define array_insert_item(_array, _nr, _pos, _new_item)			\
-do {									\
-	memmove(&(_array)[(_pos) + 1],					\
-		&(_array)[(_pos)],					\
-		sizeof((_array)[0]) * ((_nr) - (_pos)));		\
-	(_nr)++;							\
-	(_array)[(_pos)] = (_new_item);					\
-} while (0)
-
-#define array_remove_items(_array, _nr, _pos, _nr_to_remove)		\
-do {									\
-	(_nr) -= (_nr_to_remove);					\
-	memmove(&(_array)[(_pos)],					\
-		&(_array)[(_pos) + (_nr_to_remove)],			\
-		sizeof((_array)[0]) * ((_nr) - (_pos)));		\
-} while (0)
-
-#define array_remove_item(_array, _nr, _pos)				\
-	array_remove_items(_array, _nr, _pos, 1)
-
 #define darray_insert_item(_d, pos, _item)				\
 ({									\
 	size_t _pos = (pos);						\
@@ -93,15 +79,10 @@ do {									\
 	_ret;								\
 })
 
-#define darray_remove_items(_d, _pos, _nr_to_remove)			\
-	array_remove_items((_d)->data, (_d)->nr, (_pos) - (_d)->data, _nr_to_remove)
-
 #define darray_remove_item(_d, _pos)					\
-	darray_remove_items(_d, _pos, 1)
+	array_remove_item((_d)->data, (_d)->nr, (_pos) - (_d)->data)
 
-/* Iteration: */
-
-#define __darray_for_each(_d, _i)					\
+#define __darray_for_each(_d, _i)						\
 	for ((_i) = (_d).data; _i < (_d).data + (_d).nr; _i++)
 
 #define darray_for_each(_d, _i)						\
@@ -125,4 +106,4 @@ do {									\
 	darray_init(_d);						\
 } while (0)
 
-#endif /* _LINUX_DARRAY_H */
+#endif /* _BCACHEFS_DARRAY_H */

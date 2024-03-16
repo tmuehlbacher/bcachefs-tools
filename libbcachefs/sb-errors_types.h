@@ -2,7 +2,7 @@
 #ifndef _BCACHEFS_SB_ERRORS_TYPES_H
 #define _BCACHEFS_SB_ERRORS_TYPES_H
 
-#include <linux/darray_types.h>
+#include "darray.h"
 
 #define BCH_SB_ERRS()							\
 	x(clean_but_journal_not_empty,				0)	\
@@ -264,7 +264,8 @@
 	x(subvol_children_not_set,				256)	\
 	x(subvol_children_bad,					257)	\
 	x(subvol_loop,						258)	\
-	x(subvol_unreachable,					259)
+	x(subvol_unreachable,					259)	\
+	x(btree_node_bkey_bad_u64s,				260)
 
 enum bch_sb_error_id {
 #define x(t, n) BCH_FSCK_ERR_##t = n,

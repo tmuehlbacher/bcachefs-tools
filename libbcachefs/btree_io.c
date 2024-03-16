@@ -327,7 +327,7 @@ static void btree_node_sort(struct bch_fs *c, struct btree *b,
 	BUG_ON(vstruct_end(&out->keys) > (void *) out + bytes);
 
 	if (sorting_entire_node)
-		time_stats_update(&c->times[BCH_TIME_btree_node_sort],
+		bch2_time_stats_update(&c->times[BCH_TIME_btree_node_sort],
 				       start_time);
 
 	/* Make sure we preserve bset journal_seq: */
@@ -397,7 +397,7 @@ void bch2_btree_sort_into(struct bch_fs *c,
 			&dst->format,
 			true);
 
-	time_stats_update(&c->times[BCH_TIME_btree_node_sort],
+	bch2_time_stats_update(&c->times[BCH_TIME_btree_node_sort],
 			       start_time);
 
 	set_btree_bset_end(dst, dst->set);
@@ -839,6 +839,9 @@ static bool __bkey_valid(struct bch_fs *c, struct btree *b,
 	if (k->format > KEY_FORMAT_CURRENT)
 		return false;
 
+	if (k->u64s < bkeyp_key_u64s(&b->format, k))
+		return false;
+
 	struct printbuf buf = PRINTBUF;
 	struct bkey tmp;
 	struct bkey_s u = __bkey_disassemble(b, k, &tmp);
@@ -880,7 +883,13 @@ static int validate_bset_keys(struct bch_fs *c, struct btree *b,
 				 "invalid bkey format %u", k->format))
 			goto drop_this_key;
 
-		/* XXX: validate k->u64s */
+		if (btree_err_on(k->u64s < bkeyp_key_u64s(&b->format, k),
+				 -BCH_ERR_btree_node_read_err_fixable,
+				 c, NULL, b, i,
+				 btree_node_bkey_bad_u64s,
+				 "k->u64s too small (%u < %u)", k->u64s, bkeyp_key_u64s(&b->format, k)))
+			goto drop_this_key;
+
 		if (!write)
 			bch2_bkey_compat(b->c.level, b->c.btree_id, version,
 				    BSET_BIG_ENDIAN(i), write,
@@ -1250,7 +1259,7 @@ int bch2_btree_node_read_done(struct bch_fs *c, struct bch_dev *ca,
 out:
 	mempool_free(iter, &c->fill_iter);
 	printbuf_exit(&buf);
-	time_stats_update(&c->times[BCH_TIME_btree_node_read_done], start_time);
+	bch2_time_stats_update(&c->times[BCH_TIME_btree_node_read_done], start_time);
 	return retry_read;
 fsck_err:
 	if (ret == -BCH_ERR_btree_node_read_err_want_retry ||
@@ -1322,7 +1331,7 @@ start:
 		}
 	}
 
-	time_stats_update(&c->times[BCH_TIME_btree_node_read],
+	bch2_time_stats_update(&c->times[BCH_TIME_btree_node_read],
 			       rb->start_time);
 	bio_put(&rb->bio);
 
