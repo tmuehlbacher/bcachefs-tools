@@ -21,7 +21,7 @@ In addition a recent Rust toolchain is required (rustc, cargo), either by using
 is available.
 
 ``` shell
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -- -y --no-modify-path
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
 ```
 
 Debian (Bullseye or later) and Ubuntu (20.04 or later): you can install these with
