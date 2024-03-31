@@ -135,6 +135,7 @@ fn cmd_list_inner(opt: Cli) -> anyhow::Result<()> {
     opt_set!(fs_opts, read_only,        1);
     opt_set!(fs_opts, norecovery,       1);
     opt_set!(fs_opts, degraded,         1);
+    opt_set!(fs_opts, very_degraded,         1);
     opt_set!(fs_opts, errors,           bcachefs::bch_error_actions::BCH_ON_ERROR_continue as u8);
 
     if opt.fsck {
