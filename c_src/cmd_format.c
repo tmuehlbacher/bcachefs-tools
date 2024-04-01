@@ -384,6 +384,15 @@ int cmd_show_super(int argc, char *argv[])
 		if (f)
 			__bch2_sb_field_to_text(&buf, sb.sb, f);
 	} else {
+		printbuf_tabstop_push(&buf, 44);
+
+		char *model = fd_to_dev_model(sb.bdev->bd_fd);
+		prt_str(&buf, "Device:");
+		prt_tab(&buf);
+		prt_str(&buf, model);
+		prt_newline(&buf);
+		free(model);
+
 		bch2_sb_to_text(&buf, sb.sb, print_layout, fields);
 	}
 	printf("%s", buf.buf);

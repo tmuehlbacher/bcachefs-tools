@@ -579,6 +579,49 @@ int dev_mounted(char *dev)
 	return 2;
 }
 
+static char *dev_to_sysfs_path(dev_t dev)
+{
+	return mprintf("/sys/dev/block/%u:%u", major(dev), minor(dev));
+}
+
+char *fd_to_dev_model(int fd)
+{
+	struct stat stat = xfstat(fd);
+
+	if (S_ISBLK(stat.st_mode)) {
+		char *sysfs_path = dev_to_sysfs_path(stat.st_rdev);
+
+		char *model_path = mprintf("%s/device/model", sysfs_path);
+		if (!access(model_path, R_OK))
+			goto got_model;
+		free(model_path);
+
+		/* partition? try parent */
+
+		char buf[1024];
+		if (readlink(sysfs_path, buf, sizeof(buf)) < 0)
+			die("readlink error on %s: %m", sysfs_path);
+
+		free(sysfs_path);
+		sysfs_path = strdup(buf);
+
+		*strrchr(sysfs_path, '/') = 0;
+		model_path = mprintf("%s/device/model", sysfs_path);
+		if (!access(model_path, R_OK))
+			goto got_model;
+
+		return strdup("(unknown device)");
+		char *model;
+got_model:
+		model = read_file_str(AT_FDCWD, model_path);
+		free(model_path);
+		free(sysfs_path);
+		return model;
+	} else {
+		return strdup("(reg file)");
+	}
+}
+
 static int kstrtoull_symbolic(const char *s, unsigned int base, unsigned long long *res)
 {
 	if (!strcmp(s, "U64_MAX")) {
