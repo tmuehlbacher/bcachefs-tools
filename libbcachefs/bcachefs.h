@@ -615,6 +615,7 @@ struct bch_dev {
  */
 
 #define BCH_FS_FLAGS()			\
+	x(new_fs)			\
 	x(started)			\
 	x(may_go_rw)			\
 	x(rw)				\
@@ -797,6 +798,7 @@ struct bch_fs {
 		u64		features;
 		u64		compat;
 		unsigned long	errors_silent[BITS_TO_LONGS(BCH_SB_ERR_MAX)];
+		u64		btrees_lost_data;
 	}			sb;
 
 
@@ -826,7 +828,6 @@ struct bch_fs {
 	struct btree_root	btree_roots_known[BTREE_ID_NR];
 	DARRAY(struct btree_root) btree_roots_extra;
 	struct mutex		btree_root_lock;
-	unsigned long		btrees_lost_data; /* bitmask */
 
 	struct btree_cache	btree_cache;
 

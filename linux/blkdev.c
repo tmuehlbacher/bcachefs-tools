@@ -162,16 +162,18 @@ sector_t get_capacity(struct gendisk *disk)
 	return bytes >> 9;
 }
 
-void bdev_release(struct bdev_handle *handle)
+void fput(struct file *file)
 {
-	fdatasync(handle->bdev->bd_fd);
-	close(handle->bdev->bd_fd);
-	free(handle->bdev);
-	free(handle);
+	struct block_device *bdev = file_bdev(file);
+
+	fdatasync(bdev->bd_fd);
+	close(bdev->bd_fd);
+	free(bdev);
+	free(file);
 }
 
-struct bdev_handle *bdev_open_by_path(const char *path, blk_mode_t mode,
-				      void *holder, const struct blk_holder_ops *hop)
+struct file *bdev_file_open_by_path(const char *path, blk_mode_t mode,
+				    void *holder, const struct blk_holder_ops *hop)
 {
 	int fd, flags = 0;
 
@@ -204,13 +206,12 @@ struct bdev_handle *bdev_open_by_path(const char *path, blk_mode_t mode,
 	bdev->bd_disk		= &bdev->__bd_disk;
 	bdev->bd_disk->bdi	= &bdev->bd_disk->__bdi;
 	bdev->queue.backing_dev_info = bdev->bd_disk->bdi;
+	bdev->bd_inode		= &bdev->__bd_inode;
 
-	struct bdev_handle *handle = calloc(sizeof(*handle), 1);
-	handle->bdev	= bdev;
-	handle->holder	= holder;
-	handle->mode	= mode;
+	struct file *file = calloc(sizeof(*file), 1);
+	file->f_inode = bdev->bd_inode;
 
-	return handle;
+	return file;
 }
 
 int lookup_bdev(const char *path, dev_t *dev)

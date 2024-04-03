@@ -1264,11 +1264,11 @@ out:
 	return retry_read;
 fsck_err:
 	if (ret == -BCH_ERR_btree_node_read_err_want_retry ||
-	    ret == -BCH_ERR_btree_node_read_err_must_retry)
+	    ret == -BCH_ERR_btree_node_read_err_must_retry) {
 		retry_read = 1;
-	else {
+	} else {
 		set_btree_node_read_error(b);
-		set_bit(b->c.btree_id, &c->btrees_lost_data);
+		bch2_btree_lost_data(c, b->c.btree_id);
 	}
 	goto out;
 }
@@ -1330,7 +1330,7 @@ start:
 
 		if (!can_retry) {
 			set_btree_node_read_error(b);
-			set_bit(b->c.btree_id, &c->btrees_lost_data);
+			bch2_btree_lost_data(c, b->c.btree_id);
 			break;
 		}
 	}
@@ -1532,7 +1532,7 @@ fsck_err:
 
 	if (ret) {
 		set_btree_node_read_error(b);
-		set_bit(b->c.btree_id, &c->btrees_lost_data);
+		bch2_btree_lost_data(c, b->c.btree_id);
 	} else if (*saw_error)
 		bch2_btree_node_rewrite_async(c, b);
 
@@ -1669,7 +1669,7 @@ void bch2_btree_node_read(struct btree_trans *trans, struct btree *b,
 			bch2_fatal_error(c);
 
 		set_btree_node_read_error(b);
-		set_bit(b->c.btree_id, &c->btrees_lost_data);
+		bch2_btree_lost_data(c, b->c.btree_id);
 		clear_btree_node_read_in_flight(b);
 		wake_up_bit(&b->flags, BTREE_NODE_read_in_flight);
 		printbuf_exit(&buf);
@@ -1866,7 +1866,7 @@ static void btree_node_write_work(struct work_struct *work)
 	} else {
 		ret = bch2_trans_do(c, NULL, NULL, 0,
 			bch2_btree_node_update_key_get_iter(trans, b, &wbio->key,
-					BCH_WATERMARK_reclaim|
+					BCH_WATERMARK_interior_updates|
 					BCH_TRANS_COMMIT_journal_reclaim|
 					BCH_TRANS_COMMIT_no_enospc|
 					BCH_TRANS_COMMIT_no_check_rw,

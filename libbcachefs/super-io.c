@@ -142,8 +142,8 @@ void bch2_sb_field_delete(struct bch_sb_handle *sb,
 void bch2_free_super(struct bch_sb_handle *sb)
 {
 	kfree(sb->bio);
-	if (!IS_ERR_OR_NULL(sb->bdev_handle))
-		bdev_release(sb->bdev_handle);
+	if (!IS_ERR_OR_NULL(sb->s_bdev_file))
+		fput(sb->s_bdev_file);
 	kfree(sb->holder);
 	kfree(sb->sb_name);
 
@@ -527,9 +527,11 @@ static void bch2_sb_update(struct bch_fs *c)
 	memset(c->sb.errors_silent, 0, sizeof(c->sb.errors_silent));
 
 	struct bch_sb_field_ext *ext = bch2_sb_field_get(src, ext);
-	if (ext)
+	if (ext) {
 		le_bitvector_to_cpu(c->sb.errors_silent, (void *) ext->errors_silent,
 				    sizeof(c->sb.errors_silent) * 8);
+		c->sb.btrees_lost_data = le64_to_cpu(ext->btrees_lost_data);
+	}
 
 	for_each_member_device(c, ca) {
 		struct bch_member m = bch2_sb_member_get(src, ca->dev_idx);
@@ -712,23 +714,23 @@ retry:
 	if (!opt_get(*opts, nochanges))
 		sb->mode |= BLK_OPEN_WRITE;
 
-	sb->bdev_handle = bdev_open_by_path(path, sb->mode, sb->holder, &bch2_sb_handle_bdev_ops);
-	if (IS_ERR(sb->bdev_handle) &&
-	    PTR_ERR(sb->bdev_handle) == -EACCES &&
+	sb->s_bdev_file = bdev_file_open_by_path(path, sb->mode, sb->holder, &bch2_sb_handle_bdev_ops);
+	if (IS_ERR(sb->s_bdev_file) &&
+	    PTR_ERR(sb->s_bdev_file) == -EACCES &&
 	    opt_get(*opts, read_only)) {
 		sb->mode &= ~BLK_OPEN_WRITE;
 
-		sb->bdev_handle = bdev_open_by_path(path, sb->mode, sb->holder, &bch2_sb_handle_bdev_ops);
-		if (!IS_ERR(sb->bdev_handle))
+		sb->s_bdev_file = bdev_file_open_by_path(path, sb->mode, sb->holder, &bch2_sb_handle_bdev_ops);
+		if (!IS_ERR(sb->s_bdev_file))
 			opt_set(*opts, nochanges, true);
 	}
 
-	if (IS_ERR(sb->bdev_handle)) {
-		ret = PTR_ERR(sb->bdev_handle);
+	if (IS_ERR(sb->s_bdev_file)) {
+		ret = PTR_ERR(sb->s_bdev_file);
 		prt_printf(&err, "error opening %s: %s", path, bch2_err_str(ret));
 		goto err;
 	}
-	sb->bdev = sb->bdev_handle->bdev;
+	sb->bdev = file_bdev(sb->s_bdev_file);
 
 	ret = bch2_sb_realloc(sb, 0);
 	if (ret) {
@@ -1162,6 +1164,11 @@ static void bch2_sb_ext_to_text(struct printbuf *out, struct bch_sb *sb,
 
 		kfree(errors_silent);
 	}
+
+	prt_printf(out, "Btrees with missing data:");
+	prt_tab(out);
+	prt_bitflags(out, __bch2_btree_ids, le64_to_cpu(e->btrees_lost_data));
+	prt_newline(out);
 }
 
 static const struct bch_sb_field_ops bch_sb_field_ops_ext = {

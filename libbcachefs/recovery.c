@@ -33,6 +33,20 @@
 
 #define QSTR(n) { { { .len = strlen(n) } }, .name = n }
 
+void bch2_btree_lost_data(struct bch_fs *c, enum btree_id btree)
+{
+	u64 b = BIT_ULL(btree);
+
+	if (!(c->sb.btrees_lost_data & b)) {
+		bch_err(c, "flagging btree %s lost data", bch2_btree_id_str(btree));
+
+		mutex_lock(&c->sb_lock);
+		bch2_sb_field_get(c->disk_sb.sb, ext)->btrees_lost_data |= cpu_to_le64(b);
+		bch2_write_super(c);
+		mutex_unlock(&c->sb_lock);
+	}
+}
+
 static bool btree_id_is_alloc(enum btree_id id)
 {
 	switch (id) {
@@ -272,7 +286,8 @@ int bch2_journal_replay(struct bch_fs *c)
 	bch2_trans_put(trans);
 	trans = NULL;
 
-	if (!c->opts.retain_recovery_info)
+	if (!c->opts.retain_recovery_info &&
+	    c->recovery_pass_done >= BCH_RECOVERY_PASS_journal_replay)
 		bch2_journal_keys_put_initial(c);
 
 	replay_now_at(j, j->replay_journal_seq_end);
@@ -468,8 +483,8 @@ static int read_btree_roots(struct bch_fs *c)
 				c->recovery_passes_explicit |= BIT_ULL(BCH_RECOVERY_PASS_check_topology);
 			}
 
-			set_bit(i, &c->btrees_lost_data);
 			ret = 0;
+			bch2_btree_lost_data(c, i);
 		}
 	}
 
@@ -590,26 +605,13 @@ int bch2_fs_recovery(struct bch_fs *c)
 		goto err;
 	}
 
-	if (c->opts.fsck && c->opts.norecovery) {
-		bch_err(c, "cannot select both norecovery and fsck");
-		ret = -EINVAL;
-		goto err;
-	}
-
-	c->opts.retain_recovery_info	|= c->opts.norecovery;
-	c->opts.nochanges		|= c->opts.norecovery;
+	if (c->opts.norecovery)
+		c->opts.recovery_pass_last = BCH_RECOVERY_PASS_journal_replay - 1;
 
 	if (!c->opts.nochanges) {
 		mutex_lock(&c->sb_lock);
+		struct bch_sb_field_ext *ext = bch2_sb_field_get(c->disk_sb.sb, ext);
 		bool write_sb = false;
-
-		struct bch_sb_field_ext *ext =
-			bch2_sb_field_get_minsize(&c->disk_sb, ext, sizeof(*ext) / sizeof(u64));
-		if (!ext) {
-			ret = -BCH_ERR_ENOSPC_sb;
-			mutex_unlock(&c->sb_lock);
-			goto err;
-		}
 
 		if (BCH_SB_HAS_TOPOLOGY_ERRORS(c->disk_sb.sb)) {
 			ext->recovery_passes_required[0] |=
@@ -841,6 +843,7 @@ use_clean:
 	}
 
 	mutex_lock(&c->sb_lock);
+	struct bch_sb_field_ext *ext = bch2_sb_field_get(c->disk_sb.sb, ext);
 	bool write_sb = false;
 
 	if (BCH_SB_VERSION_UPGRADE_COMPLETE(c->disk_sb.sb) != le16_to_cpu(c->disk_sb.sb->version)) {
@@ -854,15 +857,18 @@ use_clean:
 		write_sb = true;
 	}
 
-	if (!test_bit(BCH_FS_error, &c->flags)) {
-		struct bch_sb_field_ext *ext = bch2_sb_field_get(c->disk_sb.sb, ext);
-		if (ext &&
-		    (!bch2_is_zero(ext->recovery_passes_required, sizeof(ext->recovery_passes_required)) ||
-		     !bch2_is_zero(ext->errors_silent, sizeof(ext->errors_silent)))) {
-			memset(ext->recovery_passes_required, 0, sizeof(ext->recovery_passes_required));
-			memset(ext->errors_silent, 0, sizeof(ext->errors_silent));
-			write_sb = true;
-		}
+	if (!test_bit(BCH_FS_error, &c->flags) &&
+	    !bch2_is_zero(ext->errors_silent, sizeof(ext->errors_silent))) {
+		memset(ext->errors_silent, 0, sizeof(ext->errors_silent));
+		write_sb = true;
+	}
+
+	if (c->opts.fsck &&
+	    !test_bit(BCH_FS_error, &c->flags) &&
+	    c->recovery_pass_done == BCH_RECOVERY_PASS_NR - 1 &&
+	    ext->btrees_lost_data) {
+		ext->btrees_lost_data = 0;
+		write_sb = true;
 	}
 
 	if (c->opts.fsck &&
@@ -932,6 +938,7 @@ int bch2_fs_initialize(struct bch_fs *c)
 	int ret;
 
 	bch_notice(c, "initializing new filesystem");
+	set_bit(BCH_FS_new_fs, &c->flags);
 
 	mutex_lock(&c->sb_lock);
 	c->disk_sb.sb->compat[0] |= cpu_to_le64(1ULL << BCH_COMPAT_extents_above_btree_updates_done);

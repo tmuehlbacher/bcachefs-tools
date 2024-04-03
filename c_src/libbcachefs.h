@@ -52,7 +52,7 @@ static inline struct format_opts format_opts_default()
 }
 
 struct dev_opts {
-	struct bdev_handle *handle;
+	struct file	*file;
 	struct block_device *bdev;
 	char		*path;
 	u64		size;		/* bytes*/

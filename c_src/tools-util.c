@@ -189,13 +189,13 @@ int open_for_format(struct dev_opts *dev, bool force)
 	const char *fs_type = NULL, *fs_label = NULL;
 	size_t fs_type_len, fs_label_len;
 
-	dev->handle = bdev_open_by_path(dev->path,
+	dev->file = bdev_file_open_by_path(dev->path,
 				BLK_OPEN_READ|BLK_OPEN_WRITE|BLK_OPEN_EXCL|BLK_OPEN_BUFFERED,
 				dev, NULL);
-	int ret = PTR_ERR_OR_ZERO(dev->handle);
+	int ret = PTR_ERR_OR_ZERO(dev->file);
 	if (ret < 0)
 		die("Error opening device to format %s: %s", dev->path, strerror(-ret));
-	dev->bdev = dev->handle->bdev;
+	dev->bdev = file_bdev(dev->file);
 
 	if (!(pr = blkid_new_probe()))
 		die("blkid error 1");

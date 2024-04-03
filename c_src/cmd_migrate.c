@@ -676,12 +676,12 @@ static int migrate_fs(const char		*fs_path,
 	struct dev_opts dev = dev_opts_default();
 
 	dev.path = dev_t_to_path(stat.st_dev);
-	dev.handle = bdev_open_by_path(dev.path, BLK_OPEN_READ|BLK_OPEN_WRITE, &dev, NULL);
+	dev.file = bdev_file_open_by_path(dev.path, BLK_OPEN_READ|BLK_OPEN_WRITE, &dev, NULL);
 
-	int ret = PTR_ERR_OR_ZERO(dev.handle);
+	int ret = PTR_ERR_OR_ZERO(dev.file);
 	if (ret < 0)
 		die("Error opening device to format %s: %s", dev.path, strerror(-ret));
-	dev.bdev = dev.handle->bdev;
+	dev.bdev = file_bdev(dev.file);
 
 	opt_set(fs_opts, block_size, get_blocksize(dev.bdev->bd_fd));
 
