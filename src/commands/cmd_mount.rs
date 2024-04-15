@@ -4,6 +4,7 @@ use clap::Parser;
 use uuid::Uuid;
 use std::io::{stdout, IsTerminal};
 use std::path::PathBuf;
+use std::fs;
 use crate::key;
 use crate::key::UnlockPolicy;
 use std::ffi::{CString, c_char, c_void};
@@ -125,11 +126,13 @@ fn get_devices_by_uuid(uuid: Uuid) -> anyhow::Result<Vec<(PathBuf, bch_sb_handle
 
 fn get_uuid_for_dev_node(device: &std::path::PathBuf) ->  anyhow::Result<Option<Uuid>> {
     let mut udev = udev::Enumerator::new()?;
+    let canonical = fs::canonicalize(device)?;
+
     udev.match_subsystem("block")?;
 
     for dev in udev.scan_devices()?.into_iter() {
         if let Some(devnode) = dev.devnode() {
-            if devnode == device {
+            if devnode == canonical {
                 let devnode_owned = devnode.to_owned();
                 let sb_result = read_super_silent(&devnode_owned);
                 if let Ok(sb) = sb_result {
