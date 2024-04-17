@@ -235,7 +235,7 @@ static inline bool bch2_dev_btree_bitmap_marked_sectors(struct bch_dev *ca, u64 
 {
 	u64 end = start + sectors;
 
-	if (end > 64 << ca->mi.btree_bitmap_shift)
+	if (end > 64ULL << ca->mi.btree_bitmap_shift)
 		return false;
 
 	for (unsigned bit = sectors >> ca->mi.btree_bitmap_shift;
