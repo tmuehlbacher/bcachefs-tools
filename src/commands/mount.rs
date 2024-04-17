@@ -1,10 +1,12 @@
 use bch_bindgen::{path_to_cstr, bcachefs, bcachefs::bch_sb_handle, opt_set};
 use log::{info, debug, error, LevelFilter};
+use std::collections::HashMap;
 use clap::Parser;
 use uuid::Uuid;
 use std::io::{stdout, IsTerminal};
 use std::path::PathBuf;
 use std::fs;
+use std::str;
 use crate::key;
 use crate::key::UnlockPolicy;
 use std::ffi::{CString, c_char, c_void};
@@ -107,39 +109,112 @@ fn read_super_silent(path: &std::path::PathBuf) -> anyhow::Result<bch_sb_handle>
     bch_bindgen::sb_io::read_super_silent(&path, opts)
 }
 
-fn get_devices_by_uuid(uuid: Uuid) -> anyhow::Result<Vec<(PathBuf, bch_sb_handle)>> {
-    debug!("enumerating udev devices");
-    let mut udev = udev::Enumerator::new()?;
-
-    udev.match_subsystem("block")?;
-
-    let devs = udev
-        .scan_devices()?
-        .into_iter()
-        .filter_map(|dev| dev.devnode().map(ToOwned::to_owned))
-        .map(|dev| (dev.clone(), read_super_silent(&dev)))
-        .filter_map(|(dev, sb)| sb.ok().map(|sb| (dev, sb)))
-        .filter(|(_, sb)| sb.sb().uuid() == uuid)
+fn device_property_map(dev: &udev::Device) -> HashMap<String, String> {
+    let rc: HashMap<_, _> = dev
+        .properties()
+        .map(|i| {
+            (
+                String::from(i.name().to_string_lossy()),
+                String::from(i.value().to_string_lossy()),
+            )
+        })
         .collect();
-    Ok(devs)
+    rc
 }
 
-fn get_uuid_for_dev_node(device: &std::path::PathBuf) ->  anyhow::Result<Option<Uuid>> {
+fn udev_bcachefs_info() -> anyhow::Result<HashMap<String, Vec<String>>> {
+    let mut info = HashMap::new();
     let mut udev = udev::Enumerator::new()?;
-    let canonical = fs::canonicalize(device)?;
+
+    debug!("Walking udev db!");
 
     udev.match_subsystem("block")?;
+    udev.match_property("ID_FS_TYPE", "bcachefs")?;
 
-    for dev in udev.scan_devices()?.into_iter() {
-        if let Some(devnode) = dev.devnode() {
-            if devnode == canonical {
-                let devnode_owned = devnode.to_owned();
-                let sb_result = read_super_silent(&devnode_owned);
-                if let Ok(sb) = sb_result {
-                    return Ok(Some(sb.sb().uuid()));
-                }
-            }
+    for dev in udev.scan_devices()? {
+        if !dev.is_initialized() {
+            continue;
         }
+
+        let m = device_property_map(&dev);
+        if m.contains_key("ID_FS_UUID") && m.contains_key("DEVNAME") {
+            let fs_uuid = m["ID_FS_UUID"].clone();
+            let dev_node = m["DEVNAME"].clone();
+            info.insert(dev_node.clone(), vec![fs_uuid.clone()]);
+            info.entry(fs_uuid).or_insert(vec![]).push(dev_node.clone());
+        }
+    }
+
+    Ok(info)
+}
+
+fn get_super_blocks(
+    uuid: Uuid,
+    devices: &[String],
+) -> anyhow::Result<Vec<(PathBuf, bch_sb_handle)>> {
+    Ok(devices
+        .iter()
+        .filter_map(|dev| {
+            read_super_silent(&PathBuf::from(dev))
+                .ok()
+                .map(|sb| (PathBuf::from(dev), sb))
+        })
+        .filter(|(_, sb)| sb.sb().uuid() == uuid)
+        .collect::<Vec<_>>())
+}
+
+fn get_all_block_devnodes() -> anyhow::Result<Vec<String>> {
+    let mut udev = udev::Enumerator::new()?;
+    udev.match_subsystem("block")?;
+
+    let devices = udev
+        .scan_devices()?
+        .filter_map(|dev| {
+            if dev.is_initialized() {
+                dev.devnode().map(|dn| dn.to_string_lossy().into_owned())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(devices)
+}
+
+fn get_devices_by_uuid(
+    udev_bcachefs: &HashMap<String, Vec<String>>,
+    uuid: Uuid,
+) -> anyhow::Result<Vec<(PathBuf, bch_sb_handle)>> {
+    let devices = {
+        if !udev_bcachefs.is_empty() {
+            let uuid_string = uuid.hyphenated().to_string();
+            if let Some(devices) = udev_bcachefs.get(&uuid_string) {
+                devices.clone()
+            } else {
+                Vec::new()
+            }
+        } else {
+            get_all_block_devnodes()?
+        }
+    };
+
+    get_super_blocks(uuid, &devices)
+}
+
+fn get_uuid_for_dev_node(
+    udev_bcachefs: &HashMap<String, Vec<String>>,
+    device: &std::path::PathBuf,
+) -> anyhow::Result<Option<Uuid>> {
+    let canonical = fs::canonicalize(device)?;
+
+    if !udev_bcachefs.is_empty() {
+        let dev_node_str = canonical.into_os_string().into_string().unwrap();
+
+        if udev_bcachefs.contains_key(&dev_node_str) && udev_bcachefs[&dev_node_str].len() == 1 {
+            let uuid_str = udev_bcachefs[&dev_node_str][0].clone();
+            return Ok(Some(Uuid::parse_str(&uuid_str)?));
+        }
+    } else {
+        return read_super_silent(&canonical).map_or(Ok(None), |sb| Ok(Some(sb.sb().uuid())));
     }
     Ok(None)
 }
@@ -186,11 +261,13 @@ pub struct Cli {
     verbose:        u8,
 }
 
-fn devs_str_sbs_from_uuid(uuid: String) -> anyhow::Result<(String, Vec<bch_sb_handle>)> {
+fn devs_str_sbs_from_uuid(
+    udev_info: &HashMap<String, Vec<String>>,
+    uuid: String,
+) -> anyhow::Result<(String, Vec<bch_sb_handle>)> {
     debug!("enumerating devices with UUID {}", uuid);
 
-    let devs_sbs = Uuid::parse_str(&uuid)
-        .map(|uuid| get_devices_by_uuid(uuid))??;
+    let devs_sbs = Uuid::parse_str(&uuid).map(|uuid| get_devices_by_uuid(udev_info, uuid))??;
 
     let devs_str = devs_sbs
         .iter()
@@ -201,26 +278,31 @@ fn devs_str_sbs_from_uuid(uuid: String) -> anyhow::Result<(String, Vec<bch_sb_ha
     let sbs: Vec<bch_sb_handle> = devs_sbs.iter().map(|(_, sb)| *sb).collect();
 
     Ok((devs_str, sbs))
-
 }
 
-fn devs_str_sbs_from_device(device: &std::path::PathBuf) -> anyhow::Result<(String, Vec<bch_sb_handle>)> {
-    let uuid = get_uuid_for_dev_node(device)?;
+fn devs_str_sbs_from_device(
+    udev_info: &HashMap<String, Vec<String>>,
+    device: &std::path::PathBuf,
+) -> anyhow::Result<(String, Vec<bch_sb_handle>)> {
+    let uuid = get_uuid_for_dev_node(udev_info, device)?;
 
     if let Some(bcache_fs_uuid) = uuid {
-        devs_str_sbs_from_uuid(bcache_fs_uuid.to_string())
+        devs_str_sbs_from_uuid(udev_info, bcache_fs_uuid.to_string())
     } else {
         Ok((String::new(), Vec::new()))
     }
 }
 
 fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
+    // Grab the udev information once
+    let udev_info = udev_bcachefs_info()?;
+
     let (devices, block_devices_to_mount) = if opt.dev.starts_with("UUID=") {
         let uuid = opt.dev.replacen("UUID=", "", 1);
-        devs_str_sbs_from_uuid(uuid)?
+        devs_str_sbs_from_uuid(&udev_info, uuid)?
     } else if opt.dev.starts_with("OLD_BLKID_UUID=") {
         let uuid = opt.dev.replacen("OLD_BLKID_UUID=", "", 1);
-        devs_str_sbs_from_uuid(uuid)?
+        devs_str_sbs_from_uuid(&udev_info, uuid)?
     } else {
         // If the device string contains ":" we will assume the user knows the entire list.
         // If they supply a single device it could be either the FS only has 1 device or it's
@@ -236,7 +318,7 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
 
             (opt.dev, block_devices_to_mount)
         } else {
-            devs_str_sbs_from_device(&PathBuf::from(opt.dev))?
+            devs_str_sbs_from_device(&udev_info, &PathBuf::from(opt.dev))?
         }
     };
 
