@@ -238,8 +238,8 @@ static inline bool bch2_dev_btree_bitmap_marked_sectors(struct bch_dev *ca, u64 
 	if (end > 64ULL << ca->mi.btree_bitmap_shift)
 		return false;
 
-	for (unsigned bit = sectors >> ca->mi.btree_bitmap_shift;
-	     bit << ca->mi.btree_bitmap_shift < end;
+	for (unsigned bit = start >> ca->mi.btree_bitmap_shift;
+	     (u64) bit << ca->mi.btree_bitmap_shift < end;
 	     bit++)
 		if (!(ca->mi.btree_allocated_bitmap & BIT_ULL(bit)))
 			return false;

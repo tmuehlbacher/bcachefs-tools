@@ -254,6 +254,7 @@ update-bcachefs-sources:
 	test -d libbcachefs || mkdir libbcachefs
 	cp $(LINUX_DIR)/fs/bcachefs/*.[ch] libbcachefs/
 	git add libbcachefs/*.[ch]
+	git rm -f libbcachefs/mean_and_variance_test.c
 	cp $(LINUX_DIR)/include/linux/closure.h include/linux/
 	git add include/linux/closure.h
 	cp $(LINUX_DIR)/lib/closure.c linux/
