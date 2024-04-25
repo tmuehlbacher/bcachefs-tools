@@ -60,14 +60,18 @@ static int splice_fd_to_stdinout(int fd)
 	setnonblocking(STDIN_FILENO);
 	setnonblocking(fd);
 
+	bool stdin_closed = false;
+
 	while (true) {
 		fd_set fds;
 
 		FD_ZERO(&fds);
-		FD_SET(STDIN_FILENO, &fds);
 		FD_SET(fd, &fds);
+		if (!stdin_closed)
+			FD_SET(STDIN_FILENO, &fds);
 
-		select(fd + 1, &fds, NULL, NULL, NULL);
+		if (select(fd + 1, &fds, NULL, NULL, NULL) < 0)
+			die("select error: %m");
 
 		int r = do_splice(fd, STDOUT_FILENO);
 		if (r < 0)
@@ -78,6 +82,8 @@ static int splice_fd_to_stdinout(int fd)
 		r = do_splice(STDIN_FILENO, fd);
 		if (r < 0)
 			return r;
+		if (r)
+			stdin_closed = true;
 	}
 
 	return close(fd);
