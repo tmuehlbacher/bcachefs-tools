@@ -629,7 +629,6 @@ int bch2_check_bucket_ref(struct btree_trans *trans,
 			bch2_data_type_str(ptr_data_type),
 			(printbuf_reset(&buf),
 			 bch2_bkey_val_to_text(&buf, c, k), buf.buf));
-		BUG();
 		ret = -EIO;
 		goto err;
 	}
