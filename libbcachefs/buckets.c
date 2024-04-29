@@ -525,7 +525,6 @@ int bch2_mark_metadata_bucket(struct bch_fs *c, struct bch_dev *ca,
 			"different types of data in same bucket: %s, %s",
 			bch2_data_type_str(g->data_type),
 			bch2_data_type_str(data_type))) {
-		BUG();
 		ret = -EIO;
 		goto err;
 	}
