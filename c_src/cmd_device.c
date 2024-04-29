@@ -74,7 +74,7 @@ int cmd_device_add(int argc, char *argv[])
 	bool force = false;
 	int opt;
 
-	while ((opt = getopt_long(argc, argv, "t:fh",
+	while ((opt = getopt_long(argc, argv, "fh",
 				  longopts, NULL)) != -1)
 		switch (opt) {
 		case 'S':
