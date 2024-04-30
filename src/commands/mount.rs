@@ -5,8 +5,7 @@ use clap::Parser;
 use uuid::Uuid;
 use std::io::{stdout, IsTerminal};
 use std::path::PathBuf;
-use std::fs;
-use std::str;
+use std::{fs, str, env};
 use crate::key;
 use crate::key::UnlockPolicy;
 use std::ffi::{CString, c_char, c_void};
@@ -124,6 +123,12 @@ fn device_property_map(dev: &udev::Device) -> HashMap<String, String> {
 
 fn udev_bcachefs_info() -> anyhow::Result<HashMap<String, Vec<String>>> {
     let mut info = HashMap::new();
+
+    if env::var("BCACHEFS_BLOCK_SCAN").is_ok() {
+        debug!("Checking all block devices for bcachefs super block!");
+        return Ok(info);
+    }
+
     let mut udev = udev::Enumerator::new()?;
 
     debug!("Walking udev db!");
