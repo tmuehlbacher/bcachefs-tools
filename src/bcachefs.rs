@@ -4,10 +4,6 @@ mod key;
 
 use std::ffi::{c_char, CString};
 
-use commands::cmd_completions::cmd_completions;
-use commands::cmd_list::cmd_list;
-use commands::cmd_mount::cmd_mount;
-use commands::cmd_subvolume::cmd_subvolumes;
 use commands::logger::SimpleLogger;
 use bch_bindgen::c;
 
@@ -110,10 +106,10 @@ fn main() {
     };
 
     let ret = match cmd {
-        "completions" => cmd_completions(args[1..].to_vec()),
-        "list" => cmd_list(args[1..].to_vec()),
-        "mount" => cmd_mount(args, symlink_cmd),
-        "subvolume" => cmd_subvolumes(args[1..].to_vec()),
+        "completions" => commands::completions(args[1..].to_vec()),
+        "list" => commands::list(args[1..].to_vec()),
+        "mount" => commands::mount(args, symlink_cmd),
+        "subvolume" => commands::subvolume(args[1..].to_vec()),
         _ => handle_c_command(args, symlink_cmd),
     };
 

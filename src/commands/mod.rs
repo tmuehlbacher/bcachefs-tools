@@ -1,10 +1,15 @@
 use clap::Subcommand;
 
 pub mod logger;
-pub mod cmd_mount;
-pub mod cmd_list;
-pub mod cmd_completions;
-pub mod cmd_subvolume;
+pub mod mount;
+pub mod list;
+pub mod completions;
+pub mod subvolume;
+
+pub use mount::mount;
+pub use list::list;
+pub use completions::completions;
+pub use subvolume::subvolume;
 
 #[derive(clap::Parser, Debug)]
 #[command(name = "bcachefs")]
@@ -15,11 +20,11 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Subcommands {
-    List(cmd_list::Cli),
-    Mount(cmd_mount::Cli),
-    Completions(cmd_completions::Cli),
+    List(list::Cli),
+    Mount(mount::Cli),
+    Completions(completions::Cli),
     #[command(visible_aliases = ["subvol"])]
-    Subvolume(cmd_subvolume::Cli),
+    Subvolume(subvolume::Cli),
 }
 
 #[macro_export]

@@ -36,7 +36,7 @@ enum Subcommands {
     }
 }
 
-pub fn cmd_subvolumes(argv: Vec<String>) -> i32 {
+pub fn subvolume(argv: Vec<String>) -> i32 {
     let args = Cli::parse_from(argv);
 
     match args.subcommands {

@@ -86,7 +86,7 @@ fn parse_mount_options(options: impl AsRef<str>) -> (Option<String>, libc::c_ulo
     )
 }
 
-fn mount(
+fn do_mount(
     device: String,
     target: impl AsRef<std::path::Path>,
     options: impl AsRef<str>,
@@ -276,7 +276,7 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
             &opt.options
         );
 
-        mount(devices, mountpoint, &opt.options)?;
+        do_mount(devices, mountpoint, &opt.options)?;
     } else {
         info!(
             "would mount with params: device: {}, options: {}",
@@ -288,7 +288,7 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn cmd_mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
+pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
     // If the bcachefs tool is being called as "bcachefs mount dev ..." (as opposed to via a
     // symlink like "/usr/sbin/mount.bcachefs dev ...", then we need to pop the 0th argument
     // ("bcachefs") since the CLI parser here expects the device at position 1.

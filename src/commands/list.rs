@@ -157,7 +157,7 @@ fn cmd_list_inner(opt: Cli) -> anyhow::Result<()> {
     }
 }
 
-pub fn cmd_list(argv: Vec<String>) -> i32 {
+pub fn list(argv: Vec<String>) -> i32 {
     let opt = Cli::parse_from(argv);
     colored::control::set_override(opt.colorize);
     if let Err(e) = cmd_list_inner(opt) {
