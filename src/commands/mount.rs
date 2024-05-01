@@ -208,7 +208,7 @@ fn get_devices_by_uuid(
 fn get_uuid_for_dev_node(
     udev_bcachefs: &HashMap<String, Vec<String>>,
     device: &std::path::PathBuf,
-) -> anyhow::Result<Option<Uuid>> {
+) -> anyhow::Result<(Option<Uuid>, Option<(PathBuf, bch_sb_handle)>)> {
     let canonical = fs::canonicalize(device)?;
 
     if !udev_bcachefs.is_empty() {
@@ -216,12 +216,14 @@ fn get_uuid_for_dev_node(
 
         if udev_bcachefs.contains_key(&dev_node_str) && udev_bcachefs[&dev_node_str].len() == 1 {
             let uuid_str = udev_bcachefs[&dev_node_str][0].clone();
-            return Ok(Some(Uuid::parse_str(&uuid_str)?));
+            return Ok((Some(Uuid::parse_str(&uuid_str)?), None));
         }
     } else {
-        return read_super_silent(&canonical).map_or(Ok(None), |sb| Ok(Some(sb.sb().uuid())));
+        return read_super_silent(&canonical).map_or(Ok((None, None)), |sb| {
+            Ok((Some(sb.sb().uuid()), Some((canonical, sb))))
+        });
     }
-    Ok(None)
+    Ok((None, None))
 }
 
 /// Mount a bcachefs filesystem by its UUID.
@@ -289,12 +291,26 @@ fn devs_str_sbs_from_device(
     udev_info: &HashMap<String, Vec<String>>,
     device: &std::path::PathBuf,
 ) -> anyhow::Result<(String, Vec<bch_sb_handle>)> {
-    let uuid = get_uuid_for_dev_node(udev_info, device)?;
+    let (uuid, sb_info) = get_uuid_for_dev_node(udev_info, device)?;
 
-    if let Some(bcache_fs_uuid) = uuid {
-        devs_str_sbs_from_uuid(udev_info, bcache_fs_uuid.to_string())
-    } else {
-        Ok((String::new(), Vec::new()))
+    match (uuid, sb_info) {
+        (Some(uuid), Some((path, sb))) => {
+            // If we have a super block, it implies we aren't using udev db.  If we only need
+            // 1 device to mount, we'll simply return it as we're done, else we'll use the uuid
+            // to walk through all the block devices.
+            debug!(
+                "number of devices in this FS = {}",
+                sb.sb().number_of_devices()
+            );
+            if sb.sb().number_of_devices() == 1 {
+                let dev = path.into_os_string().into_string().unwrap();
+                Ok((dev, vec![sb]))
+            } else {
+                devs_str_sbs_from_uuid(udev_info, uuid.to_string())
+            }
+        }
+        (Some(uuid), None) => devs_str_sbs_from_uuid(udev_info, uuid.to_string()),
+        _ => Ok((String::new(), Vec::new())),
     }
 }
 

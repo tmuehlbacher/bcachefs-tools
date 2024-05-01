@@ -59,6 +59,10 @@ impl bch_sb {
         uuid::Uuid::from_bytes(self.user_uuid.b)
     }
 
+    pub fn number_of_devices(&self) -> u8 {
+        self.nr_devices
+    }
+
     /// Get the nonce used to encrypt the superblock
     pub fn nonce(&self) -> nonce {
         use byteorder::{LittleEndian, ReadBytesExt};
