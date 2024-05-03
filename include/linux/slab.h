@@ -102,8 +102,8 @@ static inline void *kmalloc_array(size_t n, size_t size, gfp_t flags)
 
 #define kcalloc(n, size, flags)		kmalloc_array(n, size, flags|__GFP_ZERO)
 
-#define kfree(p)			free(p)
-#define kzfree(p)			free(p)
+#define kfree(p)			free((void *) p)
+#define kzfree(p)			free((void *) p)
 
 #define kvmalloc(size, flags)		kmalloc(size, flags)
 #define kvzalloc(size, flags)		kzalloc(size, flags)

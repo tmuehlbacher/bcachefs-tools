@@ -30,21 +30,21 @@ impl<'f> Drop for BtreeTrans<'f> {
 
 bitflags! {
     pub struct BtreeIterFlags: u16 {
-        const SLOTS = c::BTREE_ITER_SLOTS as u16;
-        const INTENT = c::BTREE_ITER_INTENT	 as u16;
-        const PREFETCH = c::BTREE_ITER_PREFETCH as u16;
-        const IS_EXTENTS = c::BTREE_ITER_IS_EXTENTS as u16;
-        const NOT_EXTENTS = c::BTREE_ITER_NOT_EXTENTS as u16;
-        const CACHED = c::BTREE_ITER_CACHED	as u16;
-        const KEY_CACHED = c::BTREE_ITER_WITH_KEY_CACHE as u16;
-        const WITH_UPDATES = c::BTREE_ITER_WITH_UPDATES as u16;
-        const WITH_JOURNAL = c::BTREE_ITER_WITH_JOURNAL as u16;
-        const __ALL_SNAPSHOTS = c::__BTREE_ITER_ALL_SNAPSHOTS as u16;
-        const ALL_SNAPSHOTS = c::BTREE_ITER_ALL_SNAPSHOTS as u16;
-        const FILTER_SNAPSHOTS = c::BTREE_ITER_FILTER_SNAPSHOTS as u16;
-        const NOPRESERVE = c::BTREE_ITER_NOPRESERVE as u16;
-        const CACHED_NOFILL = c::BTREE_ITER_CACHED_NOFILL as u16;
-        const KEY_CACHE_FILL = c::BTREE_ITER_KEY_CACHE_FILL as u16;
+        const SLOTS = c::btree_iter_update_trigger_flags::BTREE_ITER_slots as u16;
+        const INTENT = c::btree_iter_update_trigger_flags::BTREE_ITER_intent as u16;
+        const PREFETCH = c::btree_iter_update_trigger_flags::BTREE_ITER_prefetch as u16;
+        const IS_EXTENTS = c::btree_iter_update_trigger_flags::BTREE_ITER_is_extents as u16;
+        const NOT_EXTENTS = c::btree_iter_update_trigger_flags::BTREE_ITER_not_extents as u16;
+        const CACHED = c::btree_iter_update_trigger_flags::BTREE_ITER_cached as u16;
+        const KEY_CACHED = c::btree_iter_update_trigger_flags::BTREE_ITER_with_key_cache as u16;
+        const WITH_UPDATES = c::btree_iter_update_trigger_flags::BTREE_ITER_with_updates as u16;
+        const WITH_JOURNAL = c::btree_iter_update_trigger_flags::BTREE_ITER_with_journal as u16;
+        const SNAPSHOT_FIELD = c::btree_iter_update_trigger_flags::BTREE_ITER_snapshot_field as u16;
+        const ALL_SNAPSHOTS = c::btree_iter_update_trigger_flags::BTREE_ITER_all_snapshots as u16;
+        const FILTER_SNAPSHOTS = c::btree_iter_update_trigger_flags::BTREE_ITER_filter_snapshots as u16;
+        const NOPRESERVE = c::btree_iter_update_trigger_flags::BTREE_ITER_nopreserve as u16;
+        const CACHED_NOFILL = c::btree_iter_update_trigger_flags::BTREE_ITER_cached_nofill as u16;
+        const KEY_CACHE_FILL = c::btree_iter_update_trigger_flags::BTREE_ITER_key_cache_fill as u16;
     }
 }
 
