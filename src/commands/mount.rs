@@ -136,18 +136,16 @@ fn udev_bcachefs_info() -> anyhow::Result<HashMap<String, Vec<String>>> {
     udev.match_subsystem("block")?;
     udev.match_property("ID_FS_TYPE", "bcachefs")?;
 
-    for dev in udev.scan_devices()? {
-        if !dev.is_initialized() {
-            continue;
-        }
-
-        let m = device_property_map(&dev);
-        if m.contains_key("ID_FS_UUID") && m.contains_key("DEVNAME") {
-            let fs_uuid = m["ID_FS_UUID"].clone();
-            let dev_node = m["DEVNAME"].clone();
-            info.insert(dev_node.clone(), vec![fs_uuid.clone()]);
-            info.entry(fs_uuid).or_insert(vec![]).push(dev_node.clone());
-        }
+    for m in udev
+        .scan_devices()?
+        .filter(|dev| dev.is_initialized())
+        .map(|dev| device_property_map(&dev))
+        .filter(|m| m.contains_key("ID_FS_UUID") && m.contains_key("DEVNAME"))
+    {
+        let fs_uuid = m["ID_FS_UUID"].clone();
+        let dev_node = m["DEVNAME"].clone();
+        info.insert(dev_node.clone(), vec![fs_uuid.clone()]);
+        info.entry(fs_uuid).or_insert(vec![]).push(dev_node.clone());
     }
 
     Ok(info)
