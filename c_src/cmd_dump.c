@@ -77,7 +77,7 @@ static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
 					if (ptr->dev == ca->dev_idx)
 						range_add(&data,
 							  ptr->offset << 9,
-							  btree_ptr_sectors_written(&b->key));
+							  btree_ptr_sectors_written(&b->key) << 9);
 			}
 		}
 
@@ -92,7 +92,7 @@ static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
 				if (ptr->dev == ca->dev_idx)
 					range_add(&data,
 						  ptr->offset << 9,
-						  btree_ptr_sectors_written(&b->key));
+						  btree_ptr_sectors_written(&b->key) << 9);
 		}
 
 		bch2_trans_iter_exit(trans, &iter);
