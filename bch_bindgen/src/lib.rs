@@ -79,19 +79,27 @@ pub fn path_to_cstr<P: AsRef<Path>>(p: P) -> CString {
 use std::error::Error;
 
 #[derive(Debug)]
-pub struct InvalidBtreeId;
+pub enum BchToolsErr {
+    InvalidBtreeId,
+    InvalidBkeyType,
+    InvalidBpos,
+}
 
-impl fmt::Display for InvalidBtreeId {
+impl fmt::Display for BchToolsErr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "invalid btree id")
+        match self {
+            BchToolsErr::InvalidBtreeId => write!(f, "invalid btree id"),
+            BchToolsErr::InvalidBkeyType => write!(f, "invalid bkey type"),
+            BchToolsErr::InvalidBpos => write!(f, "invalid bpos"),
+        }
     }
 }
 
-impl Error for InvalidBtreeId {
+impl Error for BchToolsErr {
 }
 
 impl FromStr for c::btree_id {
-    type Err = InvalidBtreeId;
+    type Err = BchToolsErr;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = CString::new(s).unwrap();
@@ -101,7 +109,23 @@ impl FromStr for c::btree_id {
         if v >= 0 {
             Ok(unsafe { std::mem::transmute(v) })
         } else {
-            Err(InvalidBtreeId)
+            Err(BchToolsErr::InvalidBtreeId)
+        }
+    }
+}
+
+impl FromStr for c::bch_bkey_type {
+    type Err = BchToolsErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = CString::new(s).unwrap();
+        let p = s.as_ptr();
+
+        let v = unsafe {c::match_string(c::bch2_bkey_types[..].as_ptr(), (-(1 as isize)) as usize, p)};
+        if v >= 0 {
+            Ok(unsafe { std::mem::transmute(v) })
+        } else {
+            Err(BchToolsErr::InvalidBkeyType)
         }
     }
 }
@@ -134,7 +158,7 @@ impl fmt::Display for Bpos {
 }
 
 impl FromStr for c::bpos {
-    type Err = InvalidBtreeId;
+    type Err = BchToolsErr;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "POS_MIN" {
@@ -150,12 +174,12 @@ impl FromStr for c::bpos {
         }
 
         let mut fields = s.split(':');
-        let ino_str = fields.next().ok_or(InvalidBtreeId)?;
-        let off_str = fields.next().ok_or(InvalidBtreeId)?;
+        let ino_str = fields.next().ok_or(BchToolsErr::InvalidBpos)?;
+        let off_str = fields.next().ok_or(BchToolsErr::InvalidBpos)?;
         let snp_str = fields.next();
 
-        let ino: u64    = ino_str.parse().map_err(|_| InvalidBtreeId)?;
-        let off: u64    = off_str.parse().map_err(|_| InvalidBtreeId)?;
+        let ino: u64    = ino_str.parse().map_err(|_| BchToolsErr::InvalidBpos)?;
+        let off: u64    = off_str.parse().map_err(|_| BchToolsErr::InvalidBpos)?;
         let snp: u32    = snp_str.map(|s| s.parse().ok()).flatten().unwrap_or(0);
 
         Ok(c::bpos { inode: ino, offset: off, snapshot: snp })

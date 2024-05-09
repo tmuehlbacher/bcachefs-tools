@@ -21,6 +21,13 @@ fn list_keys(fs: &Fs, opt: Cli) -> anyhow::Result<()> {
             break;
         }
 
+        if let Some(ty) = opt.bkey_type {
+            if k.k.type_ != ty as u8 {
+                iter.advance();
+                continue;
+            }
+        }
+
         println!("{}", k.to_text(fs));
         iter.advance();
     }
@@ -96,6 +103,10 @@ pub struct Cli {
     /// Btree to list from
     #[arg(short, long, default_value_t=bcachefs::btree_id::BTREE_ID_extents)]
     btree:      bcachefs::btree_id,
+
+    /// Bkey type to list
+    #[arg(short='k', long)]
+    bkey_type:      Option<bcachefs::bch_bkey_type>,
 
     /// Btree depth to descend to (0 == leaves)
     #[arg(short, long, default_value_t=0)]
