@@ -13,29 +13,16 @@
   };
 
   outputs =
-    {
-      self,
-      nixpkgs,
-      utils,
-      ...
-    }:
-    {
-      overlays.default = final: prev: { bcachefs = final.callPackage ./build.nix { }; };
-    }
-    // utils.lib.eachDefaultSystem (
+    { nixpkgs, utils, ... }:
+    utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = import nixpkgs {
-          inherit system;
-          overlays = [ self.overlays.default ];
-        };
+        pkgs = import nixpkgs { inherit system; };
       in
       rec {
-        packages = {
-          inherit (pkgs) bcachefs;
-          bcachefs-fuse = pkgs.bcachefs.override { fuseSupport = true; };
-          default = pkgs.bcachefs;
-        };
+        packages.default = packages.bcachefs-tools;
+        packages.bcachefs-tools = pkgs.callPackage ./build.nix { };
+        packages.bcachefs-tools-fuse = packages.bcachefs-tools.override { fuseSupport = true; };
 
         formatter = pkgs.nixfmt-rfc-style;
 
