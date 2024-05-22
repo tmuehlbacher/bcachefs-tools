@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
-    utils.url = "github:numtide/flake-utils";
+    flake-parts.url = "github:hercules-ci/flake-parts";
 
     flake-compat = {
       url = "github:edolstra/flake-compat";
@@ -13,24 +13,41 @@
   };
 
   outputs =
-    { nixpkgs, utils, ... }:
-    utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = import nixpkgs { inherit system; };
-      in
-      rec {
-        packages.default = packages.bcachefs-tools;
-        packages.bcachefs-tools = pkgs.callPackage ./build.nix { };
-        packages.bcachefs-tools-fuse = packages.bcachefs-tools.override { fuseSupport = true; };
+    inputs@{
+      self,
+      nixpkgs,
+      flake-parts,
+      flake-compat,
+      ...
+    }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      # can be extended, but these have proper binary cache support in nixpkgs
+      # as of writing.
+      systems = [
+        "aarch64-linux"
+        "x86_64-linux"
+      ];
 
-        formatter = pkgs.nixfmt-rfc-style;
+      perSystem =
+        {
+          self',
+          config,
+          pkgs,
+          ...
+        }:
+        {
+          packages.default = config.packages.bcachefs-tools;
+          packages.bcachefs-tools = pkgs.callPackage ./build.nix { };
 
-        devShells.default = pkgs.mkShell {
-          inputsFrom = [ packages.default ];
+          packages.bcachefs-tools-fuse = config.packages.bcachefs-tools.override { fuseSupport = true; };
 
-          LIBCLANG_PATH = "${pkgs.clang.cc.lib}/lib";
+          formatter = pkgs.nixfmt-rfc-style;
+
+          devShells.default = pkgs.mkShell {
+            inputsFrom = [ config.packages.default ];
+
+            LIBCLANG_PATH = "${pkgs.clang.cc.lib}/lib";
+          };
         };
-      }
-    );
+    };
 }
