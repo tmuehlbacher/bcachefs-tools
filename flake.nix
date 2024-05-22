@@ -30,7 +30,7 @@
           overlays = [ self.overlays.default ];
         };
       in
-      {
+      rec {
         packages = {
           inherit (pkgs) bcachefs;
           bcachefs-fuse = pkgs.bcachefs.override { fuseSupport = true; };
@@ -39,31 +39,11 @@
 
         formatter = pkgs.nixfmt-rfc-style;
 
-        devShells.default = pkgs.callPackage (
-          {
-            mkShell,
-            rustc,
-            cargo,
-            gnumake,
-            gcc,
-            clang,
-            pkg-config,
-            libuuid,
-            libsodium,
-            keyutils,
-            liburcu,
-            zlib,
-            libaio,
-            zstd,
-            lz4,
-            udev,
-            bcachefs,
-          }:
-          mkShell {
-            LIBCLANG_PATH = "${clang.cc.lib}/lib";
-            inherit (bcachefs) nativeBuildInputs buildInputs;
-          }
-        ) { };
+        devShells.default = pkgs.mkShell {
+          inputsFrom = [ packages.default ];
+
+          LIBCLANG_PATH = "${pkgs.clang.cc.lib}/lib";
+        };
       }
     );
 }
