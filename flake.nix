@@ -6,6 +6,11 @@
 
     flake-parts.url = "github:hercules-ci/flake-parts";
 
+    treefmt-nix = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     flake-compat = {
       url = "github:edolstra/flake-compat";
       flake = false;
@@ -17,10 +22,13 @@
       self,
       nixpkgs,
       flake-parts,
+      treefmt-nix,
       flake-compat,
       ...
     }:
     flake-parts.lib.mkFlake { inherit inputs; } {
+      imports = [ inputs.treefmt-nix.flakeModule ];
+
       # can be extended, but these have proper binary cache support in nixpkgs
       # as of writing.
       systems = [
@@ -41,12 +49,21 @@
 
           packages.bcachefs-tools-fuse = config.packages.bcachefs-tools.override { fuseSupport = true; };
 
-          formatter = pkgs.nixfmt-rfc-style;
-
           devShells.default = pkgs.mkShell {
-            inputsFrom = [ config.packages.default ];
+            inputsFrom = [
+              config.packages.default
+              config.treefmt.build.devShell
+            ];
 
             LIBCLANG_PATH = "${pkgs.clang.cc.lib}/lib";
+          };
+
+          treefmt.config = {
+            projectRootFile = "flake.nix";
+
+            programs = {
+              nixfmt-rfc-style.enable = true;
+            };
           };
         };
     };
