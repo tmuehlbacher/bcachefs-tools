@@ -56,6 +56,17 @@
             ];
 
             LIBCLANG_PATH = "${pkgs.clang.cc.lib}/lib";
+
+            # here go packages that aren't required for builds but are used for
+            # development, and might need to be version matched with build
+            # dependencies (e.g. clippy or rust-analyzer).
+            packages = with pkgs; [
+              cargo-audit
+              cargo-outdated
+              clang-tools
+              clippy
+              rust-analyzer
+            ];
           };
 
           treefmt.config = {
