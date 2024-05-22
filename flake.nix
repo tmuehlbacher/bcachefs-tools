@@ -27,7 +27,7 @@
           default = pkgs.bcachefs;
         };
 
-        formatter = pkgs.nixfmt;
+        formatter = pkgs.nixfmt-rfc-style;
 
         devShells.default = pkgs.callPackage ({ mkShell, rustc, cargo, gnumake
           , gcc, clang, pkg-config, libuuid, libsodium, keyutils, liburcu, zlib
