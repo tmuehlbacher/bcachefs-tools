@@ -98,7 +98,7 @@ fn ask_for_passphrase(sb: &bch_sb_handle) -> anyhow::Result<()> {
 }
 
 const BCH_KEY_MAGIC: &str = "bch**key";
-fn unlock_master_key(sb: &bch_sb_handle, passphrase: &String) -> anyhow::Result<()> {
+fn unlock_master_key(sb: &bch_sb_handle, passphrase: &str) -> anyhow::Result<()> {
     use bch_bindgen::bcachefs::{self, bch2_chacha_encrypt_key, bch_encrypted_key, bch_key};
     use byteorder::{LittleEndian, ReadBytesExt};
     use std::os::raw::c_char;

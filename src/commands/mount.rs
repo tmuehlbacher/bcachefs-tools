@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use clap::Parser;
 use uuid::Uuid;
 use std::io::{stdout, IsTerminal};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{fs, str, env};
 use crate::key;
 use crate::key::UnlockPolicy;
@@ -101,11 +101,11 @@ fn do_mount(
     mount_inner(device, target, "bcachefs", mountflags, data)
 }
 
-fn read_super_silent(path: &std::path::PathBuf) -> anyhow::Result<bch_sb_handle> {
+fn read_super_silent(path: impl AsRef<Path>) -> anyhow::Result<bch_sb_handle> {
     let mut opts = bcachefs::bch_opts::default();
     opt_set!(opts, noexcl, 1);
 
-    bch_bindgen::sb_io::read_super_silent(path, opts)
+    bch_bindgen::sb_io::read_super_silent(path.as_ref(), opts)
 }
 
 fn device_property_map(dev: &udev::Device) -> HashMap<String, String> {
@@ -158,7 +158,7 @@ fn get_super_blocks(
     Ok(devices
         .iter()
         .filter_map(|dev| {
-            read_super_silent(&PathBuf::from(dev))
+            read_super_silent(PathBuf::from(dev))
                 .ok()
                 .map(|sb| (PathBuf::from(dev), sb))
         })
@@ -203,6 +203,7 @@ fn get_devices_by_uuid(
     get_super_blocks(uuid, &devices)
 }
 
+#[allow(clippy::type_complexity)]
 fn get_uuid_for_dev_node(
     udev_bcachefs: &HashMap<String, Vec<String>>,
     device: &std::path::PathBuf,
