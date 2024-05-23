@@ -1,9 +1,9 @@
-name: "NixOS-Tests"
+name: "Nix-Tests"
 on:
   pull_request:
   push:
 jobs:
-  nixos-flake-check:
+  nix-flake-check:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
