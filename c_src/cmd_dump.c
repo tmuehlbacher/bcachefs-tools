@@ -94,7 +94,8 @@ static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
 		bch2_trans_put(trans);
 	}
 
-	qcow2_write_image(ca->disk_sb.bdev->bd_fd, fd, &data, block_bytes(c));
+	qcow2_write_image(ca->disk_sb.bdev->bd_fd, fd, &data,
+			  max_t(unsigned, c->opts.btree_node_size / 8, block_bytes(c)));
 	darray_exit(&data);
 }
 
