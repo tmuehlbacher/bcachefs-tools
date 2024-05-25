@@ -36,8 +36,7 @@ static void dump_node(struct bch_fs *c, struct bch_dev *ca, struct bkey_s_c k, r
 
 	bkey_for_each_ptr(ptrs, ptr)
 		if (ptr->dev == ca->dev_idx)
-			range_add(data, ptr->offset << 9,
-				  (btree_ptr_sectors_written(k) << 9) ?: c->opts.btree_node_size);
+			range_add(data, ptr->offset << 9, c->opts.btree_node_size);
 }
 
 static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
