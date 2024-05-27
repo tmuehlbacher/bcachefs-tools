@@ -1,14 +1,14 @@
-use bch_bindgen::{path_to_cstr, bcachefs, bcachefs::bch_sb_handle, opt_set};
-use log::{info, debug, error, LevelFilter};
-use std::collections::HashMap;
-use clap::Parser;
-use uuid::Uuid;
-use std::io::{stdout, IsTerminal};
-use std::path::{Path, PathBuf};
-use std::{fs, str, env};
 use crate::key;
 use crate::key::UnlockPolicy;
-use std::ffi::{CString, c_char, c_void};
+use bch_bindgen::{bcachefs, bcachefs::bch_sb_handle, opt_set, path_to_cstr};
+use clap::Parser;
+use log::{debug, error, info, LevelFilter};
+use std::collections::HashMap;
+use std::ffi::{c_char, c_void, CString};
+use std::io::{stdout, IsTerminal};
+use std::path::{Path, PathBuf};
+use std::{env, fs, str};
+use uuid::Uuid;
 
 fn mount_inner(
     src: String,
@@ -17,7 +17,6 @@ fn mount_inner(
     mountflags: libc::c_ulong,
     data: Option<String>,
 ) -> anyhow::Result<()> {
-
     // bind the CStrings to keep them alive
     let src = CString::new(src)?;
     let target = path_to_cstr(target);
@@ -52,22 +51,22 @@ fn parse_mount_options(options: impl AsRef<str>) -> (Option<String>, libc::c_ulo
         .as_ref()
         .split(',')
         .map(|o| match o {
-            "dirsync"       => Left(libc::MS_DIRSYNC),
-            "lazytime"      => Left(1 << 25), // MS_LAZYTIME
-            "mand"          => Left(libc::MS_MANDLOCK),
-            "noatime"       => Left(libc::MS_NOATIME),
-            "nodev"         => Left(libc::MS_NODEV),
-            "nodiratime"    => Left(libc::MS_NODIRATIME),
-            "noexec"        => Left(libc::MS_NOEXEC),
-            "nosuid"        => Left(libc::MS_NOSUID),
-            "relatime"      => Left(libc::MS_RELATIME),
-            "remount"       => Left(libc::MS_REMOUNT),
-            "ro"            => Left(libc::MS_RDONLY),
-            "rw"            => Left(0),
-            "strictatime"   => Left(libc::MS_STRICTATIME),
-            "sync"          => Left(libc::MS_SYNCHRONOUS),
-            ""              => Left(0),
-            o           => Right(o),
+            "dirsync" => Left(libc::MS_DIRSYNC),
+            "lazytime" => Left(1 << 25), // MS_LAZYTIME
+            "mand" => Left(libc::MS_MANDLOCK),
+            "noatime" => Left(libc::MS_NOATIME),
+            "nodev" => Left(libc::MS_NODEV),
+            "nodiratime" => Left(libc::MS_NODIRATIME),
+            "noexec" => Left(libc::MS_NOEXEC),
+            "nosuid" => Left(libc::MS_NOSUID),
+            "relatime" => Left(libc::MS_RELATIME),
+            "remount" => Left(libc::MS_REMOUNT),
+            "ro" => Left(libc::MS_RDONLY),
+            "rw" => Left(0),
+            "strictatime" => Left(libc::MS_STRICTATIME),
+            "sync" => Left(libc::MS_SYNCHRONOUS),
+            "" => Left(0),
+            o => Right(o),
         })
         .fold((Vec::new(), 0), |(mut opts, flags), next| match next {
             Left(f) => (opts, flags | f),
@@ -235,7 +234,7 @@ pub struct Cli {
     /// by the specified passphrase file; it is decrypted. (i.e. Regardless
     /// if "fail" is specified for key_location/unlock_policy.)
     #[arg(short = 'f', long)]
-    passphrase_file:       Option<PathBuf>,
+    passphrase_file: Option<PathBuf>,
 
     /// Password policy to use in case of encrypted filesystem.
     ///
@@ -243,28 +242,33 @@ pub struct Cli {
     /// "fail" - don't ask for password, fail if filesystem is encrypted;
     /// "wait" - wait for password to become available before mounting;
     /// "ask" -  prompt the user for password;
-    #[arg(short = 'k', long = "key_location", default_value = "ask", verbatim_doc_comment)]
-    unlock_policy:     UnlockPolicy,
+    #[arg(
+        short = 'k',
+        long = "key_location",
+        default_value = "ask",
+        verbatim_doc_comment
+    )]
+    unlock_policy: UnlockPolicy,
 
     /// Device, or UUID=\<UUID\>
-    dev:            String,
+    dev: String,
 
     /// Where the filesystem should be mounted. If not set, then the filesystem
     /// won't actually be mounted. But all steps preceeding mounting the
     /// filesystem (e.g. asking for passphrase) will still be performed.
-    mountpoint:     Option<PathBuf>,
+    mountpoint: Option<PathBuf>,
 
     /// Mount options
     #[arg(short, default_value = "")]
-    options:        String,
+    options: String,
 
     /// Force color on/off. Autodetect tty is used to define default:
     #[arg(short, long, action = clap::ArgAction::Set, default_value_t=stdout().is_terminal())]
-    colorize:       bool,
+    colorize: bool,
 
     /// Verbose mode
     #[arg(short, long, action = clap::ArgAction::Count)]
-    verbose:        u8,
+    verbose: u8,
 }
 
 fn devs_str_sbs_from_uuid(
@@ -358,7 +362,10 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
     {
         // First by password_file, if available
         let fallback_to_unlock_policy = if let Some(passphrase_file) = &opt.passphrase_file {
-            match key::read_from_passphrase_file(&block_devices_to_mount[0], passphrase_file.as_path()) {
+            match key::read_from_passphrase_file(
+                &block_devices_to_mount[0],
+                passphrase_file.as_path(),
+            ) {
                 Ok(()) => {
                     // Decryption succeeded
                     false
@@ -391,8 +398,7 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
     } else {
         info!(
             "would mount with params: device: {}, options: {}",
-            devices,
-            &opt.options
+            devices, &opt.options
         );
     }
 
