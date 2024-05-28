@@ -131,6 +131,14 @@
             }
           );
 
+          checks.cargo-clippy = craneLib.cargoClippy (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+            }
+          );
+
           devShells.default = pkgs.mkShell {
             inputsFrom = [
               config.packages.default
