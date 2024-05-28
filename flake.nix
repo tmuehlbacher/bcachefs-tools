@@ -139,6 +139,24 @@
             }
           );
 
+          # we have to build our own `craneLib.cargoTest`
+          checks.cargo-test = craneLib.mkCargoDerivation (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              doCheck = true;
+
+              enableParallelChecking = true;
+
+              pnameSuffix = "-test";
+              buildPhaseCargoCommand = "";
+              checkPhaseCargoCommand = ''
+                make ''${enableParallelChecking:+-j''${NIX_BUILD_CORES}} $makeFlags libbcachefs.a
+                cargo test --profile release -- --nocapture
+              '';
+            }
+          );
+
           devShells.default = pkgs.mkShell {
             inputsFrom = [
               config.packages.default
