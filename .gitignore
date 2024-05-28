@@ -16,6 +16,7 @@ tests/__pycache__/
 # dot-files that we don't want to ignore
 !.gitignore
 !.github/dependabot.yml
+!.github/workflows/
 !.editorconfig
 
 bcachefs-principles-of-operation.*
