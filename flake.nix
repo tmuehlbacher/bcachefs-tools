@@ -11,6 +11,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    crane = {
+      url = "github:ipetkov/crane";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     fenix = {
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -29,6 +34,7 @@
       flake-parts,
       treefmt-nix,
       fenix,
+      crane,
       flake-compat,
       ...
     }:
@@ -46,18 +52,84 @@
         {
           self',
           config,
+          lib,
           pkgs,
           system,
           ...
         }:
         let
+          cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
           rustfmtToml = builtins.fromTOML (builtins.readFile ./rustfmt.toml);
+
+          craneLib = crane.mkLib pkgs;
+
+          commit = lib.strings.substring 0 7 (builtins.readFile ./.bcachefs_revision);
+
+          commonArgs = {
+            version = "git-${commit}";
+            src = self;
+
+            makeFlags = [
+              "DESTDIR=${placeholder "out"}"
+              "PREFIX="
+              "VERSION=${commit}"
+            ];
+
+            dontStrip = true;
+
+            nativeBuildInputs = with pkgs; [
+              pkg-config
+              rustPlatform.bindgenHook
+            ];
+
+            buildInputs = with pkgs; [
+              attr
+              keyutils
+              libaio
+              libsodium
+              liburcu
+              libuuid
+              lz4
+              udev
+              zlib
+              zstd
+            ];
+          };
+
+          cargoArtifacts = craneLib.buildDepsOnly (commonArgs // { pname = cargoToml.package.name; });
         in
         {
           packages.default = config.packages.bcachefs-tools;
-          packages.bcachefs-tools = pkgs.callPackage ./build.nix { };
+          packages.bcachefs-tools = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
 
-          packages.bcachefs-tools-fuse = config.packages.bcachefs-tools.override { fuseSupport = true; };
+              enableParallelBuilding = true;
+              buildPhaseCargoCommand = ''
+                make ''${enableParallelBuilding:+-j''${NIX_BUILD_CORES}} $makeFlags
+              '';
+              installPhaseCommand = ''
+                make ''${enableParallelBuilding:+-j''${NIX_BUILD_CORES}} $makeFlags install
+              '';
+
+              doInstallCheck = true;
+              installCheckPhase = ''
+                runHook preInstallCheck
+
+                test "$($out/bin/bcachefs version)" = "${commit}"
+
+                runHook postInstallCheck
+              '';
+            }
+          );
+
+          packages.bcachefs-tools-fuse = config.packages.bcachefs-tools.overrideAttrs (
+            final: prev: {
+              makeFlags = prev.makeFlags ++ [ "BCACHEFS_FUSE=1" ];
+              buildInputs = prev.buildInputs ++ [ pkgs.fuse3 ];
+            }
+          );
 
           devShells.default = pkgs.mkShell {
             inputsFrom = [
