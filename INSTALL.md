@@ -17,8 +17,9 @@ Build dependencies:
  * zlib1g
 
 In addition a recent Rust toolchain is required (rustc, cargo), either by using
-[rustup](https://rustup.rs/) or make sure to use a distribution where rustc (>=1.65)
-is available.
+[rustup](https://rustup.rs/) or make sure to use a distribution where a recent
+enough rustc is available. Please check `rust-version` in `Cargo.toml` to see
+the minimum supported Rust version (MSRV).
 
 ``` shell
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
