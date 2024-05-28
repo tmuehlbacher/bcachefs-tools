@@ -35,7 +35,6 @@
       treefmt-nix,
       fenix,
       crane,
-      flake-compat,
       ...
     }:
     flake-parts.lib.mkFlake { inherit inputs; } {
@@ -163,8 +162,6 @@
               config.treefmt.build.devShell
             ];
 
-            LIBCLANG_PATH = "${pkgs.clang.cc.lib}/lib";
-
             # here go packages that aren't required for builds but are used for
             # development, and might need to be version matched with build
             # dependencies (e.g. clippy or rust-analyzer).
@@ -174,6 +171,7 @@
               clang-tools
               clippy
               rust-analyzer
+              rustc
             ];
           };
 
