@@ -227,6 +227,10 @@ int cmd_fsck(int argc, char *argv[])
 
 	darray_str devs = get_or_split_cmdline_devs(argc, argv);
 
+	darray_for_each(devs, i)
+		if (dev_mounted(*i))
+			return fsck_online(*i);
+
 	int kernel_probed = kernel;
 	if (kernel_probed < 0)
 		kernel_probed = should_use_kernel_fsck(devs);
@@ -258,10 +262,6 @@ userland_fsck:
 		ret = bch2_parse_mount_opts(NULL, &opts, opts_str.buf);
 		if (ret)
 			return ret;
-
-		darray_for_each(devs, i)
-			if (dev_mounted(*i))
-				return fsck_online(*i);
 
 		struct bch_fs *c = bch2_fs_open(devs.data, devs.nr, opts);
 		if (IS_ERR(c))
