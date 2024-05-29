@@ -86,20 +86,6 @@ fn parse_mount_options(options: impl AsRef<str>) -> (Option<String>, libc::c_ulo
     )
 }
 
-fn do_mount(
-    device: String,
-    target: impl AsRef<std::path::Path>,
-    options: impl AsRef<str>,
-) -> anyhow::Result<()> {
-    let (data, mountflags) = parse_mount_options(options);
-
-    info!(
-        "mounting bcachefs filesystem, {}",
-        target.as_ref().display()
-    );
-    mount_inner(device, target, "bcachefs", mountflags, data)
-}
-
 fn read_super_silent(path: impl AsRef<Path>) -> anyhow::Result<bch_sb_handle> {
     let mut opts = bcachefs::bch_opts::default();
     opt_set!(opts, noexcl, 1);
@@ -394,15 +380,16 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
             &opt.options
         );
 
-        do_mount(devices, mountpoint, &opt.options)?;
+        let (data, mountflags) = parse_mount_options(&opt.options);
+        mount_inner(devices, mountpoint, "bcachefs", mountflags, data)
     } else {
         info!(
             "would mount with params: device: {}, options: {}",
             devices, &opt.options
         );
-    }
 
-    Ok(())
+        Ok(())
+    }
 }
 
 pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
