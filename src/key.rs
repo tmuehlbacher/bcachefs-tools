@@ -1,63 +1,25 @@
 use std::{
-    fmt, fs,
+    fmt::Debug,
+    fs,
     io::{stdin, IsTerminal},
 };
 
-use crate::c_str;
 use anyhow::anyhow;
 use bch_bindgen::bcachefs::bch_sb_handle;
-use clap::builder::PossibleValue;
 use log::info;
 
-#[derive(Clone, Debug)]
+use crate::c_str;
+
+#[derive(Clone, Debug, clap::ValueEnum, strum::Display)]
 pub enum UnlockPolicy {
-    None,
     Fail,
     Wait,
     Ask,
 }
 
-impl std::str::FromStr for UnlockPolicy {
-    type Err = anyhow::Error;
-    fn from_str(s: &str) -> anyhow::Result<Self> {
-        match s {
-            "" | "none" => Ok(UnlockPolicy::None),
-            "fail" => Ok(UnlockPolicy::Fail),
-            "wait" => Ok(UnlockPolicy::Wait),
-            "ask" => Ok(UnlockPolicy::Ask),
-            _ => Err(anyhow!("Invalid unlock policy provided")),
-        }
-    }
-}
-
-impl clap::ValueEnum for UnlockPolicy {
-    fn value_variants<'a>() -> &'a [Self] {
-        &[
-            UnlockPolicy::None,
-            UnlockPolicy::Fail,
-            UnlockPolicy::Wait,
-            UnlockPolicy::Ask,
-        ]
-    }
-
-    fn to_possible_value(&self) -> Option<PossibleValue> {
-        Some(match self {
-            Self::None => PossibleValue::new("none").alias(""),
-            Self::Fail => PossibleValue::new("fail"),
-            Self::Wait => PossibleValue::new("wait"),
-            Self::Ask => PossibleValue::new("ask"),
-        })
-    }
-}
-
-impl fmt::Display for UnlockPolicy {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            UnlockPolicy::None => write!(f, "None"),
-            UnlockPolicy::Fail => write!(f, "Fail"),
-            UnlockPolicy::Wait => write!(f, "Wait"),
-            UnlockPolicy::Ask => write!(f, "Ask"),
-        }
+impl Default for UnlockPolicy {
+    fn default() -> Self {
+        Self::Ask
     }
 }
 
@@ -185,6 +147,5 @@ pub fn apply_key_unlocking_policy(
         UnlockPolicy::Fail => Err(anyhow!("no passphrase available")),
         UnlockPolicy::Wait => Ok(wait_for_unlock(&block_device.sb().uuid())?),
         UnlockPolicy::Ask => ask_for_passphrase(block_device),
-        _ => Err(anyhow!("no unlock policy specified for locked filesystem")),
     }
 }
