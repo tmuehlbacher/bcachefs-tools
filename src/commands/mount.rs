@@ -344,7 +344,7 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
     .unwrap();
 
     // Check if the filesystem's master key is encrypted and we don't have a key
-    if unsafe { bcachefs::bch2_sb_is_encrypted_and_locked(block_devices_to_mount[0].sb) }
+    if unsafe { bcachefs::bch2_sb_is_encrypted(block_devices_to_mount[0].sb) }
         && !key::check_for_key(&key_name)?
     {
         // First by password_file, if available
