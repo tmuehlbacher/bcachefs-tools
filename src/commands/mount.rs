@@ -231,7 +231,8 @@ pub struct Cli {
     #[arg(
         short = 'k',
         long = "key_location",
-        default_value = "ask",
+        value_enum,
+        default_value_t,
         verbatim_doc_comment
     )]
     unlock_policy: UnlockPolicy,
