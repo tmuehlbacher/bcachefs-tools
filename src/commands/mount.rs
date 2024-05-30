@@ -1,14 +1,18 @@
-use crate::key;
-use crate::key::UnlockPolicy;
+use std::{
+    collections::HashMap,
+    ffi::{c_char, c_void, CString},
+    io::{stdout, IsTerminal},
+    path::{Path, PathBuf},
+    {env, fs, str},
+};
+
+use anyhow::{ensure, Result};
 use bch_bindgen::{bcachefs, bcachefs::bch_sb_handle, opt_set, path_to_cstr};
 use clap::Parser;
 use log::{debug, error, info, LevelFilter};
-use std::collections::HashMap;
-use std::ffi::{c_char, c_void, CString};
-use std::io::{stdout, IsTerminal};
-use std::path::{Path, PathBuf};
-use std::{env, fs, str};
 use uuid::Uuid;
+
+use crate::key::{KeyHandle, Passphrase, UnlockPolicy};
 
 fn mount_inner(
     src: String,
@@ -304,11 +308,11 @@ fn devs_str_sbs_from_device(
     }
 }
 
-fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
+fn cmd_mount_inner(opt: Cli) -> Result<()> {
     // Grab the udev information once
     let udev_info = udev_bcachefs_info()?;
 
-    let (devices, block_devices_to_mount) = if opt.dev.starts_with("UUID=") {
+    let (devices, sbs) = if opt.dev.starts_with("UUID=") {
         let uuid = opt.dev.replacen("UUID=", "", 1);
         devs_str_sbs_from_uuid(&udev_info, uuid)?
     } else if opt.dev.starts_with("OLD_BLKID_UUID=") {
@@ -333,44 +337,26 @@ fn cmd_mount_inner(opt: Cli) -> anyhow::Result<()> {
         }
     };
 
-    if block_devices_to_mount.is_empty() {
-        Err(anyhow::anyhow!("No device found from specified parameters"))?;
-    }
+    ensure!(!sbs.is_empty(), "No device(s) to mount specified");
 
-    let key_name = CString::new(format!(
-        "bcachefs:{}",
-        block_devices_to_mount[0].sb().uuid()
-    ))
-    .unwrap();
+    let first_sb = sbs[0];
+    let uuid = first_sb.sb().uuid();
 
-    // Check if the filesystem's master key is encrypted and we don't have a key
-    if unsafe { bcachefs::bch2_sb_is_encrypted(block_devices_to_mount[0].sb) }
-        && !key::check_for_key(&key_name)?
-    {
-        // First by password_file, if available
-        let fallback_to_unlock_policy = if let Some(passphrase_file) = &opt.passphrase_file {
-            match key::read_from_passphrase_file(
-                &block_devices_to_mount[0],
-                passphrase_file.as_path(),
-            ) {
-                Ok(()) => {
-                    // Decryption succeeded
-                    false
-                }
-                Err(err) => {
-                    // Decryption failed, fall back to unlock_policy
-                    error!("Failed to decrypt using passphrase_file: {}", err);
-                    true
-                }
-            }
-        } else {
-            // No passphrase_file specified, fall back to unlock_policy
-            true
-        };
-        // If decryption by key_file was unsuccesful, prompt for passphrase (or follow key_policy)
-        if fallback_to_unlock_policy {
-            key::apply_key_unlocking_policy(&block_devices_to_mount[0], opt.unlock_policy)?;
-        };
+    if unsafe { bcachefs::bch2_sb_is_encrypted(first_sb.sb) } {
+        let _key_handle = KeyHandle::new_from_search(&uuid).or_else(|_| {
+            opt.passphrase_file
+                .map(|path| {
+                    Passphrase::new_from_file(&first_sb, path)
+                        .inspect_err(|e| {
+                            error!(
+                                "Failed to read passphrase from file, falling back to prompt: {}",
+                                e
+                            )
+                        })
+                        .and_then(|p| KeyHandle::new(&first_sb, &p))
+                })
+                .unwrap_or_else(|| opt.unlock_policy.apply(&first_sb))
+        });
     }
 
     if let Some(mountpoint) = opt.mountpoint {

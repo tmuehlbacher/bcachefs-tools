@@ -1,14 +1,27 @@
 use std::{
-    fmt::Debug,
+    ffi::{CStr, CString},
     fs,
     io::{stdin, IsTerminal},
+    mem,
+    path::Path,
+    thread,
+    time::Duration,
 };
 
-use anyhow::anyhow;
-use bch_bindgen::bcachefs::bch_sb_handle;
+use anyhow::{anyhow, ensure, Result};
+use bch_bindgen::{
+    bcachefs::{self, bch_key, bch_sb_handle},
+    c::bch2_chacha_encrypt_key,
+    keyutils::{self, keyctl_search},
+};
+use byteorder::{LittleEndian, ReadBytesExt};
 use log::info;
+use uuid::Uuid;
+use zeroize::{ZeroizeOnDrop, Zeroizing};
 
-use crate::c_str;
+use crate::{c_str, ErrnoError};
+
+const BCH_KEY_MAGIC: &str = "bch**key";
 
 #[derive(Clone, Debug, clap::ValueEnum, strum::Display)]
 pub enum UnlockPolicy {
@@ -17,135 +30,151 @@ pub enum UnlockPolicy {
     Ask,
 }
 
+impl UnlockPolicy {
+    pub fn apply(&self, sb: &bch_sb_handle) -> Result<KeyHandle> {
+        let uuid = sb.sb().uuid();
+
+        info!(
+            "Attempting to unlock filesystem {} with unlock policy '{}'",
+            uuid, self
+        );
+
+        match self {
+            Self::Fail => Err(anyhow!("no passphrase available")),
+            Self::Wait => Ok(KeyHandle::wait_for_unlock(&uuid)?),
+            Self::Ask => Passphrase::new_from_prompt().and_then(|p| KeyHandle::new(sb, &p)),
+        }
+    }
+}
+
 impl Default for UnlockPolicy {
     fn default() -> Self {
         Self::Ask
     }
 }
 
-pub fn check_for_key(key_name: &std::ffi::CStr) -> anyhow::Result<bool> {
-    use bch_bindgen::keyutils::{self, keyctl_search};
-    let key_name = key_name.to_bytes_with_nul().as_ptr() as *const _;
-    let key_type = c_str!("user");
-
-    let key_id = unsafe { keyctl_search(keyutils::KEY_SPEC_USER_KEYRING, key_type, key_name, 0) };
-    if key_id > 0 {
-        info!("Key has become available");
-        Ok(true)
-    } else {
-        match errno::errno().0 {
-            libc::ENOKEY | libc::EKEYREVOKED => Ok(false),
-            _ => Err(crate::ErrnoError(errno::errno()).into()),
-        }
-    }
+/// A handle to an existing bcachefs key in the kernel keyring
+pub struct KeyHandle {
+    // FIXME: Either these come in useful for something or we remove them
+    _uuid: Uuid,
+    _id:   i64,
 }
 
-fn wait_for_unlock(uuid: &uuid::Uuid) -> anyhow::Result<()> {
-    let key_name = std::ffi::CString::new(format!("bcachefs:{}", uuid)).unwrap();
-    loop {
-        if check_for_key(&key_name)? {
-            break Ok(());
-        }
-
-        std::thread::sleep(std::time::Duration::from_secs(1));
-    }
-}
-
-// blocks indefinitely if no input is available on stdin
-fn ask_for_passphrase(sb: &bch_sb_handle) -> anyhow::Result<()> {
-    let passphrase = if stdin().is_terminal() {
-        rpassword::prompt_password("Enter passphrase: ")?
-    } else {
-        info!("Trying to read passphrase from stdin...");
-        let mut line = String::new();
-        stdin().read_line(&mut line)?;
-        line
-    };
-    unlock_master_key(sb, &passphrase)
-}
-
-const BCH_KEY_MAGIC: &str = "bch**key";
-fn unlock_master_key(sb: &bch_sb_handle, passphrase: &str) -> anyhow::Result<()> {
-    use bch_bindgen::bcachefs::{self, bch2_chacha_encrypt_key, bch_encrypted_key, bch_key};
-    use byteorder::{LittleEndian, ReadBytesExt};
-    use std::os::raw::c_char;
-
-    let key_name = std::ffi::CString::new(format!("bcachefs:{}", sb.sb().uuid())).unwrap();
-    if check_for_key(&key_name)? {
-        return Ok(());
+impl KeyHandle {
+    pub fn format_key_name(uuid: &Uuid) -> CString {
+        CString::new(format!("bcachefs:{}", uuid)).unwrap()
     }
 
-    let bch_key_magic = BCH_KEY_MAGIC.as_bytes().read_u64::<LittleEndian>().unwrap();
-    let crypt = sb.sb().crypt().unwrap();
-    let passphrase = std::ffi::CString::new(passphrase.trim_end())?; // bind to keep the CString alive
-    let mut output: bch_key = unsafe {
-        bcachefs::derive_passphrase(
-            crypt as *const _ as *mut _,
-            passphrase.as_c_str().to_bytes_with_nul().as_ptr() as *const _,
-        )
-    };
+    pub fn new(sb: &bch_sb_handle, passphrase: &Passphrase) -> Result<Self> {
+        let bch_key_magic = BCH_KEY_MAGIC.as_bytes().read_u64::<LittleEndian>().unwrap();
 
-    let mut key = *crypt.key();
-    let ret = unsafe {
-        bch2_chacha_encrypt_key(
-            &mut output as *mut _,
-            sb.sb().nonce(),
-            &mut key as *mut _ as *mut _,
-            std::mem::size_of::<bch_encrypted_key>(),
-        )
-    };
-    if ret != 0 {
-        Err(anyhow!("chacha decryption failure"))
-    } else if key.magic != bch_key_magic {
-        Err(anyhow!("failed to verify the password"))
-    } else {
-        let key_type = c_str!("user");
+        let crypt = sb.sb().crypt().unwrap();
+        let crypt_ptr = crypt as *const _ as *mut _;
+
+        let mut output: bch_key =
+            unsafe { bcachefs::derive_passphrase(crypt_ptr, passphrase.get().as_ptr()) };
+
+        let mut key = *crypt.key();
+
         let ret = unsafe {
-            bch_bindgen::keyutils::add_key(
-                key_type,
-                key_name.as_c_str().to_bytes_with_nul() as *const _ as *const c_char,
-                &output as *const _ as *const _,
-                std::mem::size_of::<bch_key>(),
-                bch_bindgen::keyutils::KEY_SPEC_USER_KEYRING,
+            bch2_chacha_encrypt_key(
+                &mut output as *mut _,
+                sb.sb().nonce(),
+                &mut key as *mut _ as *mut _,
+                mem::size_of_val(&key),
             )
         };
-        if ret == -1 {
-            Err(anyhow!("failed to add key to keyring: {}", errno::errno()))
+
+        ensure!(ret == 0, "chacha decryption failure");
+        ensure!(key.magic == bch_key_magic, "failed to verify passphrase");
+
+        let key_name = Self::format_key_name(&sb.sb().uuid());
+        let key_name = CStr::as_ptr(&key_name);
+        let key_type = c_str!("user");
+
+        let key_id = unsafe {
+            keyutils::add_key(
+                key_type,
+                key_name,
+                &output as *const _ as *const _,
+                mem::size_of_val(&output),
+                keyutils::KEY_SPEC_USER_KEYRING,
+            )
+        };
+
+        if key_id > 0 {
+            info!("Found key in keyring");
+            Ok(KeyHandle {
+                _uuid: sb.sb().uuid(),
+                _id:   key_id as i64,
+            })
         } else {
-            Ok(())
+            Err(anyhow!("failed to add key to keyring: {}", errno::errno()))
+        }
+    }
+
+    pub fn new_from_search(uuid: &Uuid) -> Result<Self> {
+        let key_name = Self::format_key_name(uuid);
+        let key_name = CStr::as_ptr(&key_name);
+        let key_type = c_str!("user");
+
+        let key_id =
+            unsafe { keyctl_search(keyutils::KEY_SPEC_USER_KEYRING, key_type, key_name, 0) };
+
+        if key_id > 0 {
+            info!("Found key in keyring");
+            Ok(Self {
+                _uuid: *uuid,
+                _id:   key_id,
+            })
+        } else {
+            Err(ErrnoError(errno::errno()).into())
+        }
+    }
+
+    fn wait_for_unlock(uuid: &Uuid) -> Result<Self> {
+        loop {
+            match Self::new_from_search(uuid) {
+                Err(_) => thread::sleep(Duration::from_secs(1)),
+                r => break r,
+            }
         }
     }
 }
 
-pub fn read_from_passphrase_file(
-    block_device: &bch_sb_handle,
-    passphrase_file: &std::path::Path,
-) -> anyhow::Result<()> {
-    // Attempts to unlock the master key by password_file
-    // Return true if unlock was successful, false otherwise
-    info!(
-        "Attempting to unlock master key for filesystem {}, using password from file {}",
-        block_device.sb().uuid(),
-        passphrase_file.display()
-    );
-    // Read the contents of the password_file into a string
-    let passphrase = fs::read_to_string(passphrase_file)?;
-    // Call decrypt_master_key with the read string
-    unlock_master_key(block_device, &passphrase)
-}
+#[derive(ZeroizeOnDrop)]
+pub struct Passphrase(CString);
 
-pub fn apply_key_unlocking_policy(
-    block_device: &bch_sb_handle,
-    unlock_policy: UnlockPolicy,
-) -> anyhow::Result<()> {
-    info!(
-        "Attempting to unlock master key for filesystem {}, using unlock policy {}",
-        block_device.sb().uuid(),
-        unlock_policy
-    );
-    match unlock_policy {
-        UnlockPolicy::Fail => Err(anyhow!("no passphrase available")),
-        UnlockPolicy::Wait => Ok(wait_for_unlock(&block_device.sb().uuid())?),
-        UnlockPolicy::Ask => ask_for_passphrase(block_device),
+impl Passphrase {
+    fn get(&self) -> &CStr {
+        &self.0
+    }
+
+    // blocks indefinitely if no input is available on stdin
+    fn new_from_prompt() -> Result<Self> {
+        let passphrase = if stdin().is_terminal() {
+            Zeroizing::new(rpassword::prompt_password("Enter passphrase: ")?)
+        } else {
+            info!("Trying to read passphrase from stdin...");
+            let mut line = Zeroizing::new(String::new());
+            stdin().read_line(&mut line)?;
+            line
+        };
+
+        Ok(Self(CString::new(passphrase.as_str())?))
+    }
+
+    pub fn new_from_file(sb: &bch_sb_handle, passphrase_file: impl AsRef<Path>) -> Result<Self> {
+        let passphrase_file = passphrase_file.as_ref();
+
+        info!(
+            "Attempting to unlock key for filesystem {} with passphrase from file {}",
+            sb.sb().uuid(),
+            passphrase_file.display()
+        );
+
+        let passphrase = Zeroizing::new(fs::read_to_string(passphrase_file)?);
+
+        Ok(Self(CString::new(passphrase.as_str())?))
     }
 }
