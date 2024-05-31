@@ -1,9 +1,11 @@
 use std::{
     collections::HashMap,
-    ffi::{c_char, c_void, CString},
+    env,
+    ffi::CString,
+    fs,
     io::{stdout, IsTerminal},
     path::{Path, PathBuf},
-    {env, fs, str},
+    ptr, str,
 };
 
 use anyhow::{ensure, Result};
@@ -28,12 +30,10 @@ fn mount_inner(
     let fstype = CString::new(fstype)?;
 
     // convert to pointers for ffi
-    let src = src.as_c_str().to_bytes_with_nul().as_ptr() as *const c_char;
-    let target = target.as_c_str().to_bytes_with_nul().as_ptr() as *const c_char;
-    let data = data.as_ref().map_or(std::ptr::null(), |data| {
-        data.as_c_str().to_bytes_with_nul().as_ptr() as *const c_void
-    });
-    let fstype = fstype.as_c_str().to_bytes_with_nul().as_ptr() as *const c_char;
+    let src = src.as_ptr();
+    let target = target.as_ptr();
+    let data = data.map_or(ptr::null(), |data| data.as_ptr().cast());
+    let fstype = fstype.as_ptr();
 
     let ret = {
         info!("mounting filesystem");

@@ -28,7 +28,7 @@ fn handle_c_command(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
     let argv: Vec<_> = argv.into_iter().map(|s| CString::new(s).unwrap()).collect();
     let mut argv = argv
         .into_iter()
-        .map(|s| Box::into_raw(s.into_boxed_c_str()) as *mut c_char)
+        .map(|s| Box::into_raw(s.into_boxed_c_str()).cast::<c_char>())
         .collect::<Box<[*mut c_char]>>();
     let argv = argv.as_mut_ptr();
 
