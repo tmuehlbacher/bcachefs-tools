@@ -192,8 +192,8 @@ fn get_devices_by_uuid(
 #[allow(clippy::type_complexity)]
 fn get_uuid_for_dev_node(
     udev_bcachefs: &HashMap<String, Vec<String>>,
-    device: &std::path::PathBuf,
-) -> anyhow::Result<(Option<Uuid>, Option<(PathBuf, bch_sb_handle)>)> {
+    device: impl AsRef<Path>,
+) -> Result<(Option<Uuid>, Option<(PathBuf, bch_sb_handle)>)> {
     let canonical = fs::canonicalize(device)?;
 
     if !udev_bcachefs.is_empty() {
@@ -261,11 +261,11 @@ pub struct Cli {
 
 fn devs_str_sbs_from_uuid(
     udev_info: &HashMap<String, Vec<String>>,
-    uuid: String,
+    uuid: &str,
 ) -> anyhow::Result<(String, Vec<bch_sb_handle>)> {
     debug!("enumerating devices with UUID {}", uuid);
 
-    let devs_sbs = Uuid::parse_str(&uuid).map(|uuid| get_devices_by_uuid(udev_info, uuid))??;
+    let devs_sbs = Uuid::parse_str(uuid).map(|uuid| get_devices_by_uuid(udev_info, uuid))??;
 
     let devs_str = devs_sbs
         .iter()
@@ -280,7 +280,7 @@ fn devs_str_sbs_from_uuid(
 
 fn devs_str_sbs_from_device(
     udev_info: &HashMap<String, Vec<String>>,
-    device: &std::path::PathBuf,
+    device: impl AsRef<Path>,
 ) -> anyhow::Result<(String, Vec<bch_sb_handle>)> {
     let (uuid, sb_info) = get_uuid_for_dev_node(udev_info, device)?;
 
@@ -297,10 +297,10 @@ fn devs_str_sbs_from_device(
                 let dev = path.into_os_string().into_string().unwrap();
                 Ok((dev, vec![sb]))
             } else {
-                devs_str_sbs_from_uuid(udev_info, uuid.to_string())
+                devs_str_sbs_from_uuid(udev_info, &uuid.to_string())
             }
         }
-        (Some(uuid), None) => devs_str_sbs_from_uuid(udev_info, uuid.to_string()),
+        (Some(uuid), None) => devs_str_sbs_from_uuid(udev_info, &uuid.to_string()),
         _ => Ok((String::new(), Vec::new())),
     }
 }
@@ -309,11 +309,9 @@ fn cmd_mount_inner(opt: Cli) -> Result<()> {
     // Grab the udev information once
     let udev_info = udev_bcachefs_info()?;
 
-    let (devices, sbs) = if opt.dev.starts_with("UUID=") {
-        let uuid = opt.dev.replacen("UUID=", "", 1);
+    let (devices, sbs) = if let Some(uuid) = opt.dev.strip_prefix("UUID=") {
         devs_str_sbs_from_uuid(&udev_info, uuid)?
-    } else if opt.dev.starts_with("OLD_BLKID_UUID=") {
-        let uuid = opt.dev.replacen("OLD_BLKID_UUID=", "", 1);
+    } else if let Some(uuid) = opt.dev.strip_prefix("OLD_BLKID_UUID=") {
         devs_str_sbs_from_uuid(&udev_info, uuid)?
     } else {
         // If the device string contains ":" we will assume the user knows the entire list.
@@ -321,16 +319,15 @@ fn cmd_mount_inner(opt: Cli) -> Result<()> {
         // only 1 of a number of devices which are part of the FS. This appears to be the case
         // when we get called during fstab mount processing and the fstab specifies a UUID.
         if opt.dev.contains(':') {
-            let mut block_devices_to_mount = Vec::new();
+            let sbs = opt
+                .dev
+                .split(':')
+                .map(read_super_silent)
+                .collect::<Result<Vec<_>>>()?;
 
-            for dev in opt.dev.split(':') {
-                let dev = PathBuf::from(dev);
-                block_devices_to_mount.push(read_super_silent(&dev)?);
-            }
-
-            (opt.dev, block_devices_to_mount)
+            (opt.dev, sbs)
         } else {
-            devs_str_sbs_from_device(&udev_info, &PathBuf::from(opt.dev))?
+            devs_str_sbs_from_device(&udev_info, Path::new(&opt.dev))?
         }
     };
 
