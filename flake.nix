@@ -57,21 +57,29 @@
           ...
         }:
         let
+          inherit (builtins) readFile split;
+          inherit (lib.lists) findFirst;
+          inherit (lib.strings) hasPrefix removePrefix substring;
+
           cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
           rustfmtToml = builtins.fromTOML (builtins.readFile ./rustfmt.toml);
 
           craneLib = crane.mkLib pkgs;
 
-          commit = lib.strings.substring 0 7 (builtins.readFile ./.bcachefs_revision);
+          libbcachefsCommit = substring 0 7 (builtins.readFile ./.bcachefs_revision);
+          makefileVersion = removePrefix "VERSION=" (
+            findFirst (line: hasPrefix "VERSION=" line) "VERSION=0.0.0" (split "\n" (readFile ./Makefile))
+          );
+          version = "${makefileVersion}+git-${libbcachefsCommit}";
 
           commonArgs = {
-            version = "git-${commit}";
+            inherit version;
             src = self;
 
             makeFlags = [
               "DESTDIR=${placeholder "out"}"
               "PREFIX="
-              "VERSION=${commit}"
+              "VERSION=${version}"
             ];
 
             dontStrip = true;
@@ -116,7 +124,7 @@
               installCheckPhase = ''
                 runHook preInstallCheck
 
-                test "$($out/bin/bcachefs version)" = "${commit}"
+                test "$($out/bin/bcachefs version)" = "${version}"
 
                 runHook postInstallCheck
               '';
