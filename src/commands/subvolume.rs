@@ -37,9 +37,9 @@ enum Subcommands {
 }
 
 pub fn subvolume(argv: Vec<String>) -> i32 {
-    let args = Cli::parse_from(argv);
+    let cli = Cli::parse_from(argv);
 
-    match args.subcommands {
+    match cli.subcommands {
         Subcommands::Create { targets } => {
             for target in targets {
                 if let Some(dirname) = target.parent() {

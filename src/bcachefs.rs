@@ -63,7 +63,7 @@ fn handle_c_command(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
             "fusemount" => c::cmd_fusemount(argc, argv),
 
             _ => {
-                println!("Unknown command {}", cmd);
+                println!("Unknown command {cmd}");
                 c::bcachefs_usage();
                 1
             }

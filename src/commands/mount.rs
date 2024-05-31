@@ -49,7 +49,8 @@ fn mount_inner(
 /// Parse a comma-separated mount options and split out mountflags and filesystem
 /// specific options.
 fn parse_mount_options(options: impl AsRef<str>) -> (Option<String>, libc::c_ulong) {
-    use either::Either::*;
+    use either::Either::{Left, Right};
+
     debug!("parsing mount options: {}", options.as_ref());
     let (opts, flags) = options
         .as_ref()
@@ -66,10 +67,9 @@ fn parse_mount_options(options: impl AsRef<str>) -> (Option<String>, libc::c_ulo
             "relatime" => Left(libc::MS_RELATIME),
             "remount" => Left(libc::MS_REMOUNT),
             "ro" => Left(libc::MS_RDONLY),
-            "rw" => Left(0),
+            "rw" | "" => Left(0),
             "strictatime" => Left(libc::MS_STRICTATIME),
             "sync" => Left(libc::MS_SYNCHRONOUS),
-            "" => Left(0),
             o => Right(o),
         })
         .fold((Vec::new(), 0), |(mut opts, flags), next| match next {
@@ -127,7 +127,7 @@ fn udev_bcachefs_info() -> anyhow::Result<HashMap<String, Vec<String>>> {
 
     for m in udev
         .scan_devices()?
-        .filter(|dev| dev.is_initialized())
+        .filter(udev::Device::is_initialized)
         .map(|dev| device_property_map(&dev))
         .filter(|m| m.contains_key("ID_FS_UUID") && m.contains_key("DEVNAME"))
     {
@@ -140,11 +140,8 @@ fn udev_bcachefs_info() -> anyhow::Result<HashMap<String, Vec<String>>> {
     Ok(info)
 }
 
-fn get_super_blocks(
-    uuid: Uuid,
-    devices: &[String],
-) -> anyhow::Result<Vec<(PathBuf, bch_sb_handle)>> {
-    Ok(devices
+fn get_super_blocks(uuid: Uuid, devices: &[String]) -> Vec<(PathBuf, bch_sb_handle)> {
+    devices
         .iter()
         .filter_map(|dev| {
             read_super_silent(PathBuf::from(dev))
@@ -152,7 +149,7 @@ fn get_super_blocks(
                 .map(|sb| (PathBuf::from(dev), sb))
         })
         .filter(|(_, sb)| sb.sb().uuid() == uuid)
-        .collect::<Vec<_>>())
+        .collect::<Vec<_>>()
 }
 
 fn get_all_block_devnodes() -> anyhow::Result<Vec<String>> {
@@ -189,7 +186,7 @@ fn get_devices_by_uuid(
         }
     };
 
-    get_super_blocks(uuid, &devices)
+    Ok(get_super_blocks(uuid, &devices))
 }
 
 #[allow(clippy::type_complexity)]
