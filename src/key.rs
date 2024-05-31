@@ -4,7 +4,7 @@ use std::{
     io::{stdin, IsTerminal},
     mem,
     path::Path,
-    thread,
+    ptr, thread,
     time::Duration,
 };
 
@@ -66,7 +66,7 @@ impl KeyHandle {
         let bch_key_magic = BCH_KEY_MAGIC.as_bytes().read_u64::<LittleEndian>().unwrap();
 
         let crypt = sb.sb().crypt().unwrap();
-        let crypt_ptr = crypt as *const _ as *mut _;
+        let crypt_ptr = ptr::addr_of!(*crypt).cast_mut();
 
         let mut output: bch_key =
             unsafe { bcachefs::derive_passphrase(crypt_ptr, passphrase.get().as_ptr()) };
@@ -75,9 +75,9 @@ impl KeyHandle {
 
         let ret = unsafe {
             bch2_chacha_encrypt_key(
-                &mut output as *mut _,
+                ptr::addr_of_mut!(output),
                 sb.sb().nonce(),
-                &mut key as *mut _ as *mut _,
+                ptr::addr_of_mut!(key).cast(),
                 mem::size_of_val(&key),
             )
         };
@@ -93,7 +93,7 @@ impl KeyHandle {
             keyutils::add_key(
                 key_type,
                 key_name,
-                &output as *const _ as *const _,
+                ptr::addr_of!(output).cast(),
                 mem::size_of_val(&output),
                 keyutils::KEY_SPEC_USER_KEYRING,
             )
@@ -103,7 +103,7 @@ impl KeyHandle {
             info!("Found key in keyring");
             Ok(KeyHandle {
                 _uuid: sb.sb().uuid(),
-                _id:   key_id as c_long,
+                _id:   c_long::from(key_id),
             })
         } else {
             Err(anyhow!("failed to add key to keyring: {}", errno::errno()))

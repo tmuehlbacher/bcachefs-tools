@@ -1,9 +1,11 @@
 use std::{
     collections::HashMap,
-    ffi::{c_char, c_void, CString},
+    env,
+    ffi::CString,
+    fs,
     io::{stdout, IsTerminal},
     path::{Path, PathBuf},
-    {env, fs, str},
+    ptr, str,
 };
 
 use anyhow::{ensure, Result};
@@ -28,12 +30,10 @@ fn mount_inner(
     let fstype = CString::new(fstype)?;
 
     // convert to pointers for ffi
-    let src = src.as_c_str().to_bytes_with_nul().as_ptr() as *const c_char;
-    let target = target.as_c_str().to_bytes_with_nul().as_ptr() as *const c_char;
-    let data = data.as_ref().map_or(std::ptr::null(), |data| {
-        data.as_c_str().to_bytes_with_nul().as_ptr() as *const c_void
-    });
-    let fstype = fstype.as_c_str().to_bytes_with_nul().as_ptr() as *const c_char;
+    let src = src.as_ptr();
+    let target = target.as_ptr();
+    let data = data.map_or(ptr::null(), |data| data.as_ptr().cast());
+    let fstype = fstype.as_ptr();
 
     let ret = {
         info!("mounting filesystem");
@@ -49,7 +49,8 @@ fn mount_inner(
 /// Parse a comma-separated mount options and split out mountflags and filesystem
 /// specific options.
 fn parse_mount_options(options: impl AsRef<str>) -> (Option<String>, libc::c_ulong) {
-    use either::Either::*;
+    use either::Either::{Left, Right};
+
     debug!("parsing mount options: {}", options.as_ref());
     let (opts, flags) = options
         .as_ref()
@@ -66,10 +67,9 @@ fn parse_mount_options(options: impl AsRef<str>) -> (Option<String>, libc::c_ulo
             "relatime" => Left(libc::MS_RELATIME),
             "remount" => Left(libc::MS_REMOUNT),
             "ro" => Left(libc::MS_RDONLY),
-            "rw" => Left(0),
+            "rw" | "" => Left(0),
             "strictatime" => Left(libc::MS_STRICTATIME),
             "sync" => Left(libc::MS_SYNCHRONOUS),
-            "" => Left(0),
             o => Right(o),
         })
         .fold((Vec::new(), 0), |(mut opts, flags), next| match next {
@@ -127,7 +127,7 @@ fn udev_bcachefs_info() -> anyhow::Result<HashMap<String, Vec<String>>> {
 
     for m in udev
         .scan_devices()?
-        .filter(|dev| dev.is_initialized())
+        .filter(udev::Device::is_initialized)
         .map(|dev| device_property_map(&dev))
         .filter(|m| m.contains_key("ID_FS_UUID") && m.contains_key("DEVNAME"))
     {
@@ -140,11 +140,8 @@ fn udev_bcachefs_info() -> anyhow::Result<HashMap<String, Vec<String>>> {
     Ok(info)
 }
 
-fn get_super_blocks(
-    uuid: Uuid,
-    devices: &[String],
-) -> anyhow::Result<Vec<(PathBuf, bch_sb_handle)>> {
-    Ok(devices
+fn get_super_blocks(uuid: Uuid, devices: &[String]) -> Vec<(PathBuf, bch_sb_handle)> {
+    devices
         .iter()
         .filter_map(|dev| {
             read_super_silent(PathBuf::from(dev))
@@ -152,7 +149,7 @@ fn get_super_blocks(
                 .map(|sb| (PathBuf::from(dev), sb))
         })
         .filter(|(_, sb)| sb.sb().uuid() == uuid)
-        .collect::<Vec<_>>())
+        .collect::<Vec<_>>()
 }
 
 fn get_all_block_devnodes() -> anyhow::Result<Vec<String>> {
@@ -189,14 +186,14 @@ fn get_devices_by_uuid(
         }
     };
 
-    get_super_blocks(uuid, &devices)
+    Ok(get_super_blocks(uuid, &devices))
 }
 
 #[allow(clippy::type_complexity)]
 fn get_uuid_for_dev_node(
     udev_bcachefs: &HashMap<String, Vec<String>>,
-    device: &std::path::PathBuf,
-) -> anyhow::Result<(Option<Uuid>, Option<(PathBuf, bch_sb_handle)>)> {
+    device: impl AsRef<Path>,
+) -> Result<(Option<Uuid>, Option<(PathBuf, bch_sb_handle)>)> {
     let canonical = fs::canonicalize(device)?;
 
     if !udev_bcachefs.is_empty() {
@@ -264,11 +261,11 @@ pub struct Cli {
 
 fn devs_str_sbs_from_uuid(
     udev_info: &HashMap<String, Vec<String>>,
-    uuid: String,
+    uuid: &str,
 ) -> anyhow::Result<(String, Vec<bch_sb_handle>)> {
     debug!("enumerating devices with UUID {}", uuid);
 
-    let devs_sbs = Uuid::parse_str(&uuid).map(|uuid| get_devices_by_uuid(udev_info, uuid))??;
+    let devs_sbs = Uuid::parse_str(uuid).map(|uuid| get_devices_by_uuid(udev_info, uuid))??;
 
     let devs_str = devs_sbs
         .iter()
@@ -283,7 +280,7 @@ fn devs_str_sbs_from_uuid(
 
 fn devs_str_sbs_from_device(
     udev_info: &HashMap<String, Vec<String>>,
-    device: &std::path::PathBuf,
+    device: impl AsRef<Path>,
 ) -> anyhow::Result<(String, Vec<bch_sb_handle>)> {
     let (uuid, sb_info) = get_uuid_for_dev_node(udev_info, device)?;
 
@@ -300,10 +297,10 @@ fn devs_str_sbs_from_device(
                 let dev = path.into_os_string().into_string().unwrap();
                 Ok((dev, vec![sb]))
             } else {
-                devs_str_sbs_from_uuid(udev_info, uuid.to_string())
+                devs_str_sbs_from_uuid(udev_info, &uuid.to_string())
             }
         }
-        (Some(uuid), None) => devs_str_sbs_from_uuid(udev_info, uuid.to_string()),
+        (Some(uuid), None) => devs_str_sbs_from_uuid(udev_info, &uuid.to_string()),
         _ => Ok((String::new(), Vec::new())),
     }
 }
@@ -312,11 +309,9 @@ fn cmd_mount_inner(opt: Cli) -> Result<()> {
     // Grab the udev information once
     let udev_info = udev_bcachefs_info()?;
 
-    let (devices, sbs) = if opt.dev.starts_with("UUID=") {
-        let uuid = opt.dev.replacen("UUID=", "", 1);
+    let (devices, sbs) = if let Some(uuid) = opt.dev.strip_prefix("UUID=") {
         devs_str_sbs_from_uuid(&udev_info, uuid)?
-    } else if opt.dev.starts_with("OLD_BLKID_UUID=") {
-        let uuid = opt.dev.replacen("OLD_BLKID_UUID=", "", 1);
+    } else if let Some(uuid) = opt.dev.strip_prefix("OLD_BLKID_UUID=") {
         devs_str_sbs_from_uuid(&udev_info, uuid)?
     } else {
         // If the device string contains ":" we will assume the user knows the entire list.
@@ -324,16 +319,15 @@ fn cmd_mount_inner(opt: Cli) -> Result<()> {
         // only 1 of a number of devices which are part of the FS. This appears to be the case
         // when we get called during fstab mount processing and the fstab specifies a UUID.
         if opt.dev.contains(':') {
-            let mut block_devices_to_mount = Vec::new();
+            let sbs = opt
+                .dev
+                .split(':')
+                .map(read_super_silent)
+                .collect::<Result<Vec<_>>>()?;
 
-            for dev in opt.dev.split(':') {
-                let dev = PathBuf::from(dev);
-                block_devices_to_mount.push(read_super_silent(&dev)?);
-            }
-
-            (opt.dev, block_devices_to_mount)
+            (opt.dev, sbs)
         } else {
-            devs_str_sbs_from_device(&udev_info, &PathBuf::from(opt.dev))?
+            devs_str_sbs_from_device(&udev_info, Path::new(&opt.dev))?
         }
     };
 

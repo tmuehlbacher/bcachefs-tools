@@ -10,7 +10,7 @@ use clap::Parser;
 use log::error;
 use std::io::{stdout, IsTerminal};
 
-fn list_keys(fs: &Fs, opt: Cli) -> anyhow::Result<()> {
+fn list_keys(fs: &Fs, opt: &Cli) -> anyhow::Result<()> {
     let trans = BtreeTrans::new(fs);
     let mut iter = BtreeIter::new(
         &trans,
@@ -38,7 +38,7 @@ fn list_keys(fs: &Fs, opt: Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn list_btree_formats(fs: &Fs, opt: Cli) -> anyhow::Result<()> {
+fn list_btree_formats(fs: &Fs, opt: &Cli) -> anyhow::Result<()> {
     let trans = BtreeTrans::new(fs);
     let mut iter = BtreeNodeIter::new(
         &trans,
@@ -61,7 +61,7 @@ fn list_btree_formats(fs: &Fs, opt: Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn list_btree_nodes(fs: &Fs, opt: Cli) -> anyhow::Result<()> {
+fn list_btree_nodes(fs: &Fs, opt: &Cli) -> anyhow::Result<()> {
     let trans = BtreeTrans::new(fs);
     let mut iter = BtreeNodeIter::new(
         &trans,
@@ -84,7 +84,7 @@ fn list_btree_nodes(fs: &Fs, opt: Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn list_nodes_ondisk(fs: &Fs, opt: Cli) -> anyhow::Result<()> {
+fn list_nodes_ondisk(fs: &Fs, opt: &Cli) -> anyhow::Result<()> {
     let trans = BtreeTrans::new(fs);
     let mut iter = BtreeNodeIter::new(
         &trans,
@@ -157,8 +157,8 @@ pub struct Cli {
     devices: Vec<std::path::PathBuf>,
 }
 
-fn cmd_list_inner(opt: Cli) -> anyhow::Result<()> {
-    let mut fs_opts: bcachefs::bch_opts = Default::default();
+fn cmd_list_inner(opt: &Cli) -> anyhow::Result<()> {
+    let mut fs_opts = bcachefs::bch_opts::default();
 
     opt_set!(fs_opts, nochanges, 1);
     opt_set!(fs_opts, read_only, 1);
@@ -197,7 +197,7 @@ fn cmd_list_inner(opt: Cli) -> anyhow::Result<()> {
 pub fn list(argv: Vec<String>) -> i32 {
     let opt = Cli::parse_from(argv);
     colored::control::set_override(opt.colorize);
-    if let Err(e) = cmd_list_inner(opt) {
+    if let Err(e) = cmd_list_inner(&opt) {
         error!("Fatal error: {}", e);
         1
     } else {
