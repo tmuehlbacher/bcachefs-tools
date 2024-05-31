@@ -1,5 +1,5 @@
 use std::{
-    ffi::{CStr, CString},
+    ffi::{c_long, CStr, CString},
     fs,
     io::{stdin, IsTerminal},
     mem,
@@ -34,10 +34,7 @@ impl UnlockPolicy {
     pub fn apply(&self, sb: &bch_sb_handle) -> Result<KeyHandle> {
         let uuid = sb.sb().uuid();
 
-        info!(
-            "Attempting to unlock filesystem {} with unlock policy '{}'",
-            uuid, self
-        );
+        info!("Using filesystem unlock policy '{self}' on {uuid}");
 
         match self {
             Self::Fail => Err(anyhow!("no passphrase available")),
@@ -57,12 +54,12 @@ impl Default for UnlockPolicy {
 pub struct KeyHandle {
     // FIXME: Either these come in useful for something or we remove them
     _uuid: Uuid,
-    _id:   i64,
+    _id:   c_long,
 }
 
 impl KeyHandle {
     pub fn format_key_name(uuid: &Uuid) -> CString {
-        CString::new(format!("bcachefs:{}", uuid)).unwrap()
+        CString::new(format!("bcachefs:{uuid}")).unwrap()
     }
 
     pub fn new(sb: &bch_sb_handle, passphrase: &Passphrase) -> Result<Self> {
@@ -106,7 +103,7 @@ impl KeyHandle {
             info!("Found key in keyring");
             Ok(KeyHandle {
                 _uuid: sb.sb().uuid(),
-                _id:   key_id as i64,
+                _id:   key_id as c_long,
             })
         } else {
             Err(anyhow!("failed to add key to keyring: {}", errno::errno()))

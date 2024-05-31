@@ -345,15 +345,15 @@ fn cmd_mount_inner(opt: Cli) -> Result<()> {
     if unsafe { bcachefs::bch2_sb_is_encrypted(first_sb.sb) } {
         let _key_handle = KeyHandle::new_from_search(&uuid).or_else(|_| {
             opt.passphrase_file
-                .map(|path| {
-                    Passphrase::new_from_file(&first_sb, path)
-                        .inspect_err(|e| {
-                            error!(
-                                "Failed to read passphrase from file, falling back to prompt: {}",
-                                e
-                            )
-                        })
-                        .and_then(|p| KeyHandle::new(&first_sb, &p))
+                .and_then(|path| match Passphrase::new_from_file(&first_sb, path) {
+                    Ok(p) => Some(KeyHandle::new(&first_sb, &p)),
+                    Err(e) => {
+                        error!(
+                            "Failed to read passphrase from file, falling back to prompt: {}",
+                            e
+                        );
+                        None
+                    }
                 })
                 .unwrap_or_else(|| opt.unlock_policy.apply(&first_sb))
         });
