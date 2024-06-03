@@ -11,7 +11,7 @@ use std::{
 use anyhow::{anyhow, ensure, Result};
 use bch_bindgen::{
     bcachefs::{self, bch_key, bch_sb_handle},
-    c::bch2_chacha_encrypt_key,
+    c::{bch2_chacha_encrypt_key, bch_sb_field_crypt},
     keyutils::{self, keyctl_search},
 };
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -66,7 +66,7 @@ impl KeyHandle {
         let bch_key_magic = BCH_KEY_MAGIC.as_bytes().read_u64::<LittleEndian>().unwrap();
 
         let crypt = sb.sb().crypt().unwrap();
-        let crypt_ptr = ptr::addr_of!(*crypt).cast_mut();
+        let crypt_ptr = (crypt as *const bch_sb_field_crypt).cast_mut();
 
         let mut output: bch_key =
             unsafe { bcachefs::derive_passphrase(crypt_ptr, passphrase.get().as_ptr()) };
