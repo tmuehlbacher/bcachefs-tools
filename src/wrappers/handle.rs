@@ -1,4 +1,4 @@
-use std::{path::Path, ptr};
+use std::path::Path;
 
 use bch_bindgen::c::{
     bcache_fs_close, bcache_fs_open, bch_ioctl_subvolume, bchfs_handle, BCH_IOCTL_SUBVOLUME_CREATE,
@@ -42,7 +42,7 @@ pub enum BcachefsIoctlPayload {
 impl From<&BcachefsIoctlPayload> for *const libc::c_void {
     fn from(value: &BcachefsIoctlPayload) -> Self {
         match value {
-            BcachefsIoctlPayload::Subvolume(p) => ptr::addr_of!(p).cast(),
+            BcachefsIoctlPayload::Subvolume(p) => (p as *const bch_ioctl_subvolume).cast(),
         }
     }
 }
