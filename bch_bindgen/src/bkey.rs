@@ -49,6 +49,7 @@ pub enum BkeyValC<'a> {
     snapshot_tree(&'a c::bch_snapshot_tree),
     logged_op_truncate(&'a c::bch_logged_op_truncate),
     logged_op_finsert(&'a c::bch_logged_op_finsert),
+    accounting(&'a c::bch_accounting),
 }
 
 impl<'a, 'b> BkeySC<'a> {
@@ -104,6 +105,7 @@ impl<'a, 'b> BkeySC<'a> {
                 KEY_TYPE_snapshot_tree => snapshot_tree(transmute(self.v)),
                 KEY_TYPE_logged_op_truncate => logged_op_truncate(transmute(self.v)),
                 KEY_TYPE_logged_op_finsert => logged_op_finsert(transmute(self.v)),
+                KEY_TYPE_accounting => accounting(transmute(self.v)),
                 KEY_TYPE_MAX => unreachable!(),
             }
         }

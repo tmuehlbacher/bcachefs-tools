@@ -153,7 +153,7 @@ int cmd_dump(int argc, char *argv[])
 	if (IS_ERR(c))
 		die("error opening devices: %s", bch2_err_str(PTR_ERR(c)));
 
-	down_read(&c->gc_lock);
+	down_read(&c->state_lock);
 
 	for_each_online_member(c, ca)
 		nr_devices++;
@@ -176,7 +176,7 @@ int cmd_dump(int argc, char *argv[])
 		close(fd);
 	}
 
-	up_read(&c->gc_lock);
+	up_read(&c->state_lock);
 
 	bch2_fs_stop(c);
 	return 0;

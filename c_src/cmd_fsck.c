@@ -236,6 +236,7 @@ int cmd_fsck(int argc, char *argv[])
 		kernel_probed = should_use_kernel_fsck(devs);
 
 	struct bch_opts opts = bch2_opts_empty();
+	struct printbuf parse_later = PRINTBUF;
 
 	if (kernel_probed) {
 		struct bch_ioctl_fsck_offline *fsck = calloc(sizeof(*fsck) +
@@ -259,7 +260,7 @@ int cmd_fsck(int argc, char *argv[])
 		ret = splice_fd_to_stdinout(fsck_fd);
 	} else {
 userland_fsck:
-		ret = bch2_parse_mount_opts(NULL, &opts, opts_str.buf);
+		ret = bch2_parse_mount_opts(NULL, &opts, &parse_later, opts_str.buf);
 		if (ret)
 			return ret;
 
