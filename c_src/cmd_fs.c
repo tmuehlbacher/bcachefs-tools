@@ -129,6 +129,28 @@ static struct dev_name *dev_idx_to_name(dev_names *dev_names, unsigned idx)
 	return NULL;
 }
 
+static void devs_usage_to_text(struct printbuf *out,
+			       struct bchfs_handle fs,
+			       dev_names dev_names)
+{
+	sort(dev_names.data, dev_names.nr,
+	     sizeof(dev_names.data[0]), dev_by_label_cmp, NULL);
+
+	printbuf_tabstops_reset(out);
+	printbuf_tabstop_push(out, 16);
+	printbuf_tabstop_push(out, 20);
+	printbuf_tabstop_push(out, 16);
+	printbuf_tabstop_push(out, 14);
+
+	darray_for_each(dev_names, dev)
+		dev_usage_to_text(out, fs, dev);
+
+	darray_for_each(dev_names, dev) {
+		free(dev->dev);
+		free(dev->label);
+	}
+}
+
 static void replicas_usage_to_text(struct printbuf *out,
 				   const struct bch_replicas_usage *r,
 				   dev_names *dev_names)
@@ -275,22 +297,8 @@ static void fs_usage_to_text(struct printbuf *out, const char *path)
 
 	free(u);
 
-	sort(dev_names.data, dev_names.nr,
-	     sizeof(dev_names.data[0]), dev_by_label_cmp, NULL);
+	devs_usage_to_text(out, fs, dev_names);
 
-	printbuf_tabstops_reset(out);
-	printbuf_tabstop_push(out, 16);
-	printbuf_tabstop_push(out, 20);
-	printbuf_tabstop_push(out, 16);
-	printbuf_tabstop_push(out, 14);
-
-	darray_for_each(dev_names, dev)
-		dev_usage_to_text(out, fs, dev);
-
-	darray_for_each(dev_names, dev) {
-		free(dev->dev);
-		free(dev->label);
-	}
 	darray_exit(&dev_names);
 
 	bcache_fs_close(fs);
