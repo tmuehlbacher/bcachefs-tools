@@ -174,6 +174,7 @@
             # development, and might need to be version matched with build
             # dependencies (e.g. clippy or rust-analyzer).
             packages = with pkgs; [
+              bear
               cargo-audit
               cargo-outdated
               clang-tools
