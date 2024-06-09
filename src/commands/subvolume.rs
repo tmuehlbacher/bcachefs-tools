@@ -42,6 +42,10 @@ pub fn subvolume(argv: Vec<String>) -> i32 {
     match cli.subcommands {
         Subcommands::Create { targets } => {
             for target in targets {
+                let target = target
+                    .canonicalize()
+                    .expect("unable to canonicalize a target path");
+
                 if let Some(dirname) = target.parent() {
                     let fs = unsafe { BcachefsHandle::open(dirname) };
                     fs.create_subvolume(target)
@@ -50,6 +54,10 @@ pub fn subvolume(argv: Vec<String>) -> i32 {
             }
         }
         Subcommands::Delete { target } => {
+            let target = target
+                .canonicalize()
+                .expect("unable to canonicalize a target path");
+
             if let Some(dirname) = target.parent() {
                 let fs = unsafe { BcachefsHandle::open(dirname) };
                 fs.delete_subvolume(target)
