@@ -66,11 +66,11 @@
 
           craneLib = crane.mkLib pkgs;
 
-          libbcachefsCommit = substring 0 7 (builtins.readFile ./.bcachefs_revision);
+          rev = self.shortRev or self.dirtyShortRev or (substring 0 8 self.lastModifiedDate);
           makefileVersion = removePrefix "VERSION=" (
             findFirst (line: hasPrefix "VERSION=" line) "VERSION=0.0.0" (split "\n" (readFile ./Makefile))
           );
-          version = "${makefileVersion}+git-${libbcachefsCommit}";
+          version = "${makefileVersion}+${rev}";
 
           commonArgs = {
             inherit version;
@@ -174,6 +174,7 @@
             # development, and might need to be version matched with build
             # dependencies (e.g. clippy or rust-analyzer).
             packages = with pkgs; [
+              bear
               cargo-audit
               cargo-outdated
               clang-tools
