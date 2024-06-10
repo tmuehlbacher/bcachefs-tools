@@ -58,6 +58,7 @@
         }:
         let
           inherit (builtins) readFile split;
+          inherit (lib) fileset;
           inherit (lib.lists) findFirst;
           inherit (lib.strings) hasPrefix removePrefix substring;
 
@@ -74,7 +75,17 @@
 
           commonArgs = {
             inherit version;
-            src = self;
+            src = fileset.toSource {
+              root = ./.;
+
+              fileset = fileset.difference (fileset.gitTracked ./.) (
+                fileset.unions [
+                  ./checks
+                  ./doc
+                  ./tests
+                ]
+              );
+            };
 
             env = {
               PKG_CONFIG_SYSTEMD_SYSTEMDSYSTEMUNITDIR = "${placeholder "out"}/lib/systemd/system";
