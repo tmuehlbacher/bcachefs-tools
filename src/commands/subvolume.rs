@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{env, path::PathBuf};
 
 use bch_bindgen::c::BCH_SUBVOL_SNAPSHOT_RO;
 use clap::{Parser, Subcommand};
@@ -42,9 +42,13 @@ pub fn subvolume(argv: Vec<String>) -> i32 {
     match cli.subcommands {
         Subcommands::Create { targets } => {
             for target in targets {
-                let target = target
-                    .canonicalize()
-                    .expect("unable to canonicalize a target path");
+                let target = if target.is_absolute() {
+                    target
+                } else {
+                    env::current_dir()
+                        .map(|p| p.join(target))
+                        .expect("unable to get current directory")
+                };
 
                 if let Some(dirname) = target.parent() {
                     let fs = unsafe { BcachefsHandle::open(dirname) };
@@ -56,7 +60,7 @@ pub fn subvolume(argv: Vec<String>) -> i32 {
         Subcommands::Delete { target } => {
             let target = target
                 .canonicalize()
-                .expect("unable to canonicalize a target path");
+                .expect("subvolume path does not exist or can not be canonicalized");
 
             if let Some(dirname) = target.parent() {
                 let fs = unsafe { BcachefsHandle::open(dirname) };
