@@ -138,31 +138,38 @@
             }
           );
 
-          checks.cargo-clippy = craneLib.cargoClippy (
-            commonArgs
+          checks =
+            let
+              overlay = (final: prev: { inherit (config.packages) bcachefs-tools; });
+            in
+            (import ./checks { pkgs = pkgs.extend overlay; })
             // {
-              inherit cargoArtifacts;
-              cargoClippyExtraArgs = "--all-targets -- --deny warnings";
-            }
-          );
+              cargo-clippy = craneLib.cargoClippy (
+                commonArgs
+                // {
+                  inherit cargoArtifacts;
+                  cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+                }
+              );
 
-          # we have to build our own `craneLib.cargoTest`
-          checks.cargo-test = craneLib.mkCargoDerivation (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-              doCheck = true;
+              # we have to build our own `craneLib.cargoTest`
+              cargo-test = craneLib.mkCargoDerivation (
+                commonArgs
+                // {
+                  inherit cargoArtifacts;
+                  doCheck = true;
 
-              enableParallelChecking = true;
+                  enableParallelChecking = true;
 
-              pnameSuffix = "-test";
-              buildPhaseCargoCommand = "";
-              checkPhaseCargoCommand = ''
-                make ''${enableParallelChecking:+-j''${NIX_BUILD_CORES}} $makeFlags libbcachefs.a
-                cargo test --profile release -- --nocapture
-              '';
-            }
-          );
+                  pnameSuffix = "-test";
+                  buildPhaseCargoCommand = "";
+                  checkPhaseCargoCommand = ''
+                    make ''${enableParallelChecking:+-j''${NIX_BUILD_CORES}} $makeFlags libbcachefs.a
+                    cargo test --profile release -- --nocapture
+                  '';
+                }
+              );
+            };
 
           devShells.default = pkgs.mkShell {
             inputsFrom = [
