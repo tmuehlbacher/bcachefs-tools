@@ -138,6 +138,12 @@
             }
           );
 
+          checks.nixos-tests =
+            let
+              overlay = (final: prev: { inherit (config.packages) bcachefs-tools; });
+            in
+            (import ./checks { pkgs = pkgs.extend overlay; });
+
           checks.cargo-clippy = craneLib.cargoClippy (
             commonArgs
             // {
