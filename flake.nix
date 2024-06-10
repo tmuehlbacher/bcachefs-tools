@@ -11,6 +11,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    nix-filter.url = "github:numtide/nix-filter";
+
     crane = {
       url = "github:ipetkov/crane";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -33,6 +35,7 @@
       nixpkgs,
       flake-parts,
       treefmt-nix,
+      nix-filter,
       fenix,
       crane,
       ...
@@ -64,6 +67,8 @@
           cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
           rustfmtToml = builtins.fromTOML (builtins.readFile ./rustfmt.toml);
 
+          filter = nix-filter.lib;
+
           craneLib = crane.mkLib pkgs;
 
           libbcachefsCommit = substring 0 7 (builtins.readFile ./.bcachefs_revision);
@@ -74,7 +79,14 @@
 
           commonArgs = {
             inherit version;
-            src = self;
+            src = filter {
+              root = self;
+              exclude = [
+                "checks"
+                "doc"
+                "tests"
+              ];
+            };
 
             makeFlags = [
               "DESTDIR=${placeholder "out"}"
