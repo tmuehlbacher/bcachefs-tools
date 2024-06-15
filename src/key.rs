@@ -158,7 +158,7 @@ impl Passphrase {
             line
         };
 
-        Ok(Self(CString::new(passphrase.as_str())?))
+        Ok(Self(CString::new(passphrase.trim_end_matches('\n'))?))
     }
 
     pub fn new_from_file(sb: &bch_sb_handle, passphrase_file: impl AsRef<Path>) -> Result<Self> {
@@ -172,6 +172,6 @@ impl Passphrase {
 
         let passphrase = Zeroizing::new(fs::read_to_string(passphrase_file)?);
 
-        Ok(Self(CString::new(passphrase.as_str())?))
+        Ok(Self(CString::new(passphrase.trim_end_matches('\n'))?))
     }
 }
