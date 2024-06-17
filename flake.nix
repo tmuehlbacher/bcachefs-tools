@@ -76,9 +76,14 @@
             inherit version;
             src = self;
 
+            env = {
+              PKG_CONFIG_SYSTEMD_SYSTEMDSYSTEMUNITDIR = "${placeholder "out"}/lib/systemd/system";
+              PKG_CONFIG_UDEV_UDEVDIR = "${placeholder "out"}/lib/udev";
+            };
+
             makeFlags = [
-              "DESTDIR=${placeholder "out"}"
-              "PREFIX="
+              "INITRAMFS_DIR=${placeholder "out"}/etc/initramfs-tools"
+              "PREFIX=${placeholder "out"}"
               "VERSION=${version}"
             ];
 
