@@ -16,7 +16,7 @@ impl log::Log for SimpleLogger {
             Level::Debug => "DEBUG".bright_blue(),
             Level::Trace => "TRACE".into(),
         };
-        println!(
+        eprintln!(
             "{} - {}: {}",
             debug_prefix,
             record.module_path().unwrap_or_default().bright_black(),

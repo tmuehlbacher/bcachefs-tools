@@ -110,23 +110,30 @@ impl KeyHandle {
         }
     }
 
-    pub fn new_from_search(uuid: &Uuid) -> Result<Self> {
-        let key_name = Self::format_key_name(uuid);
-        let key_name = CStr::as_ptr(&key_name);
+    fn search_keyring(keyring: i32, key_name: &CStr) -> Result<i64> {
+        let key_name = CStr::as_ptr(key_name);
         let key_type = c_str!("user");
 
-        let key_id =
-            unsafe { keyctl_search(keyutils::KEY_SPEC_USER_KEYRING, key_type, key_name, 0) };
+        let key_id = unsafe { keyctl_search(keyring, key_type, key_name, 0) };
 
         if key_id > 0 {
             info!("Found key in keyring");
-            Ok(Self {
-                _uuid: *uuid,
-                _id:   key_id,
-            })
+            Ok(key_id)
         } else {
             Err(ErrnoError(errno::errno()).into())
         }
+    }
+
+    pub fn new_from_search(uuid: &Uuid) -> Result<Self> {
+        let key_name = Self::format_key_name(uuid);
+
+        Self::search_keyring(keyutils::KEY_SPEC_SESSION_KEYRING, &key_name)
+            .or_else(|_| Self::search_keyring(keyutils::KEY_SPEC_USER_KEYRING, &key_name))
+            .or_else(|_| Self::search_keyring(keyutils::KEY_SPEC_USER_SESSION_KEYRING, &key_name))
+            .map(|id| Self {
+                _uuid: *uuid,
+                _id:   id,
+            })
     }
 
     fn wait_for_unlock(uuid: &Uuid) -> Result<Self> {
@@ -158,7 +165,7 @@ impl Passphrase {
             line
         };
 
-        Ok(Self(CString::new(passphrase.as_str())?))
+        Ok(Self(CString::new(passphrase.trim_end_matches('\n'))?))
     }
 
     pub fn new_from_file(sb: &bch_sb_handle, passphrase_file: impl AsRef<Path>) -> Result<Self> {
@@ -172,6 +179,6 @@ impl Passphrase {
 
         let passphrase = Zeroizing::new(fs::read_to_string(passphrase_file)?);
 
-        Ok(Self(CString::new(passphrase.as_str())?))
+        Ok(Self(CString::new(passphrase.trim_end_matches('\n'))?))
     }
 }
