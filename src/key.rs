@@ -110,7 +110,7 @@ impl KeyHandle {
         }
     }
 
-    fn search_keyring(keyring: i32, key_name: &CStr) -> Result<i64> {
+    fn search_keyring(keyring: i32, key_name: &CStr) -> Result<c_long> {
         let key_name = CStr::as_ptr(key_name);
         let key_type = c_str!("user");
 
