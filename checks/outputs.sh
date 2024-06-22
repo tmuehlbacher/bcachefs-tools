@@ -2,7 +2,7 @@
 set -euxo pipefail
 
 blkdev="/dev/vdb"
-mnt="/tmp/mnt"
+mnt=$(mktemp -d)
 uuid=$(uuidgen)
 
 bcachefs format \
@@ -13,7 +13,6 @@ bcachefs format \
 
 udevadm settle
 
-mkdir -p "$mnt"
 mount "$blkdev" "$mnt"
 
 bcachefs show-super "$blkdev" | grep -i "external.*$uuid"

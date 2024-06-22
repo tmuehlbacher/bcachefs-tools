@@ -2,7 +2,7 @@
 set -euxo pipefail
 
 blkdev="/dev/vdb"
-mnt="/tmp/mnt"
+mnt=$(mktemp -d)
 pw=$(genpass)
 uuid=$(uuidgen)
 
@@ -17,8 +17,6 @@ echo "$pw" | bcachefs format \
     "$blkdev"
 
 udevadm settle
-
-mkdir -p "$mnt"
 
 bcachefs unlock -c "$blkdev"
 

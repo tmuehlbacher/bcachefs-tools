@@ -2,7 +2,7 @@
 set -euxo pipefail
 
 blkdev="/dev/vdb"
-mnt="/tmp/mnt"
+mnt=$(mktemp -d)
 pw=$(genpass)
 uuid=$(uuidgen)
 
@@ -28,7 +28,6 @@ echo "$pw" | bcachefs format \
 
 udevadm settle
 
-mkdir -p "$mnt"
 echo "$pw" | bcachefs mount -v "UUID=$uuid" "$mnt"
 
 keyctl search @u user "bcachefs:$uuid"
