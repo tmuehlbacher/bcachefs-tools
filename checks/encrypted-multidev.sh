@@ -31,3 +31,7 @@ udevadm settle
 echo "$pw" | bcachefs mount -v "UUID=$uuid" "$mnt"
 
 keyctl search @u user "bcachefs:$uuid"
+
+umount "$mnt"
+
+bcachefs mount -v "${blkdev}1" "$mnt"
