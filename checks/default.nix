@@ -29,6 +29,7 @@ let
 
           # Add any packages you need inside test scripts here
           environment.systemPackages = with pkgs; [
+            f3
             genpass
             keyutils
           ];
