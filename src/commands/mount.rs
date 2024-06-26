@@ -215,28 +215,20 @@ fn get_uuid_for_dev_node(
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
-    /// Path to passphrase/key file
+    /// Path to passphrase file
     ///
-    /// Precedes key_location/unlock_policy: if the filesystem can be decrypted
-    /// by the specified passphrase file; it is decrypted. (i.e. Regardless
-    /// if "fail" is specified for key_location/unlock_policy.)
+    /// This can be used to optionally specify a file to read the passphrase
+    /// from. An explictly specified key_location/unlock_policy overrides this
+    /// argument.
     #[arg(short = 'f', long)]
     passphrase_file: Option<PathBuf>,
 
-    /// Password policy to use in case of encrypted filesystem.
-    ///
-    /// Possible values are:
-    /// "fail" - don't ask for password, fail if filesystem is encrypted;
-    /// "wait" - wait for password to become available before mounting;
-    /// "ask" -  prompt the user for password;
-    #[arg(
-        short = 'k',
-        long = "key_location",
-        value_enum,
-        default_value_t,
-        verbatim_doc_comment
-    )]
-    unlock_policy: UnlockPolicy,
+    /// Passphrase policy to use in case of an encrypted filesystem. If not
+    /// specified, the password will be searched for in the keyring. If not
+    /// found, the password will be prompted or read from stdin, depending on
+    /// whether the stdin is connected to a terminal or not.
+    #[arg(short = 'k', long = "key_location", value_enum)]
+    unlock_policy: Option<UnlockPolicy>,
 
     /// Device, or UUID=\<UUID\>
     dev: String,
@@ -305,7 +297,23 @@ fn devs_str_sbs_from_device(
     }
 }
 
-fn cmd_mount_inner(cli: Cli) -> Result<()> {
+/// If a user explicitly specifies `unlock_policy` or `passphrase_file` then use
+/// that without falling back to other mechanisms. If these options are not
+/// used, then search for the key or ask for it.
+fn handle_unlock(cli: &Cli, sb: &bch_sb_handle) -> Result<KeyHandle> {
+    if let Some(policy) = cli.unlock_policy.as_ref() {
+        return policy.apply(sb);
+    }
+
+    if let Some(path) = cli.passphrase_file.as_deref() {
+        return Passphrase::new_from_file(path).and_then(|p| KeyHandle::new(sb, &p));
+    }
+
+    KeyHandle::new_from_search(&sb.sb().uuid())
+        .or_else(|_| Passphrase::new().and_then(|p| KeyHandle::new(sb, &p)))
+}
+
+fn cmd_mount_inner(cli: &Cli) -> Result<()> {
     // Grab the udev information once
     let udev_info = udev_bcachefs_info()?;
 
@@ -325,7 +333,7 @@ fn cmd_mount_inner(cli: Cli) -> Result<()> {
                 .map(read_super_silent)
                 .collect::<Result<Vec<_>>>()?;
 
-            (cli.dev, sbs)
+            (cli.dev.clone(), sbs)
         } else {
             devs_str_sbs_from_device(&udev_info, Path::new(&cli.dev))?
         }
@@ -334,26 +342,11 @@ fn cmd_mount_inner(cli: Cli) -> Result<()> {
     ensure!(!sbs.is_empty(), "No device(s) to mount specified");
 
     let first_sb = sbs[0];
-    let uuid = first_sb.sb().uuid();
-
     if unsafe { bcachefs::bch2_sb_is_encrypted(first_sb.sb) } {
-        let _key_handle: KeyHandle = KeyHandle::new_from_search(&uuid).or_else(|_| {
-            cli.passphrase_file
-                .and_then(|path| match Passphrase::new_from_file(path) {
-                    Ok(p) => Some(KeyHandle::new(&first_sb, &p)),
-                    Err(e) => {
-                        error!(
-                            "Failed to read passphrase from file, falling back to prompt: {}",
-                            e
-                        );
-                        None
-                    }
-                })
-                .unwrap_or_else(|| cli.unlock_policy.apply(&first_sb))
-        })?;
+        handle_unlock(cli, &first_sb)?;
     }
 
-    if let Some(mountpoint) = cli.mountpoint {
+    if let Some(mountpoint) = cli.mountpoint.as_deref() {
         info!(
             "mounting with params: device: {}, target: {}, options: {}",
             devices,
@@ -391,7 +384,7 @@ pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
     });
 
     colored::control::set_override(cli.colorize);
-    if let Err(e) = cmd_mount_inner(cli) {
+    if let Err(e) = cmd_mount_inner(&cli) {
         error!("Fatal error: {}", e);
         1
     } else {

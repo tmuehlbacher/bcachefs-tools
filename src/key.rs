@@ -25,9 +25,14 @@ const BCH_KEY_MAGIC: &str = "bch**key";
 
 #[derive(Clone, Debug, clap::ValueEnum, strum::Display)]
 pub enum UnlockPolicy {
+    /// Don't ask for passphrase, fail if filesystem is encrypted
     Fail,
+    /// Wait for passphrase to become available before mounting
     Wait,
+    /// Interactively prompt the user for a passphrase
     Ask,
+    /// Try to read the passphrase from `stdin` without prompting
+    Stdin,
 }
 
 impl UnlockPolicy {
@@ -40,6 +45,7 @@ impl UnlockPolicy {
             Self::Fail => Err(anyhow!("no passphrase available")),
             Self::Wait => Ok(KeyHandle::wait_for_unlock(&uuid)?),
             Self::Ask => Passphrase::new_from_prompt().and_then(|p| KeyHandle::new(sb, &p)),
+            Self::Stdin => Passphrase::new_from_stdin().and_then(|p| KeyHandle::new(sb, &p)),
         }
     }
 }
@@ -154,18 +160,29 @@ impl Passphrase {
         &self.0
     }
 
-    // blocks indefinitely if no input is available on stdin
-    fn new_from_prompt() -> Result<Self> {
-        let passphrase = if stdin().is_terminal() {
-            Zeroizing::new(rpassword::prompt_password("Enter passphrase: ")?)
+    pub fn new() -> Result<Self> {
+        if stdin().is_terminal() {
+            Self::new_from_prompt()
         } else {
-            info!("Trying to read passphrase from stdin...");
-            let mut line = Zeroizing::new(String::new());
-            stdin().read_line(&mut line)?;
-            line
-        };
+            Self::new_from_stdin()
+        }
+    }
+
+    // blocks indefinitely if no input is available on stdin
+    pub fn new_from_prompt() -> Result<Self> {
+        let passphrase = Zeroizing::new(rpassword::prompt_password("Enter passphrase: ")?);
 
         Ok(Self(CString::new(passphrase.trim_end_matches('\n'))?))
+    }
+
+    // blocks indefinitely if no input is available on stdin
+    pub fn new_from_stdin() -> Result<Self> {
+        info!("Trying to read passphrase from stdin...");
+
+        let mut line = Zeroizing::new(String::new());
+        stdin().read_line(&mut line)?;
+
+        Ok(Self(CString::new(line.trim_end_matches('\n'))?))
     }
 
     pub fn new_from_file(passphrase_file: impl AsRef<Path>) -> Result<Self> {
