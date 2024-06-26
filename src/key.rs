@@ -25,7 +25,8 @@ const BCH_KEY_MAGIC: &str = "bch**key";
 
 #[derive(Clone, Debug, clap::ValueEnum, strum::Display)]
 pub enum UnlockPolicy {
-    /// Don't ask for passphrase, fail if filesystem is encrypted
+    /// Don't ask for passphrase, if the key cannot be found in the keyring just
+    /// fail
     Fail,
     /// Wait for passphrase to become available before mounting
     Wait,
@@ -42,7 +43,7 @@ impl UnlockPolicy {
         info!("Using filesystem unlock policy '{self}' on {uuid}");
 
         match self {
-            Self::Fail => Err(anyhow!("no passphrase available")),
+            Self::Fail => KeyHandle::new_from_search(&uuid),
             Self::Wait => Ok(KeyHandle::wait_for_unlock(&uuid)?),
             Self::Ask => Passphrase::new_from_prompt().and_then(|p| KeyHandle::new(sb, &p)),
             Self::Stdin => Passphrase::new_from_stdin().and_then(|p| KeyHandle::new(sb, &p)),
