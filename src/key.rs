@@ -11,7 +11,7 @@ use std::{
 use anyhow::{anyhow, ensure, Result};
 use bch_bindgen::{
     bcachefs::{self, bch_key, bch_sb_handle},
-    c::{bch2_chacha_encrypt_key, bch_sb_field_crypt},
+    c::{bch2_chacha_encrypt_key, bch_encrypted_key, bch_sb_field_crypt},
     keyutils::{self, keyctl_search},
 };
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -69,44 +69,24 @@ impl KeyHandle {
     }
 
     pub fn new(sb: &bch_sb_handle, passphrase: &Passphrase) -> Result<Self> {
-        let bch_key_magic = BCH_KEY_MAGIC.as_bytes().read_u64::<LittleEndian>().unwrap();
-
-        let crypt = sb.sb().crypt().unwrap();
-        let crypt_ptr = (crypt as *const bch_sb_field_crypt).cast_mut();
-
-        let mut output: bch_key =
-            unsafe { bcachefs::derive_passphrase(crypt_ptr, passphrase.get().as_ptr()) };
-
-        let mut key = *crypt.key();
-
-        let ret = unsafe {
-            bch2_chacha_encrypt_key(
-                ptr::addr_of_mut!(output),
-                sb.sb().nonce(),
-                ptr::addr_of_mut!(key).cast(),
-                mem::size_of_val(&key),
-            )
-        };
-
-        ensure!(ret == 0, "chacha decryption failure");
-        ensure!(key.magic == bch_key_magic, "failed to verify passphrase");
-
         let key_name = Self::format_key_name(&sb.sb().uuid());
         let key_name = CStr::as_ptr(&key_name);
         let key_type = c_str!("user");
+
+        let (passphrase_key, _sb_key) = passphrase.check(sb)?;
 
         let key_id = unsafe {
             keyutils::add_key(
                 key_type,
                 key_name,
-                ptr::addr_of!(output).cast(),
-                mem::size_of_val(&output),
+                ptr::addr_of!(passphrase_key).cast(),
+                mem::size_of_val(&passphrase_key),
                 keyutils::KEY_SPEC_USER_KEYRING,
             )
         };
 
         if key_id > 0 {
-            info!("Found key in keyring");
+            info!("Added key to keyring");
             Ok(KeyHandle {
                 _uuid: sb.sb().uuid(),
                 _id:   c_long::from(key_id),
@@ -196,5 +176,41 @@ impl Passphrase {
         let passphrase = Zeroizing::new(fs::read_to_string(passphrase_file)?);
 
         Ok(Self(CString::new(passphrase.trim_end_matches('\n'))?))
+    }
+
+    fn derive(&self, crypt: &bch_sb_field_crypt) -> bch_key {
+        let crypt_ptr = (crypt as *const bch_sb_field_crypt).cast_mut();
+
+        unsafe { bcachefs::derive_passphrase(crypt_ptr, self.get().as_ptr()) }
+    }
+
+    pub fn check(&self, sb: &bch_sb_handle) -> Result<(bch_key, bch_encrypted_key)> {
+        let bch_key_magic = BCH_KEY_MAGIC.as_bytes().read_u64::<LittleEndian>().unwrap();
+
+        let crypt = sb
+            .sb()
+            .crypt()
+            .ok_or_else(|| anyhow!("filesystem is not encrypted"))?;
+        let mut sb_key = *crypt.key();
+
+        ensure!(
+            sb_key.magic != bch_key_magic,
+            "filesystem does not have encryption key"
+        );
+
+        let mut passphrase_key: bch_key = self.derive(crypt);
+
+        let ret = unsafe {
+            bch2_chacha_encrypt_key(
+                ptr::addr_of_mut!(passphrase_key),
+                sb.sb().nonce(),
+                ptr::addr_of_mut!(sb_key).cast(),
+                mem::size_of_val(&sb_key),
+            )
+        };
+        ensure!(ret == 0, "error encrypting key");
+        ensure!(sb_key.magic == bch_key_magic, "incorrect passphrase");
+
+        Ok((passphrase_key, sb_key))
     }
 }
