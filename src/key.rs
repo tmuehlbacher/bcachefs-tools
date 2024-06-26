@@ -168,12 +168,11 @@ impl Passphrase {
         Ok(Self(CString::new(passphrase.trim_end_matches('\n'))?))
     }
 
-    pub fn new_from_file(sb: &bch_sb_handle, passphrase_file: impl AsRef<Path>) -> Result<Self> {
+    pub fn new_from_file(passphrase_file: impl AsRef<Path>) -> Result<Self> {
         let passphrase_file = passphrase_file.as_ref();
 
         info!(
-            "Attempting to unlock key for filesystem {} with passphrase from file {}",
-            sb.sb().uuid(),
+            "Attempting to unlock key with passphrase from file {}",
             passphrase_file.display()
         );
 

@@ -339,7 +339,7 @@ fn cmd_mount_inner(opt: Cli) -> Result<()> {
     if unsafe { bcachefs::bch2_sb_is_encrypted(first_sb.sb) } {
         let _key_handle: KeyHandle = KeyHandle::new_from_search(&uuid).or_else(|_| {
             opt.passphrase_file
-                .and_then(|path| match Passphrase::new_from_file(&first_sb, path) {
+                .and_then(|path| match Passphrase::new_from_file(path) {
                     Ok(p) => Some(KeyHandle::new(&first_sb, &p)),
                     Err(e) => {
                         error!(
