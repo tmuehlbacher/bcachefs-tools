@@ -305,29 +305,29 @@ fn devs_str_sbs_from_device(
     }
 }
 
-fn cmd_mount_inner(opt: Cli) -> Result<()> {
+fn cmd_mount_inner(cli: Cli) -> Result<()> {
     // Grab the udev information once
     let udev_info = udev_bcachefs_info()?;
 
-    let (devices, sbs) = if let Some(uuid) = opt.dev.strip_prefix("UUID=") {
+    let (devices, sbs) = if let Some(uuid) = cli.dev.strip_prefix("UUID=") {
         devs_str_sbs_from_uuid(&udev_info, uuid)?
-    } else if let Some(uuid) = opt.dev.strip_prefix("OLD_BLKID_UUID=") {
+    } else if let Some(uuid) = cli.dev.strip_prefix("OLD_BLKID_UUID=") {
         devs_str_sbs_from_uuid(&udev_info, uuid)?
     } else {
         // If the device string contains ":" we will assume the user knows the entire list.
         // If they supply a single device it could be either the FS only has 1 device or it's
         // only 1 of a number of devices which are part of the FS. This appears to be the case
         // when we get called during fstab mount processing and the fstab specifies a UUID.
-        if opt.dev.contains(':') {
-            let sbs = opt
+        if cli.dev.contains(':') {
+            let sbs = cli
                 .dev
                 .split(':')
                 .map(read_super_silent)
                 .collect::<Result<Vec<_>>>()?;
 
-            (opt.dev, sbs)
+            (cli.dev, sbs)
         } else {
-            devs_str_sbs_from_device(&udev_info, Path::new(&opt.dev))?
+            devs_str_sbs_from_device(&udev_info, Path::new(&cli.dev))?
         }
     };
 
@@ -338,7 +338,7 @@ fn cmd_mount_inner(opt: Cli) -> Result<()> {
 
     if unsafe { bcachefs::bch2_sb_is_encrypted(first_sb.sb) } {
         let _key_handle: KeyHandle = KeyHandle::new_from_search(&uuid).or_else(|_| {
-            opt.passphrase_file
+            cli.passphrase_file
                 .and_then(|path| match Passphrase::new_from_file(path) {
                     Ok(p) => Some(KeyHandle::new(&first_sb, &p)),
                     Err(e) => {
@@ -349,24 +349,24 @@ fn cmd_mount_inner(opt: Cli) -> Result<()> {
                         None
                     }
                 })
-                .unwrap_or_else(|| opt.unlock_policy.apply(&first_sb))
+                .unwrap_or_else(|| cli.unlock_policy.apply(&first_sb))
         })?;
     }
 
-    if let Some(mountpoint) = opt.mountpoint {
+    if let Some(mountpoint) = cli.mountpoint {
         info!(
             "mounting with params: device: {}, target: {}, options: {}",
             devices,
             mountpoint.to_string_lossy(),
-            &opt.options
+            &cli.options
         );
 
-        let (data, mountflags) = parse_mount_options(&opt.options);
+        let (data, mountflags) = parse_mount_options(&cli.options);
         mount_inner(devices, mountpoint, "bcachefs", mountflags, data)
     } else {
         info!(
             "would mount with params: device: {}, options: {}",
-            devices, &opt.options
+            devices, &cli.options
         );
 
         Ok(())
@@ -381,17 +381,17 @@ pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
         argv.remove(0);
     }
 
-    let opt = Cli::parse_from(argv);
+    let cli = Cli::parse_from(argv);
 
     // @TODO : more granular log levels via mount option
-    log::set_max_level(match opt.verbose {
+    log::set_max_level(match cli.verbose {
         0 => LevelFilter::Warn,
         1 => LevelFilter::Trace,
         2_u8..=u8::MAX => todo!(),
     });
 
-    colored::control::set_override(opt.colorize);
-    if let Err(e) = cmd_mount_inner(opt) {
+    colored::control::set_override(cli.colorize);
+    if let Err(e) = cmd_mount_inner(cli) {
         error!("Fatal error: {}", e);
         1
     } else {
