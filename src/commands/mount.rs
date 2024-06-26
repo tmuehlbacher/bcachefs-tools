@@ -317,26 +317,24 @@ fn cmd_mount_inner(cli: &Cli) -> Result<()> {
     // Grab the udev information once
     let udev_info = udev_bcachefs_info()?;
 
-    let (devices, sbs) = if let Some(uuid) = cli.dev.strip_prefix("UUID=") {
+    let (devices, sbs) = if let Some(("UUID" | "OLD_BLKID_UUID", uuid)) = cli.dev.split_once('=') {
         devs_str_sbs_from_uuid(&udev_info, uuid)?
-    } else if let Some(uuid) = cli.dev.strip_prefix("OLD_BLKID_UUID=") {
-        devs_str_sbs_from_uuid(&udev_info, uuid)?
-    } else {
-        // If the device string contains ":" we will assume the user knows the entire list.
-        // If they supply a single device it could be either the FS only has 1 device or it's
-        // only 1 of a number of devices which are part of the FS. This appears to be the case
-        // when we get called during fstab mount processing and the fstab specifies a UUID.
-        if cli.dev.contains(':') {
-            let sbs = cli
-                .dev
-                .split(':')
-                .map(read_super_silent)
-                .collect::<Result<Vec<_>>>()?;
+    } else if cli.dev.contains(':') {
+        // If the device string contains ":" we will assume the user knows the
+        // entire list. If they supply a single device it could be either the FS
+        // only has 1 device or it's only 1 of a number of devices which are
+        // part of the FS. This appears to be the case when we get called during
+        // fstab mount processing and the fstab specifies a UUID.
 
-            (cli.dev.clone(), sbs)
-        } else {
-            devs_str_sbs_from_device(&udev_info, Path::new(&cli.dev))?
-        }
+        let sbs = cli
+            .dev
+            .split(':')
+            .map(read_super_silent)
+            .collect::<Result<Vec<_>>>()?;
+
+        (cli.dev.clone(), sbs)
+    } else {
+        devs_str_sbs_from_device(&udev_info, Path::new(&cli.dev))?
     };
 
     ensure!(!sbs.is_empty(), "No device(s) to mount specified");
