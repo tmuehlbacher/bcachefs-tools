@@ -1,3 +1,4 @@
+use anyhow::Result;
 use bch_bindgen::bcachefs;
 use bch_bindgen::bkey::BkeySC;
 use bch_bindgen::btree::BtreeIter;
@@ -7,7 +8,6 @@ use bch_bindgen::btree::BtreeTrans;
 use bch_bindgen::fs::Fs;
 use bch_bindgen::opt_set;
 use clap::Parser;
-use log::error;
 use std::io::{stdout, IsTerminal};
 
 use crate::logging;
@@ -201,16 +201,11 @@ fn cmd_list_inner(opt: &Cli) -> anyhow::Result<()> {
     }
 }
 
-pub fn list(argv: Vec<String>) -> i32 {
+pub fn list(argv: Vec<String>) -> Result<()> {
     let opt = Cli::parse_from(argv);
 
     // TODO: centralize this on the top level CLI
     logging::setup(opt.quiet, opt.verbose, opt.colorize);
 
-    if let Err(e) = cmd_list_inner(&opt) {
-        error!("Fatal error: {}", e);
-        1
-    } else {
-        0
-    }
+    cmd_list_inner(&opt)
 }

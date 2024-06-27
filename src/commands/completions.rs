@@ -12,8 +12,7 @@ fn print_completions<G: Generator>(gen: G, cmd: &mut Command) {
     generate(gen, cmd, cmd.get_name().to_string(), &mut io::stdout());
 }
 
-pub fn completions(argv: Vec<String>) -> i32 {
+pub fn completions(argv: Vec<String>) {
     let cli = Cli::parse_from(argv);
     print_completions(cli.shell, &mut super::Cli::command());
-    0
 }

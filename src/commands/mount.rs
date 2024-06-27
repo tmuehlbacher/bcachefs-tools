@@ -11,7 +11,7 @@ use std::{
 use anyhow::{ensure, Result};
 use bch_bindgen::{bcachefs, bcachefs::bch_sb_handle, opt_set, path_to_cstr};
 use clap::Parser;
-use log::{debug, error, info};
+use log::{debug, info};
 use uuid::Uuid;
 
 use crate::{
@@ -372,7 +372,7 @@ fn cmd_mount_inner(cli: &Cli) -> Result<()> {
     }
 }
 
-pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
+pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> Result<()> {
     // If the bcachefs tool is being called as "bcachefs mount dev ..." (as opposed to via a
     // symlink like "/usr/sbin/mount.bcachefs dev ...", then we need to pop the 0th argument
     // ("bcachefs") since the CLI parser here expects the device at position 1.
@@ -385,11 +385,5 @@ pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
     // TODO: centralize this on the top level CLI
     logging::setup(cli.quiet, cli.verbose, cli.colorize);
 
-    if let Err(e) = cmd_mount_inner(&cli) {
-        error!("Fatal error: {}", e);
-        1
-    } else {
-        info!("Successfully mounted");
-        0
-    }
+    cmd_mount_inner(&cli)
 }

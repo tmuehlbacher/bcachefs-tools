@@ -1,5 +1,6 @@
 use std::{env, path::PathBuf};
 
+use anyhow::{Context, Result};
 use bch_bindgen::c::BCH_SUBVOL_SNAPSHOT_RO;
 use clap::{Parser, Subcommand};
 
@@ -36,7 +37,7 @@ enum Subcommands {
     },
 }
 
-pub fn subvolume(argv: Vec<String>) -> i32 {
+pub fn subvolume(argv: Vec<String>) -> Result<()> {
     let cli = Cli::parse_from(argv);
 
     match cli.subcommands {
@@ -47,25 +48,25 @@ pub fn subvolume(argv: Vec<String>) -> i32 {
                 } else {
                     env::current_dir()
                         .map(|p| p.join(target))
-                        .expect("unable to get current directory")
+                        .context("unable to get current directory")?
                 };
 
                 if let Some(dirname) = target.parent() {
                     let fs = unsafe { BcachefsHandle::open(dirname) };
                     fs.create_subvolume(target)
-                        .expect("Failed to create the subvolume");
+                        .context("Failed to create the subvolume")?;
                 }
             }
         }
         Subcommands::Delete { target } => {
             let target = target
                 .canonicalize()
-                .expect("subvolume path does not exist or can not be canonicalized");
+                .context("subvolume path does not exist or can not be canonicalized")?;
 
             if let Some(dirname) = target.parent() {
                 let fs = unsafe { BcachefsHandle::open(dirname) };
                 fs.delete_subvolume(target)
-                    .expect("Failed to delete the subvolume");
+                    .context("Failed to delete the subvolume")?;
             }
         }
         Subcommands::Snapshot {
@@ -91,10 +92,10 @@ pub fn subvolume(argv: Vec<String>) -> i32 {
                     source,
                     dest,
                 )
-                .expect("Failed to snapshot the subvolume");
+                .context("Failed to snapshot the subvolume")?;
             }
         }
     }
 
-    0
+    Ok(())
 }

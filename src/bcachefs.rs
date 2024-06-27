@@ -3,7 +3,10 @@ mod key;
 mod logging;
 mod wrappers;
 
-use std::ffi::{c_char, CString};
+use std::{
+    ffi::{c_char, CString},
+    process::{ExitCode, Termination},
+};
 
 use bch_bindgen::c;
 
@@ -71,7 +74,7 @@ fn handle_c_command(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
     }
 }
 
-fn main() {
+fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
 
     let symlink_cmd: Option<&str> = if args[0].contains("mkfs") {
@@ -89,7 +92,7 @@ fn main() {
     if symlink_cmd.is_none() && args.len() < 2 {
         println!("missing command");
         unsafe { c::bcachefs_usage() };
-        std::process::exit(1);
+        return ExitCode::from(1);
     }
 
     unsafe { c::raid_init() };
@@ -99,15 +102,14 @@ fn main() {
         None => args[1].as_str(),
     };
 
-    let ret = match cmd {
-        "completions" => commands::completions(args[1..].to_vec()),
-        "list" => commands::list(args[1..].to_vec()),
-        "mount" => commands::mount(args, symlink_cmd),
-        "subvolume" => commands::subvolume(args[1..].to_vec()),
-        _ => handle_c_command(args, symlink_cmd),
-    };
-
-    if ret != 0 {
-        std::process::exit(1);
+    match cmd {
+        "completions" => {
+            commands::completions(args[1..].to_vec());
+            ExitCode::SUCCESS
+        }
+        "list" => commands::list(args[1..].to_vec()).report(),
+        "mount" => commands::mount(args, symlink_cmd).report(),
+        "subvolume" => commands::subvolume(args[1..].to_vec()).report(),
+        _ => ExitCode::from(u8::try_from(handle_c_command(args, symlink_cmd)).unwrap()),
     }
 }
