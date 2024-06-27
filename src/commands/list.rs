@@ -10,6 +10,8 @@ use clap::Parser;
 use log::error;
 use std::io::{stdout, IsTerminal};
 
+use crate::logging;
+
 fn list_keys(fs: &Fs, opt: &Cli) -> anyhow::Result<()> {
     let trans = BtreeTrans::new(fs);
     let mut iter = BtreeIter::new(
@@ -145,13 +147,14 @@ pub struct Cli {
     #[arg(short, long)]
     fsck: bool,
 
+    // FIXME: would be nicer to have `--color[=WHEN]` like diff or ls?
     /// Force color on/off. Default: autodetect tty
     #[arg(short, long, action = clap::ArgAction::Set, default_value_t=stdout().is_terminal())]
     colorize: bool,
 
     /// Verbose mode
-    #[arg(short, long)]
-    verbose: bool,
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
 
     #[arg(required(true))]
     devices: Vec<std::path::PathBuf>,
@@ -180,7 +183,7 @@ fn cmd_list_inner(opt: &Cli) -> anyhow::Result<()> {
         opt_set!(fs_opts, norecovery, 0);
     }
 
-    if opt.verbose {
+    if opt.verbose > 0 {
         opt_set!(fs_opts, verbose, 1);
     }
 
@@ -196,7 +199,10 @@ fn cmd_list_inner(opt: &Cli) -> anyhow::Result<()> {
 
 pub fn list(argv: Vec<String>) -> i32 {
     let opt = Cli::parse_from(argv);
-    colored::control::set_override(opt.colorize);
+
+    // TODO: centralize this on the top level CLI
+    logging::setup(false, opt.verbose, opt.colorize);
+
     if let Err(e) = cmd_list_inner(&opt) {
         error!("Fatal error: {}", e);
         1

@@ -1,11 +1,11 @@
 mod commands;
 mod key;
+mod logging;
 mod wrappers;
 
 use std::ffi::{c_char, CString};
 
 use bch_bindgen::c;
-use commands::logger::SimpleLogger;
 
 #[derive(Debug)]
 pub struct ErrnoError(pub errno::Errno);
@@ -93,9 +93,6 @@ fn main() {
     }
 
     unsafe { c::raid_init() };
-
-    log::set_boxed_logger(Box::new(SimpleLogger)).unwrap();
-    log::set_max_level(log::LevelFilter::Warn);
 
     let cmd = match symlink_cmd {
         Some(s) => s,

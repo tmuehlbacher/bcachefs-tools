@@ -11,10 +11,13 @@ use std::{
 use anyhow::{ensure, Result};
 use bch_bindgen::{bcachefs, bcachefs::bch_sb_handle, opt_set, path_to_cstr};
 use clap::Parser;
-use log::{debug, error, info, LevelFilter};
+use log::{debug, error, info};
 use uuid::Uuid;
 
-use crate::key::{KeyHandle, Passphrase, UnlockPolicy};
+use crate::{
+    key::{KeyHandle, Passphrase, UnlockPolicy},
+    logging,
+};
 
 fn mount_inner(
     src: String,
@@ -242,6 +245,7 @@ pub struct Cli {
     #[arg(short, default_value = "")]
     options: String,
 
+    // FIXME: would be nicer to have `--color[=WHEN]` like diff or ls?
     /// Force color on/off. Autodetect tty is used to define default:
     #[arg(short, long, action = clap::ArgAction::Set, default_value_t=stdout().is_terminal())]
     colorize: bool,
@@ -374,14 +378,9 @@ pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
 
     let cli = Cli::parse_from(argv);
 
-    // @TODO : more granular log levels via mount option
-    log::set_max_level(match cli.verbose {
-        0 => LevelFilter::Warn,
-        1 => LevelFilter::Trace,
-        2_u8..=u8::MAX => todo!(),
-    });
+    // TODO: centralize this on the top level CLI
+    logging::setup(false, cli.verbose, cli.colorize);
 
-    colored::control::set_override(cli.colorize);
     if let Err(e) = cmd_mount_inner(&cli) {
         error!("Fatal error: {}", e);
         1
