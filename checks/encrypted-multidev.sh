@@ -28,10 +28,10 @@ echo "$pw" | bcachefs format \
 
 udevadm settle
 
-echo "$pw" | bcachefs mount -v "UUID=$uuid" "$mnt"
+echo "$pw" | bcachefs mount "UUID=$uuid" "$mnt"
 
 keyctl search @u user "bcachefs:$uuid"
 
 umount "$mnt"
 
-bcachefs mount -v "${blkdev}1" "$mnt"
+bcachefs mount "${blkdev}1" "$mnt"

@@ -35,6 +35,7 @@ let
           ];
 
           environment.variables = {
+            BCACHEFS_LOG = "trace";
             RUST_BACKTRACE = "full";
           };
         };

@@ -19,7 +19,7 @@ echo "$pw" | bcachefs format \
 
 udevadm settle
 
-echo "$pw" | bcachefs mount -v "UUID=$uuid" "$mnt1"
+echo "$pw" | bcachefs mount "UUID=$uuid" "$mnt1"
 
 fallocate --length 2G "$mnt1/fs.img"
 

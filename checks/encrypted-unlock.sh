@@ -23,7 +23,7 @@ bcachefs unlock -c "$blkdev"
 echo "$pw" | bcachefs unlock "$blkdev"
 key_id=$(keyctl search @u user "bcachefs:$uuid")
 
-bcachefs mount -v "$blkdev" "$mnt"
+bcachefs mount "$blkdev" "$mnt"
 umount "$mnt"
 
 keyctl unlink "$key_id"
@@ -36,20 +36,20 @@ umount "$mnt"
 
 keyctl unlink "$key_id"
 
-bcachefs mount -v -f <(echo "$pw") "$blkdev" "$mnt"
+bcachefs mount -f <(echo "$pw") "$blkdev" "$mnt"
 key_id=$(keyctl search @u user "bcachefs:$uuid")
 umount "$mnt"
 keyctl unlink "$key_id"
 
-echo "$pw" | bcachefs mount -v -k stdin "$blkdev" "$mnt"
+echo "$pw" | bcachefs mount -k stdin "$blkdev" "$mnt"
 key_id=$(keyctl search @u user "bcachefs:$uuid")
 umount "$mnt"
 keyctl unlink "$key_id"
 
-echo "$pw" | bcachefs mount -v "$blkdev" "$mnt"
+echo "$pw" | bcachefs mount "$blkdev" "$mnt"
 key_id=$(keyctl search @u user "bcachefs:$uuid")
 umount "$mnt"
-bcachefs mount -v -k fail "$blkdev"
-bcachefs mount -v -k wait "$blkdev" "$mnt"
+bcachefs mount -k fail "$blkdev"
+bcachefs mount -k wait "$blkdev" "$mnt"
 umount "$mnt"
 keyctl unlink "$key_id"
