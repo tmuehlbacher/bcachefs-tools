@@ -2,7 +2,6 @@ use clap::Subcommand;
 
 pub mod completions;
 pub mod list;
-pub mod logger;
 pub mod mount;
 pub mod subvolume;
 

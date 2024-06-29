@@ -1,3 +1,4 @@
+use anyhow::Result;
 use bch_bindgen::bcachefs;
 use bch_bindgen::bkey::BkeySC;
 use bch_bindgen::btree::BtreeIter;
@@ -7,8 +8,9 @@ use bch_bindgen::btree::BtreeTrans;
 use bch_bindgen::fs::Fs;
 use bch_bindgen::opt_set;
 use clap::Parser;
-use log::error;
 use std::io::{stdout, IsTerminal};
+
+use crate::logging;
 
 fn list_keys(fs: &Fs, opt: &Cli) -> anyhow::Result<()> {
     let trans = BtreeTrans::new(fs);
@@ -145,13 +147,18 @@ pub struct Cli {
     #[arg(short, long)]
     fsck: bool,
 
+    // FIXME: would be nicer to have `--color[=WHEN]` like diff or ls?
     /// Force color on/off. Default: autodetect tty
     #[arg(short, long, action = clap::ArgAction::Set, default_value_t=stdout().is_terminal())]
     colorize: bool,
 
-    /// Verbose mode
+    /// Quiet mode
     #[arg(short, long)]
-    verbose: bool,
+    quiet: bool,
+
+    /// Verbose mode
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
 
     #[arg(required(true))]
     devices: Vec<std::path::PathBuf>,
@@ -180,7 +187,7 @@ fn cmd_list_inner(opt: &Cli) -> anyhow::Result<()> {
         opt_set!(fs_opts, norecovery, 0);
     }
 
-    if opt.verbose {
+    if opt.verbose > 0 {
         opt_set!(fs_opts, verbose, 1);
     }
 
@@ -194,13 +201,11 @@ fn cmd_list_inner(opt: &Cli) -> anyhow::Result<()> {
     }
 }
 
-pub fn list(argv: Vec<String>) -> i32 {
+pub fn list(argv: Vec<String>) -> Result<()> {
     let opt = Cli::parse_from(argv);
-    colored::control::set_override(opt.colorize);
-    if let Err(e) = cmd_list_inner(&opt) {
-        error!("Fatal error: {}", e);
-        1
-    } else {
-        0
-    }
+
+    // TODO: centralize this on the top level CLI
+    logging::setup(opt.quiet, opt.verbose, opt.colorize);
+
+    cmd_list_inner(&opt)
 }

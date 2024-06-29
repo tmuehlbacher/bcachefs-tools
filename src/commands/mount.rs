@@ -11,10 +11,13 @@ use std::{
 use anyhow::{ensure, Result};
 use bch_bindgen::{bcachefs, bcachefs::bch_sb_handle, opt_set, path_to_cstr};
 use clap::Parser;
-use log::{debug, error, info, LevelFilter};
+use log::{debug, info};
 use uuid::Uuid;
 
-use crate::key::{KeyHandle, Passphrase, UnlockPolicy};
+use crate::{
+    key::{KeyHandle, Passphrase, UnlockPolicy},
+    logging,
+};
 
 fn mount_inner(
     src: String,
@@ -242,9 +245,14 @@ pub struct Cli {
     #[arg(short, default_value = "")]
     options: String,
 
+    // FIXME: would be nicer to have `--color[=WHEN]` like diff or ls?
     /// Force color on/off. Autodetect tty is used to define default:
     #[arg(short, long, action = clap::ArgAction::Set, default_value_t=stdout().is_terminal())]
     colorize: bool,
+
+    /// Quiet mode
+    #[arg(short, long)]
+    quiet: bool,
 
     /// Verbose mode
     #[arg(short, long, action = clap::ArgAction::Count)]
@@ -364,7 +372,7 @@ fn cmd_mount_inner(cli: &Cli) -> Result<()> {
     }
 }
 
-pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
+pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> Result<()> {
     // If the bcachefs tool is being called as "bcachefs mount dev ..." (as opposed to via a
     // symlink like "/usr/sbin/mount.bcachefs dev ...", then we need to pop the 0th argument
     // ("bcachefs") since the CLI parser here expects the device at position 1.
@@ -374,19 +382,8 @@ pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
 
     let cli = Cli::parse_from(argv);
 
-    // @TODO : more granular log levels via mount option
-    log::set_max_level(match cli.verbose {
-        0 => LevelFilter::Warn,
-        1 => LevelFilter::Trace,
-        2_u8..=u8::MAX => todo!(),
-    });
+    // TODO: centralize this on the top level CLI
+    logging::setup(cli.quiet, cli.verbose, cli.colorize);
 
-    colored::control::set_override(cli.colorize);
-    if let Err(e) = cmd_mount_inner(&cli) {
-        error!("Fatal error: {}", e);
-        1
-    } else {
-        info!("Successfully mounted");
-        0
-    }
+    cmd_mount_inner(&cli)
 }
