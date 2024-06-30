@@ -23,7 +23,10 @@ let
       nodes.machine =
         { pkgs, ... }:
         {
-          virtualisation.emptyDiskImages = [ 4096 ];
+          virtualisation.emptyDiskImages = [
+            4096
+            1024
+          ];
           boot.supportedFilesystems = [ "bcachefs" ];
           boot.kernelPackages = pkgs.linuxPackages_latest;
 

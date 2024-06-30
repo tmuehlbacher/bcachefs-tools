@@ -2,6 +2,7 @@
 set -euxo pipefail
 
 blkdev="/dev/vdb"
+blkdev2="/dev/vdc"
 mnt=$(mktemp -d)
 pw=$(genpass)
 uuid=$(uuidgen)
@@ -24,14 +25,21 @@ echo "$pw" | bcachefs format \
     --replicas=2 \
     --uuid "$uuid" \
     --fs_label test-fs \
-    "$blkdev"?
+    "${blkdev}"{1,2}
 
 udevadm settle
 
 echo "$pw" | bcachefs mount "UUID=$uuid" "$mnt"
 
+bcachefs device add "$mnt" "${blkdev}3"
+bcachefs device add "$mnt" "$blkdev2"
+
+udevadm settle
+
+blkid
+
 keyctl search @u user "bcachefs:$uuid"
 
 umount "$mnt"
 
-bcachefs mount "${blkdev}1" "$mnt"
+bcachefs mount "UUID=$uuid" "$mnt"
