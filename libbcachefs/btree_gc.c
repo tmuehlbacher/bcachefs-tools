@@ -676,6 +676,9 @@ static int bch2_gc_btree(struct btree_trans *trans, enum btree_id btree, bool in
 
 	/* root */
 	do {
+retry_root:
+		bch2_trans_begin(trans);
+
 		struct btree_iter iter;
 		bch2_trans_node_iter_init(trans, &iter, btree, POS_MIN,
 					  0, bch2_btree_id_root(c, btree)->b->c.level, 0);
@@ -686,7 +689,7 @@ static int bch2_gc_btree(struct btree_trans *trans, enum btree_id btree, bool in
 
 		if (b != btree_node_root(c, b)) {
 			bch2_trans_iter_exit(trans, &iter);
-			continue;
+			goto retry_root;
 		}
 
 		gc_pos_set(c, gc_pos_btree(btree, b->c.level + 1, SPOS_MAX));

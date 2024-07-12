@@ -626,14 +626,8 @@ again:
 	if (usage->d[BCH_DATA_need_gc_gens].buckets > avail)
 		bch2_gc_gens_async(c);
 
-	if (should_invalidate_buckets(ca, *usage)) {
+	if (should_invalidate_buckets(ca, *usage))
 		bch2_dev_do_invalidates(ca);
-		rcu_read_lock();
-		struct task_struct *t = rcu_dereference(c->copygc_thread);
-		if (t)
-			wake_up_process(t);
-		rcu_read_unlock();
-	}
 
 	if (!avail) {
 		if (cl && !waiting) {
@@ -1595,7 +1589,7 @@ void bch2_fs_allocator_foreground_init(struct bch_fs *c)
 	}
 }
 
-static void bch2_open_bucket_to_text(struct printbuf *out, struct bch_fs *c, struct open_bucket *ob)
+void bch2_open_bucket_to_text(struct printbuf *out, struct bch_fs *c, struct open_bucket *ob)
 {
 	struct bch_dev *ca = ob_dev(c, ob);
 	unsigned data_type = ob->data_type;
@@ -1712,6 +1706,8 @@ void bch2_fs_alloc_debug_to_text(struct printbuf *out, struct bch_fs *c)
 	printbuf_tabstops_reset(out);
 	printbuf_tabstop_push(out, 24);
 
+	prt_printf(out, "capacity\t%llu\n",		c->capacity);
+	prt_printf(out, "reserved\t%llu\n",		c->reserved);
 	prt_printf(out, "hidden\t%llu\n",		percpu_u64_get(&c->usage->hidden));
 	prt_printf(out, "btree\t%llu\n",		percpu_u64_get(&c->usage->btree));
 	prt_printf(out, "data\t%llu\n",			percpu_u64_get(&c->usage->data));

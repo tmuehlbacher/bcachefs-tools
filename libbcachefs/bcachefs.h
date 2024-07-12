@@ -872,6 +872,7 @@ struct bch_fs {
 	struct bch_devs_mask	rw_devs[BCH_DATA_NR];
 
 	u64			capacity; /* sectors */
+	u64			reserved; /* sectors */
 
 	/*
 	 * When capacity _decreases_ (due to a disk being removed), we
@@ -980,7 +981,7 @@ struct bch_fs {
 	struct bch_fs_rebalance	rebalance;
 
 	/* COPYGC */
-	struct task_struct __rcu *copygc_thread;
+	struct task_struct	*copygc_thread;
 	struct write_point	copygc_write_point;
 	s64			copygc_wait_at;
 	s64			copygc_wait;

@@ -13,8 +13,6 @@
 #include "btree_iter.h"
 #include "six.h"
 
-#include <linux/sched/mm.h>
-
 void bch2_btree_lock_init(struct btree_bkey_cached_common *, enum six_lock_init_flags);
 
 #ifdef CONFIG_LOCKDEP
