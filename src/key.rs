@@ -162,7 +162,7 @@ impl Passphrase {
         let mut line = Zeroizing::new(String::new());
         let res = stdin().read_line(&mut line);
         termios::tcsetattr(stdin(), termios::OptionalActions::Flush, &old)?;
-        eprintln!("");
+        eprintln!();
         res?;
 
         Ok(Self(CString::new(line.trim_end_matches('\n'))?))
