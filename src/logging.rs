@@ -1,15 +1,12 @@
 use env_logger::WriteStyle;
 use log::LevelFilter;
 
-pub fn setup(quiet: bool, verbose: u8, color: bool) {
-    let level_filter = if quiet {
-        LevelFilter::Off
-    } else {
-        match verbose {
-            0 => LevelFilter::Info,
-            1 => LevelFilter::Debug,
-            _ => LevelFilter::Trace,
-        }
+pub fn setup(verbose: u8, color: bool) {
+    let level_filter = match verbose {
+        0 => LevelFilter::Off,
+        1 => LevelFilter::Info,
+        2 => LevelFilter::Debug,
+        _ => LevelFilter::Trace,
     };
 
     let style = if color {

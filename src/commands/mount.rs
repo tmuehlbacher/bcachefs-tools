@@ -250,10 +250,6 @@ pub struct Cli {
     #[arg(short, long, action = clap::ArgAction::Set, default_value_t=stdout().is_terminal())]
     colorize: bool,
 
-    /// Quiet mode
-    #[arg(short, long)]
-    quiet: bool,
-
     /// Verbose mode
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -383,7 +379,7 @@ pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> Result<()> {
     let cli = Cli::parse_from(argv);
 
     // TODO: centralize this on the top level CLI
-    logging::setup(cli.quiet, cli.verbose, cli.colorize);
+    logging::setup(cli.verbose, cli.colorize);
 
     cmd_mount_inner(&cli)
 }

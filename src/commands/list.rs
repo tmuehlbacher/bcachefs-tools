@@ -152,10 +152,6 @@ pub struct Cli {
     #[arg(short, long, action = clap::ArgAction::Set, default_value_t=stdout().is_terminal())]
     colorize: bool,
 
-    /// Quiet mode
-    #[arg(short, long)]
-    quiet: bool,
-
     /// Verbose mode
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -205,7 +201,7 @@ pub fn list(argv: Vec<String>) -> Result<()> {
     let opt = Cli::parse_from(argv);
 
     // TODO: centralize this on the top level CLI
-    logging::setup(opt.quiet, opt.verbose, opt.colorize);
+    logging::setup(opt.verbose, opt.colorize);
 
     cmd_list_inner(&opt)
 }
