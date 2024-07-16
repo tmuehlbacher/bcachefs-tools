@@ -152,9 +152,6 @@ all: bcachefs $(optional_build)
 debug: CFLAGS+=-Werror -DCONFIG_BCACHEFS_DEBUG=y -DCONFIG_VALGRIND=y
 debug: bcachefs
 
-.PHONY: tests
-tests: tests/test_helper
-
 .PHONY: TAGS tags
 TAGS:
 	ctags -e -R .
@@ -178,13 +175,9 @@ RUST_SRCS:=$(shell find src bch_bindgen/src -type f -iname '*.rs')
 bcachefs: $(BCACHEFS_DEPS) $(RUST_SRCS)
 	$(Q)$(CARGO_BUILD)
 
-libbcachefs.a: $(filter-out ./tests/%.o, $(OBJS))
+libbcachefs.a: $(OBJS)
 	@echo "    [AR]     $@"
 	$(Q)$(AR) -rc $@ $+
-
-tests/test_helper: $(filter ./tests/%.o, $(OBJS))
-	@echo "    [LD]     $@"
-	$(Q)$(CC) $(LDFLAGS) $+ $(LOADLIBES) $(LDLIBS) -o $@
 
 # If the version string differs from the last build, update the last version
 ifneq ($(VERSION),$(shell cat .version 2>/dev/null))
@@ -225,7 +218,7 @@ install_systemd: $(systemd_services) $(systemd_libexecfiles)
 .PHONY: clean
 clean:
 	@echo "Cleaning all"
-	$(Q)$(RM) libbcachefs.a c_src/libbcachefs.a tests/test_helper .version *.tar.xz $(OBJS) $(DEPS) $(DOCGENERATED)
+	$(Q)$(RM) libbcachefs.a c_src/libbcachefs.a .version *.tar.xz $(OBJS) $(DEPS) $(DOCGENERATED)
 	$(Q)$(CARGO_CLEAN)
 	$(Q)$(RM) -f $(built_scripts)
 
