@@ -6,7 +6,7 @@ use owo_colors::{OwoColorize, Style};
 
 pub fn setup(verbose: u8, color: bool) {
     let level_filter = match verbose {
-        0 => LevelFilter::Off,
+        0 => LevelFilter::Warn,
         1 => LevelFilter::Info,
         2 => LevelFilter::Debug,
         _ => LevelFilter::Trace,
