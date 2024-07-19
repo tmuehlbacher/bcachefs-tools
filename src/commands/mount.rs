@@ -361,7 +361,7 @@ fn cmd_mount_inner(cli: &Cli) -> Result<()> {
 
     let first_sb = &sbs[0];
     if unsafe { bcachefs::bch2_sb_is_encrypted(first_sb.sb) } {
-        handle_unlock(cli, &first_sb)?;
+        handle_unlock(cli, first_sb)?;
     }
 
     for sb in &mut sbs {
