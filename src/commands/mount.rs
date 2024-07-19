@@ -321,7 +321,7 @@ fn cmd_mount_inner(cli: &Cli) -> Result<()> {
     // Grab the udev information once
     let udev_info = udev_bcachefs_info()?;
 
-    let (devices, sbs) = if let Some(("UUID" | "OLD_BLKID_UUID", uuid)) = cli.dev.split_once('=') {
+    let (devices, mut sbs) = if let Some(("UUID" | "OLD_BLKID_UUID", uuid)) = cli.dev.split_once('=') {
         devs_str_sbs_from_uuid(&udev_info, uuid)?
     } else if cli.dev.contains(':') {
         // If the device string contains ":" we will assume the user knows the
@@ -343,10 +343,15 @@ fn cmd_mount_inner(cli: &Cli) -> Result<()> {
 
     ensure!(!sbs.is_empty(), "No device(s) to mount specified");
 
-    let first_sb = sbs[0];
+    let first_sb = &sbs[0];
     if unsafe { bcachefs::bch2_sb_is_encrypted(first_sb.sb) } {
         handle_unlock(cli, &first_sb)?;
     }
+
+    for sb in &mut sbs {
+        unsafe { bch_bindgen::sb_io::bch2_free_super(sb); }
+    }
+    drop(sbs);
 
     if let Some(mountpoint) = cli.mountpoint.as_deref() {
         info!(

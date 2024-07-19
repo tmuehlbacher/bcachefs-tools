@@ -4,6 +4,8 @@ use crate::errcode::bch_errcode;
 use crate::path_to_cstr;
 use anyhow::anyhow;
 
+pub use crate::bcachefs::bch2_free_super;
+
 pub fn read_super_opts(
     path: &std::path::Path,
     mut opts: bch_opts,
