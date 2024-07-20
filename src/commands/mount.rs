@@ -23,7 +23,7 @@ fn mount_inner(
     src: String,
     target: impl AsRef<std::path::Path>,
     fstype: &str,
-    mountflags: libc::c_ulong,
+    mut mountflags: libc::c_ulong,
     data: Option<String>,
 ) -> anyhow::Result<()> {
     // bind the CStrings to keep them alive
@@ -38,11 +38,23 @@ fn mount_inner(
     let data = data.map_or(ptr::null(), |data| data.as_ptr().cast());
     let fstype = fstype.as_ptr();
 
-    let ret = {
-        info!("mounting filesystem");
-        // REQUIRES: CAP_SYS_ADMIN
-        unsafe { libc::mount(src, target, fstype, mountflags, data) }
-    };
+    let mut ret;
+    loop {
+        ret = {
+            info!("mounting filesystem");
+            // REQUIRES: CAP_SYS_ADMIN
+            unsafe { libc::mount(src, target, fstype, mountflags, data) }
+        };
+
+        let err = errno::errno().0;
+
+        if ret == 0 || (err != libc::EACCES && err != libc::EROFS) || (mountflags & libc::MS_RDONLY) != 0 {
+            break;
+        }
+
+        println!("mount: device write-protected, mounting read-only");
+        mountflags |= libc::MS_RDONLY;
+    }
     match ret {
         0 => Ok(()),
         _ => Err(crate::ErrnoError(errno::errno()).into()),
