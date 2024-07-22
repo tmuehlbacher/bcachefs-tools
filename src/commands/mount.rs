@@ -35,7 +35,7 @@ fn mount_inner(
     // convert to pointers for ffi
     let src = src.as_ptr();
     let target = target.as_ptr();
-    let data = data.map_or(ptr::null(), |data| data.as_ptr().cast());
+    let data_ptr = data.as_ref().map_or(ptr::null(), |data| data.as_ptr().cast());
     let fstype = fstype.as_ptr();
 
     let mut ret;
@@ -43,7 +43,7 @@ fn mount_inner(
         ret = {
             info!("mounting filesystem");
             // REQUIRES: CAP_SYS_ADMIN
-            unsafe { libc::mount(src, target, fstype, mountflags, data) }
+            unsafe { libc::mount(src, target, fstype, mountflags, data_ptr) }
         };
 
         let err = errno::errno().0;
@@ -58,6 +58,9 @@ fn mount_inner(
         println!("mount: device write-protected, mounting read-only");
         mountflags |= libc::MS_RDONLY;
     }
+
+    drop(data);
+
     match ret {
         0 => Ok(()),
         _ => Err(crate::ErrnoError(errno::errno()).into()),
