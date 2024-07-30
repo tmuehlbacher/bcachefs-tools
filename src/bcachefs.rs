@@ -9,6 +9,7 @@ use std::{
 };
 
 use bch_bindgen::c;
+use log::debug;
 
 #[derive(Debug)]
 pub struct ErrnoError(pub errno::Errno);
@@ -110,6 +111,11 @@ fn main() -> ExitCode {
         "list" => commands::list(args[1..].to_vec()).report(),
         "mount" => commands::mount(args, symlink_cmd).report(),
         "subvolume" => commands::subvolume(args[1..].to_vec()).report(),
-        _ => ExitCode::from(u8::try_from(handle_c_command(args, symlink_cmd)).unwrap()),
+        _ => {
+            let r = handle_c_command(args, symlink_cmd);
+
+            debug!("return code from C command: {r}");
+            ExitCode::from(r as u8)
+        }
     }
 }

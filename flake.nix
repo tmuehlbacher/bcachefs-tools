@@ -195,7 +195,7 @@
             flakeCheck = false;
 
             programs = {
-              nixfmt-rfc-style.enable = true;
+              nixfmt.enable = true;
               rustfmt.edition = rustfmtToml.edition;
               rustfmt.enable = true;
               rustfmt.package = fenix.packages.${system}.default.rustfmt;
