@@ -107,6 +107,12 @@
               zlib
               zstd
             ];
+
+            meta = {
+              description = "Userspace tools for bcachefs";
+              license = lib.licenses.gpl2Only;
+              mainProgram = "bcachefs";
+            };
           };
 
           cargoArtifacts = craneLib.buildDepsOnly (commonArgs // { pname = cargoToml.package.name; });
