@@ -331,8 +331,9 @@ fn handle_unlock(cli: &Cli, sb: &bch_sb_handle) -> Result<KeyHandle> {
         return Passphrase::new_from_file(path).and_then(|p| KeyHandle::new(sb, &p));
     }
 
-    KeyHandle::new_from_search(&sb.sb().uuid())
-        .or_else(|_| Passphrase::new().and_then(|p| KeyHandle::new(sb, &p)))
+    let uuid = sb.sb().uuid();
+    KeyHandle::new_from_search(&uuid)
+        .or_else(|_| Passphrase::new(&uuid).and_then(|p| KeyHandle::new(sb, &p)))
 }
 
 fn cmd_mount_inner(cli: &Cli) -> Result<()> {

@@ -7,7 +7,7 @@ use std::{
     ptr, thread,
     time::Duration,
 };
-
+use std::process::{Command, Stdio};
 use anyhow::{anyhow, ensure, Result};
 use bch_bindgen::{
     bcachefs::{self, bch_key, bch_sb_handle},
@@ -15,7 +15,7 @@ use bch_bindgen::{
     keyutils::{self, keyctl_search},
 };
 use byteorder::{LittleEndian, ReadBytesExt};
-use log::info;
+use log::{debug, info};
 use rustix::termios;
 use uuid::Uuid;
 use zeroize::{ZeroizeOnDrop, Zeroizing};
@@ -46,7 +46,7 @@ impl UnlockPolicy {
         match self {
             Self::Fail => KeyHandle::new_from_search(&uuid),
             Self::Wait => Ok(KeyHandle::wait_for_unlock(&uuid)?),
-            Self::Ask => Passphrase::new_from_prompt().and_then(|p| KeyHandle::new(sb, &p)),
+            Self::Ask => Passphrase::new_from_prompt(&uuid).and_then(|p| KeyHandle::new(sb, &p)),
             Self::Stdin => Passphrase::new_from_stdin().and_then(|p| KeyHandle::new(sb, &p)),
         }
     }
@@ -142,16 +142,43 @@ impl Passphrase {
         &self.0
     }
 
-    pub fn new() -> Result<Self> {
+    pub fn new(uuid: &Uuid) -> Result<Self> {
         if stdin().is_terminal() {
-            Self::new_from_prompt()
+            Self::new_from_prompt(uuid)
         } else {
             Self::new_from_stdin()
         }
     }
 
+    // The outer result represents a failure when trying to run systemd-ask-password,
+    // it is non-critical and will cause the password to be asked internally.
+    // The inner result represent a successful request that returned an error
+    // this one results in an error.
+    fn new_from_askpassword(uuid: &Uuid) -> Result<Result<Self>> {
+        let output = Command::new("systemd-ask-password")
+            .arg("--icon=drive-harddisk")
+            .arg(format!("--id=bcachefs:{}", uuid.as_hyphenated()))
+            .arg("-n")
+            .arg("Enter passphrase: ")
+            .stdin(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .output()?;
+        Ok(if output.status.success() {
+            match CString::new(output.stdout) {
+                Ok(cstr) => Ok(Self(cstr)),
+                Err(e) => Err(e.into())
+            }
+        } else {
+            Err(anyhow!("systemd-ask-password returned an error"))
+        })
+    }
+
     // blocks indefinitely if no input is available on stdin
-    pub fn new_from_prompt() -> Result<Self> {
+    pub fn new_from_prompt(uuid: &Uuid) -> Result<Self> {
+        match Self::new_from_askpassword(uuid) {
+            Ok(phrase) => return phrase,
+            Err(_) => debug!("Failed to start systemd-ask-password, doing the prompt ourselves"),
+        }
         let old = termios::tcgetattr(stdin())?;
         let mut new = old.clone();
         new.local_modes.remove(termios::LocalModes::ECHO);
