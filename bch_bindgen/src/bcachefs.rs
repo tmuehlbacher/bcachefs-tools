@@ -3,6 +3,8 @@
 #![allow(non_snake_case)]
 #![allow(unused)]
 
+use crate::c;
+
 include!(concat!(env!("OUT_DIR"), "/bcachefs.rs"));
 
 use bitfield::bitfield;
@@ -59,8 +61,8 @@ impl bch_sb {
         uuid::Uuid::from_bytes(self.user_uuid.b)
     }
 
-    pub fn number_of_devices(&self) -> u8 {
-        self.nr_devices
+    pub fn number_of_devices(&self) -> u32 {
+        unsafe { c::bch2_sb_nr_devices(self) }
     }
 
     /// Get the nonce used to encrypt the superblock
