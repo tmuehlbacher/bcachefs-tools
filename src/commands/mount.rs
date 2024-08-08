@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     env,
     ffi::CString,
-    fs,
     io::{stdout, IsTerminal},
     path::{Path, PathBuf},
     ptr, str,
@@ -210,69 +209,6 @@ fn get_devices_by_uuid(
     Ok(get_super_blocks(uuid, &devices))
 }
 
-#[allow(clippy::type_complexity)]
-fn get_uuid_for_dev_node(
-    udev_bcachefs: &HashMap<String, Vec<String>>,
-    device: impl AsRef<Path>,
-) -> Result<(Option<Uuid>, Option<(PathBuf, bch_sb_handle)>)> {
-    let canonical = fs::canonicalize(device)?;
-
-    if !udev_bcachefs.is_empty() {
-        let dev_node_str = canonical.into_os_string().into_string().unwrap();
-
-        if udev_bcachefs.contains_key(&dev_node_str) && udev_bcachefs[&dev_node_str].len() == 1 {
-            let uuid_str = udev_bcachefs[&dev_node_str][0].clone();
-            return Ok((Some(Uuid::parse_str(&uuid_str)?), None));
-        }
-    } else {
-        return read_super_silent(&canonical).map_or(Ok((None, None)), |sb| {
-            Ok((Some(sb.sb().uuid()), Some((canonical, sb))))
-        });
-    }
-    Ok((None, None))
-}
-
-/// Mount a bcachefs filesystem by its UUID.
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-pub struct Cli {
-    /// Path to passphrase file
-    ///
-    /// This can be used to optionally specify a file to read the passphrase
-    /// from. An explictly specified key_location/unlock_policy overrides this
-    /// argument.
-    #[arg(short = 'f', long)]
-    passphrase_file: Option<PathBuf>,
-
-    /// Passphrase policy to use in case of an encrypted filesystem. If not
-    /// specified, the password will be searched for in the keyring. If not
-    /// found, the password will be prompted or read from stdin, depending on
-    /// whether the stdin is connected to a terminal or not.
-    #[arg(short = 'k', long = "key_location", value_enum)]
-    unlock_policy: Option<UnlockPolicy>,
-
-    /// Device, or UUID=\<UUID\>
-    dev: String,
-
-    /// Where the filesystem should be mounted. If not set, then the filesystem
-    /// won't actually be mounted. But all steps preceeding mounting the
-    /// filesystem (e.g. asking for passphrase) will still be performed.
-    mountpoint: Option<PathBuf>,
-
-    /// Mount options
-    #[arg(short, default_value = "")]
-    options: String,
-
-    // FIXME: would be nicer to have `--color[=WHEN]` like diff or ls?
-    /// Force color on/off. Autodetect tty is used to define default:
-    #[arg(short, long, action = clap::ArgAction::Set, default_value_t=stdout().is_terminal())]
-    colorize: bool,
-
-    /// Verbose mode
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    verbose: u8,
-}
-
 fn devs_str_sbs_from_uuid(
     udev_info: &HashMap<String, Vec<String>>,
     uuid: &str,
@@ -294,28 +230,16 @@ fn devs_str_sbs_from_uuid(
 
 fn devs_str_sbs_from_device(
     udev_info: &HashMap<String, Vec<String>>,
-    device: impl AsRef<Path>,
+    device: &Path,
 ) -> anyhow::Result<(String, Vec<bch_sb_handle>)> {
-    let (uuid, sb_info) = get_uuid_for_dev_node(udev_info, device)?;
+    let dev_sb = read_super_silent(device)?;
 
-    match (uuid, sb_info) {
-        (Some(uuid), Some((path, sb))) => {
-            // If we have a super block, it implies we aren't using udev db.  If we only need
-            // 1 device to mount, we'll simply return it as we're done, else we'll use the uuid
-            // to walk through all the block devices.
-            debug!(
-                "number of devices in this FS = {}",
-                sb.sb().number_of_devices()
-            );
-            if sb.sb().number_of_devices() == 1 {
-                let dev = path.into_os_string().into_string().unwrap();
-                Ok((dev, vec![sb]))
-            } else {
-                devs_str_sbs_from_uuid(udev_info, &uuid.to_string())
-            }
-        }
-        (Some(uuid), None) => devs_str_sbs_from_uuid(udev_info, &uuid.to_string()),
-        _ => Ok((String::new(), Vec::new())),
+    if dev_sb.sb().number_of_devices() == 1 {
+        Ok((device.as_os_str().to_str().unwrap().to_string(), vec![dev_sb]))
+    } else {
+        let uuid = dev_sb.sb().uuid();
+
+        devs_str_sbs_from_uuid(udev_info, &uuid.to_string())
     }
 }
 
@@ -393,6 +317,47 @@ fn cmd_mount_inner(cli: &Cli) -> Result<()> {
 
         Ok(())
     }
+}
+
+/// Mount a bcachefs filesystem by its UUID.
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+pub struct Cli {
+    /// Path to passphrase file
+    ///
+    /// This can be used to optionally specify a file to read the passphrase
+    /// from. An explictly specified key_location/unlock_policy overrides this
+    /// argument.
+    #[arg(short = 'f', long)]
+    passphrase_file: Option<PathBuf>,
+
+    /// Passphrase policy to use in case of an encrypted filesystem. If not
+    /// specified, the password will be searched for in the keyring. If not
+    /// found, the password will be prompted or read from stdin, depending on
+    /// whether the stdin is connected to a terminal or not.
+    #[arg(short = 'k', long = "key_location", value_enum)]
+    unlock_policy: Option<UnlockPolicy>,
+
+    /// Device, or UUID=\<UUID\>
+    dev: String,
+
+    /// Where the filesystem should be mounted. If not set, then the filesystem
+    /// won't actually be mounted. But all steps preceeding mounting the
+    /// filesystem (e.g. asking for passphrase) will still be performed.
+    mountpoint: Option<PathBuf>,
+
+    /// Mount options
+    #[arg(short, default_value = "")]
+    options: String,
+
+    // FIXME: would be nicer to have `--color[=WHEN]` like diff or ls?
+    /// Force color on/off. Autodetect tty is used to define default:
+    #[arg(short, long, action = clap::ArgAction::Set, default_value_t=stdout().is_terminal())]
+    colorize: bool,
+
+    /// Verbose mode
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
 }
 
 pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> Result<()> {
