@@ -113,5 +113,5 @@ int cmd_kill_btree_node(int argc, char *argv[])
 	}
 
 	bch2_fs_stop(c);
-	return ret;
+	return ret < 0 ? ret : 0;
 }
