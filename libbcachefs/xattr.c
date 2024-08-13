@@ -70,17 +70,16 @@ const struct bch_hash_desc bch2_xattr_hash_desc = {
 	.cmp_bkey	= xattr_cmp_bkey,
 };
 
-int bch2_xattr_invalid(struct bch_fs *c, struct bkey_s_c k,
-		       enum bch_validate_flags flags,
-		       struct printbuf *err)
+int bch2_xattr_validate(struct bch_fs *c, struct bkey_s_c k,
+		       enum bch_validate_flags flags)
 {
 	struct bkey_s_c_xattr xattr = bkey_s_c_to_xattr(k);
 	unsigned val_u64s = xattr_val_u64s(xattr.v->x_name_len,
 					   le16_to_cpu(xattr.v->x_val_len));
 	int ret = 0;
 
-	bkey_fsck_err_on(bkey_val_u64s(k.k) < val_u64s, c, err,
-			 xattr_val_size_too_small,
+	bkey_fsck_err_on(bkey_val_u64s(k.k) < val_u64s,
+			 c, xattr_val_size_too_small,
 			 "value too small (%zu < %u)",
 			 bkey_val_u64s(k.k), val_u64s);
 
@@ -88,17 +87,17 @@ int bch2_xattr_invalid(struct bch_fs *c, struct bkey_s_c k,
 	val_u64s = xattr_val_u64s(xattr.v->x_name_len,
 				  le16_to_cpu(xattr.v->x_val_len) + 4);
 
-	bkey_fsck_err_on(bkey_val_u64s(k.k) > val_u64s, c, err,
-			 xattr_val_size_too_big,
+	bkey_fsck_err_on(bkey_val_u64s(k.k) > val_u64s,
+			 c, xattr_val_size_too_big,
 			 "value too big (%zu > %u)",
 			 bkey_val_u64s(k.k), val_u64s);
 
-	bkey_fsck_err_on(!bch2_xattr_type_to_handler(xattr.v->x_type), c, err,
-			 xattr_invalid_type,
+	bkey_fsck_err_on(!bch2_xattr_type_to_handler(xattr.v->x_type),
+			 c, xattr_invalid_type,
 			 "invalid type (%u)", xattr.v->x_type);
 
-	bkey_fsck_err_on(memchr(xattr.v->x_name, '\0', xattr.v->x_name_len), c, err,
-			 xattr_name_invalid_chars,
+	bkey_fsck_err_on(memchr(xattr.v->x_name, '\0', xattr.v->x_name_len),
+			 c, xattr_name_invalid_chars,
 			 "xattr name has invalid characters");
 fsck_err:
 	return ret;
@@ -251,17 +250,27 @@ static int __bch2_xattr_emit(const char *prefix,
 	return 0;
 }
 
+static inline const char *bch2_xattr_prefix(unsigned type, struct dentry *dentry)
+{
+	const struct xattr_handler *handler = bch2_xattr_type_to_handler(type);
+
+	if (!xattr_handler_can_list(handler, dentry))
+		return NULL;
+
+	return xattr_prefix(handler);
+}
+
 static int bch2_xattr_emit(struct dentry *dentry,
 			    const struct bch_xattr *xattr,
 			    struct xattr_buf *buf)
 {
-	const struct xattr_handler *handler =
-		bch2_xattr_type_to_handler(xattr->x_type);
+	const char *prefix;
 
-	return handler && (!handler->list || handler->list(dentry))
-		? __bch2_xattr_emit(handler->prefix ?: handler->name,
-				    xattr->x_name, xattr->x_name_len, buf)
-		: 0;
+	prefix = bch2_xattr_prefix(xattr->x_type, dentry);
+	if (!prefix)
+		return 0;
+
+	return __bch2_xattr_emit(prefix, xattr->x_name, xattr->x_name_len, buf);
 }
 
 static int bch2_xattr_list_bcachefs(struct bch_fs *c,
@@ -592,10 +601,6 @@ static const struct xattr_handler bch_xattr_bcachefs_effective_handler = {
 
 const struct xattr_handler *bch2_xattr_handlers[] = {
 	&bch_xattr_user_handler,
-#ifdef CONFIG_BCACHEFS_POSIX_ACL
-	&nop_posix_acl_access,
-	&nop_posix_acl_default,
-#endif
 	&bch_xattr_trusted_handler,
 	&bch_xattr_security_handler,
 #ifndef NO_BCACHEFS_FS
