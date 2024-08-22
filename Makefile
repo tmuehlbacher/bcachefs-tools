@@ -1,4 +1,4 @@
-VERSION=1.9.5
+VERSION=1.11.1
 
 PREFIX?=/usr/local
 LIBEXECDIR?=$(PREFIX)/libexec
@@ -287,7 +287,7 @@ tarball: $(SRCTARXZ)
 
 $(SRCTARXZ) : .gitcensus
 	$(Q)tar --transform "s,^,$(SRCDIR)/," -Jcf $(SRCDIR).tar.xz  \
-	    `cat .gitcensus` 
+	    `cat .gitcensus`
 	@echo Wrote: $@
 
 .PHONY: .gitcensus
