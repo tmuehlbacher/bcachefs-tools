@@ -14,7 +14,6 @@ use bch_bindgen::{
     c::{bch2_chacha_encrypt_key, bch_encrypted_key, bch_sb_field_crypt},
     keyutils::{self, keyctl_search},
 };
-use byteorder::{LittleEndian, ReadBytesExt};
 use log::{debug, info};
 use rustix::termios;
 use uuid::Uuid;
@@ -22,7 +21,7 @@ use zeroize::{ZeroizeOnDrop, Zeroizing};
 
 use crate::{c_str, ErrnoError};
 
-const BCH_KEY_MAGIC: &str = "bch**key";
+const BCH_KEY_MAGIC: &[u8; 8] = b"bch**key";
 
 #[derive(Clone, Debug, clap::ValueEnum, strum::Display)]
 pub enum UnlockPolicy {
@@ -225,7 +224,7 @@ impl Passphrase {
     }
 
     pub fn check(&self, sb: &bch_sb_handle) -> Result<(bch_key, bch_encrypted_key)> {
-        let bch_key_magic = BCH_KEY_MAGIC.as_bytes().read_u64::<LittleEndian>().unwrap();
+        let bch_key_magic = u64::from_le_bytes(*BCH_KEY_MAGIC);
 
         let crypt = sb
             .sb()
