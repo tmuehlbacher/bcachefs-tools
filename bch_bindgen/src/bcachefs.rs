@@ -18,7 +18,7 @@ bitfield! {
     pub struct bch_crypt_flags(u64);
     pub TYPE, _: 4, 0;
 }
-use memoffset::offset_of;
+use std::mem::offset_of;
 impl bch_sb_field_crypt {
     pub fn scrypt_flags(&self) -> Option<bch_scrypt_flags> {
         use std::convert::TryInto;
