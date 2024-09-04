@@ -18,7 +18,7 @@ bitfield! {
     pub struct bch_crypt_flags(u64);
     pub TYPE, _: 4, 0;
 }
-use memoffset::offset_of;
+use std::mem::offset_of;
 impl bch_sb_field_crypt {
     pub fn scrypt_flags(&self) -> Option<bch_scrypt_flags> {
         use std::convert::TryInto;
@@ -67,10 +67,9 @@ impl bch_sb {
 
     /// Get the nonce used to encrypt the superblock
     pub fn nonce(&self) -> nonce {
-        use byteorder::{LittleEndian, ReadBytesExt};
-        let mut internal_uuid = &self.uuid.b[..];
-        let dword1 = internal_uuid.read_u32::<LittleEndian>().unwrap();
-        let dword2 = internal_uuid.read_u32::<LittleEndian>().unwrap();
+        let [a, b, c, d, e, f, g, h, _rest @ ..] = self.uuid.b;
+        let dword1 = u32::from_le_bytes([a, b, c, d]);
+        let dword2 = u32::from_le_bytes([e, f, g, h]);
         nonce {
             d: [0, 0, dword1, dword2],
         }
