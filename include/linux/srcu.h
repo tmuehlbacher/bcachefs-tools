@@ -19,7 +19,7 @@ static inline int srcu_read_lock(struct srcu_struct *ssp)
 
 static inline bool poll_state_synchronize_srcu(struct srcu_struct *ssp, unsigned long cookie)
 {
-	return false;
+	return true;
 }
 
 static inline unsigned long start_poll_synchronize_srcu(struct srcu_struct *ssp)
@@ -58,7 +58,7 @@ static inline void cleanup_srcu_struct(struct srcu_struct *ssp) {}
 static inline void call_srcu(struct srcu_struct *ssp, struct rcu_head *rhp,
 			     rcu_callback_t func)
 {
-	func(rhp);
+	call_rcu(rhp, func);
 }
 
 static inline int init_srcu_struct(struct srcu_struct *ssp)

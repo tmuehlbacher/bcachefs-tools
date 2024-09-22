@@ -66,9 +66,9 @@ void bch2_replicas_entry_to_text(struct printbuf *out,
 	prt_printf(out, "]");
 }
 
-int bch2_replicas_entry_validate(struct bch_replicas_entry_v1 *r,
-				 struct bch_sb *sb,
-				 struct printbuf *err)
+static int bch2_replicas_entry_validate_locked(struct bch_replicas_entry_v1 *r,
+					       struct bch_sb *sb,
+					       struct printbuf *err)
 {
 	if (!r->nr_devs) {
 		prt_printf(err, "no devices in entry ");
@@ -92,6 +92,16 @@ int bch2_replicas_entry_validate(struct bch_replicas_entry_v1 *r,
 bad:
 	bch2_replicas_entry_to_text(err, r);
 	return -BCH_ERR_invalid_replicas_entry;
+}
+
+int bch2_replicas_entry_validate(struct bch_replicas_entry_v1 *r,
+				 struct bch_fs *c,
+				 struct printbuf *err)
+{
+	mutex_lock(&c->sb_lock);
+	int ret = bch2_replicas_entry_validate_locked(r, c->disk_sb.sb, err);
+	mutex_unlock(&c->sb_lock);
+	return ret;
 }
 
 void bch2_cpu_replicas_to_text(struct printbuf *out,
@@ -676,7 +686,7 @@ static int bch2_cpu_replicas_validate(struct bch_replicas_cpu *cpu_r,
 		struct bch_replicas_entry_v1 *e =
 			cpu_replicas_entry(cpu_r, i);
 
-		int ret = bch2_replicas_entry_validate(e, sb, err);
+		int ret = bch2_replicas_entry_validate_locked(e, sb, err);
 		if (ret)
 			return ret;
 
@@ -795,7 +805,7 @@ bool bch2_have_enough_devs(struct bch_fs *c, struct bch_devs_mask devs,
 		for (unsigned i = 0; i < e->nr_devs; i++) {
 			nr_online += test_bit(e->devs[i], devs.d);
 
-			struct bch_dev *ca = bch2_dev_rcu(c, e->devs[i]);
+			struct bch_dev *ca = bch2_dev_rcu_noerror(c, e->devs[i]);
 			nr_failed += !ca || ca->mi.state == BCH_MEMBER_STATE_failed;
 		}
 		rcu_read_unlock();

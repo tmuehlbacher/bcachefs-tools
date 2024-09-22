@@ -71,7 +71,7 @@ struct bch_inode_unpacked create_file(struct bch_fs *c,
 
 static const struct xattr_handler *xattr_resolve_name(char **name)
 {
-	const struct xattr_handler **handlers = bch2_xattr_handlers;
+	const struct xattr_handler * const *handlers = bch2_xattr_handlers;
 	const struct xattr_handler *handler;
 
 	for_each_xattr_handler(handlers, handler) {

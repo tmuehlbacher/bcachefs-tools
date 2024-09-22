@@ -254,7 +254,7 @@ static inline void ec_stripe_new_put(struct bch_fs *c, struct ec_stripe_new *s,
 		}
 }
 
-int bch2_dev_remove_stripes(struct bch_fs *, struct bch_dev *);
+int bch2_dev_remove_stripes(struct bch_fs *, unsigned);
 
 void bch2_ec_stop_dev(struct bch_fs *, struct bch_dev *);
 void bch2_fs_ec_stop(struct bch_fs *);
