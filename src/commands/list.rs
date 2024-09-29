@@ -163,6 +163,7 @@ pub struct Cli {
 fn cmd_list_inner(opt: &Cli) -> anyhow::Result<()> {
     let mut fs_opts = bcachefs::bch_opts::default();
 
+    opt_set!(fs_opts, noexcl, 1);
     opt_set!(fs_opts, nochanges, 1);
     opt_set!(fs_opts, read_only, 1);
     opt_set!(fs_opts, norecovery, 1);
