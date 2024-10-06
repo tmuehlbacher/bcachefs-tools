@@ -63,7 +63,7 @@ fn handle_c_command(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> i32 {
             "unlock" => c::cmd_unlock(argc, argv),
             "version" => c::cmd_version(argc, argv),
 
-            #[cfg(fuse)]
+            #[cfg(feature = "fuse")]
             "fusemount" => c::cmd_fusemount(argc, argv),
 
             _ => {

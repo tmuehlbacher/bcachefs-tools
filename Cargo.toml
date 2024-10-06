@@ -9,6 +9,9 @@ rust-version = "1.77"
 name = "bcachefs"
 path = "src/bcachefs.rs"
 
+[features]
+fuse = []
+
 [dependencies]
 log = { version = "0.4", features = ["std"] }
 clap = { version = "4.0.32", features = ["derive", "wrap_help"] }
