@@ -247,7 +247,10 @@ static void member_to_text(struct printbuf *out,
 	prt_newline(out);
 
 	prt_printf(out, "Btree allocated bitmap blocksize:\t");
-	prt_units_u64(out, 1ULL << m.btree_bitmap_shift);
+	if (m.btree_bitmap_shift < 64)
+		prt_units_u64(out, 1ULL << m.btree_bitmap_shift);
+	else
+		prt_printf(out, "(invalid shift %u)", m.btree_bitmap_shift);
 	prt_newline(out);
 
 	prt_printf(out, "Btree allocated bitmap:\t");
