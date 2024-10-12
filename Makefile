@@ -73,12 +73,13 @@ CFLAGS+=$(call cc-disable-warning, zero-length-array)
 CFLAGS+=$(call cc-disable-warning, shift-overflow)
 CFLAGS+=$(call cc-disable-warning, enum-conversion)
 CFLAGS+=$(call cc-disable-warning, gnu-variable-sized-type-not-at-end)
+export RUSTFLAGS=-C default-linker-libraries
 
 PKGCONFIG_LIBS="blkid uuid liburcu libsodium zlib liblz4 libzstd libudev libkeyutils"
 ifdef BCACHEFS_FUSE
 	PKGCONFIG_LIBS+="fuse3 >= 3.7"
 	CFLAGS+=-DBCACHEFS_FUSE
-	export RUSTFLAGS=--cfg fuse
+	RUSTFLAGS+=--cfg fuse
 endif
 
 PKGCONFIG_CFLAGS:=$(shell $(PKG_CONFIG) --cflags $(PKGCONFIG_LIBS))
