@@ -20,20 +20,20 @@ use crate::{
 
 fn mount_inner(
     src: String,
-    target: impl AsRef<std::path::Path>,
+    target: &std::path::Path,
     fstype: &str,
     mut mountflags: libc::c_ulong,
     data: Option<String>,
 ) -> anyhow::Result<()> {
     // bind the CStrings to keep them alive
-    let src = CString::new(src)?;
-    let target = path_to_cstr(target);
+    let c_src = CString::new(src.clone())?;
+    let c_target = path_to_cstr(target);
     let data = data.map(CString::new).transpose()?;
     let fstype = CString::new(fstype)?;
 
     // convert to pointers for ffi
-    let src = src.as_ptr();
-    let target = target.as_ptr();
+    let c_src = c_src.as_ptr();
+    let c_target = c_target.as_ptr();
     let data_ptr = data.as_ref().map_or(ptr::null(), |data| data.as_ptr().cast());
     let fstype = fstype.as_ptr();
 
@@ -42,7 +42,7 @@ fn mount_inner(
         ret = {
             info!("mounting filesystem");
             // REQUIRES: CAP_SYS_ADMIN
-            unsafe { libc::mount(src, target, fstype, mountflags, data_ptr) }
+            unsafe { libc::mount(c_src, c_target, fstype, mountflags, data_ptr) }
         };
 
         let err = errno::errno().0;
@@ -60,9 +60,19 @@ fn mount_inner(
 
     drop(data);
 
-    match ret {
-        0 => Ok(()),
-        _ => Err(crate::ErrnoError(errno::errno()).into()),
+    if ret != 0 {
+        let err = errno::errno();
+        let e = crate::ErrnoError(err);
+
+        if err.0 == libc::EBUSY {
+            eprintln!("mount: {}: {} already mounted or mount point busy", target.to_string_lossy(), src);
+        } else {
+            eprintln!("mount: {}: {}", src, e);
+        }
+
+        Err(e.into())
+    } else {
+        Ok(())
     }
 }
 
@@ -360,7 +370,7 @@ pub struct Cli {
     verbose: u8,
 }
 
-pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> Result<()> {
+pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> std::process::ExitCode {
     // If the bcachefs tool is being called as "bcachefs mount dev ..." (as opposed to via a
     // symlink like "/usr/sbin/mount.bcachefs dev ...", then we need to pop the 0th argument
     // ("bcachefs") since the CLI parser here expects the device at position 1.
@@ -373,5 +383,8 @@ pub fn mount(mut argv: Vec<String>, symlink_cmd: Option<&str>) -> Result<()> {
     // TODO: centralize this on the top level CLI
     logging::setup(cli.verbose, cli.colorize);
 
-    cmd_mount_inner(&cli)
+    match cmd_mount_inner(&cli) {
+        Ok(_)   => std::process::ExitCode::SUCCESS,
+        Err(_)   => std::process::ExitCode::FAILURE,
+    }
 }

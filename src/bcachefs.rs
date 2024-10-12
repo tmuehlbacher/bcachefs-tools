@@ -109,7 +109,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "list" => commands::list(args[1..].to_vec()).report(),
-        "mount" => commands::mount(args, symlink_cmd).report(),
+        "mount" => commands::mount(args, symlink_cmd),
         "subvolume" => commands::subvolume(args[1..].to_vec()).report(),
         _ => {
             let r = handle_c_command(args, symlink_cmd);
