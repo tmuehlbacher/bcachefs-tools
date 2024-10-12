@@ -15,7 +15,7 @@ pub struct BtreeTrans<'f> {
 }
 
 impl<'f> BtreeTrans<'f> {
-    pub fn new(fs: &'f Fs) -> BtreeTrans {
+    pub fn new(fs: &'f Fs) -> BtreeTrans<'f> {
         unsafe {
             BtreeTrans {
                 raw: &mut *c::__bch2_trans_get(fs.raw, 0),
@@ -81,7 +81,7 @@ impl<'t> BtreeIter<'t> {
         }
     }
 
-    pub fn peek_upto<'i>(&'i mut self, end: c::bpos) -> Result<Option<BkeySC>, bch_errcode> {
+    pub fn peek_upto<'i>(&'i mut self, end: c::bpos) -> Result<Option<BkeySC<'i>>, bch_errcode> {
         unsafe {
             let k = c::bch2_btree_iter_peek_upto(&mut self.raw, end);
             errptr_to_result_c(k.k).map(|_| {
@@ -146,7 +146,7 @@ impl<'t> BtreeNodeIter<'t> {
         locks_want: u32,
         depth: u32,
         flags: BtreeIterFlags,
-    ) -> BtreeNodeIter {
+    ) -> BtreeNodeIter<'t> {
         unsafe {
             let mut iter: MaybeUninit<c::btree_iter> = MaybeUninit::uninit();
             c::bch2_trans_node_iter_init(

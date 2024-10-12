@@ -64,7 +64,7 @@ impl<'a, 'b> BkeySC<'a> {
         BkeySCToText { k: self, fs }
     }
 
-    pub fn v(&'a self) -> BkeyValC {
+    pub fn v(&'a self) -> BkeyValC<'a> {
         unsafe {
             let ty: c::bch_bkey_type = transmute(self.k.type_ as u32);
 
