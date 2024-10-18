@@ -163,6 +163,11 @@ static int validate_member(struct printbuf *err,
 		return -BCH_ERR_invalid_sb_members;
 	}
 
+	if (m.btree_bitmap_shift >= 64) {
+		prt_printf(err, "device %u: invalid btree_bitmap_shift %u", i, m.btree_bitmap_shift);
+		return -BCH_ERR_invalid_sb_members;
+	}
+
 	return 0;
 }
 
