@@ -222,7 +222,7 @@ int cmd_fsck(int argc, char *argv[])
 	append_opt(&opts_str, "read_only");
 
 	while ((opt = getopt_long(argc, argv,
-				  "apynfo:rRkvh",
+				  "apynfo:rRkKvh",
 				  longopts, NULL)) != -1)
 		switch (opt) {
 		case 'a': /* outdated alias for -p */
