@@ -24,7 +24,7 @@ enum Subcommands {
     #[command(visible_aliases = ["del"])]
     Delete {
         /// Path
-        target: PathBuf,
+        targets: Vec<PathBuf>,
     },
 
     #[command(allow_missing_positional = true, visible_aliases = ["snap"])]
@@ -58,15 +58,17 @@ pub fn subvolume(argv: Vec<String>) -> Result<()> {
                 }
             }
         }
-        Subcommands::Delete { target } => {
-            let target = target
-                .canonicalize()
-                .context("subvolume path does not exist or can not be canonicalized")?;
+        Subcommands::Delete { targets } => {
+            for target in targets {
+                let target = target
+                    .canonicalize()
+                    .context("subvolume path does not exist or can not be canonicalized")?;
 
-            if let Some(dirname) = target.parent() {
-                let fs = unsafe { BcachefsHandle::open(dirname) };
-                fs.delete_subvolume(target)
-                    .context("Failed to delete the subvolume")?;
+                if let Some(dirname) = target.parent() {
+                    let fs = unsafe { BcachefsHandle::open(dirname) };
+                    fs.delete_subvolume(target)
+                        .context("Failed to delete the subvolume")?;
+                }
             }
         }
         Subcommands::Snapshot {
