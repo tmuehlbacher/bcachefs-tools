@@ -159,6 +159,9 @@ static void try_read_btree_node(struct find_btree_nodes *f, struct bch_dev *ca,
 		return;
 
 	if (bch2_csum_type_is_encryption(BSET_CSUM_TYPE(&bn->keys))) {
+		if (!c->chacha20)
+			return;
+
 		struct nonce nonce = btree_nonce(&bn->keys, 0);
 		unsigned bytes = (void *) &bn->keys - (void *) &bn->flags;
 
@@ -186,7 +189,7 @@ static void try_read_btree_node(struct find_btree_nodes *f, struct bch_dev *ca,
 		.ptrs[0].type	= 1 << BCH_EXTENT_ENTRY_ptr,
 		.ptrs[0].offset	= offset,
 		.ptrs[0].dev	= ca->dev_idx,
-		.ptrs[0].gen	= *bucket_gen(ca, sector_to_bucket(ca, offset)),
+		.ptrs[0].gen	= bucket_gen_get(ca, sector_to_bucket(ca, offset)),
 	};
 	rcu_read_unlock();
 
@@ -535,7 +538,12 @@ int bch2_get_scanned_nodes(struct bch_fs *c, enum btree_id btree,
 		bch_verbose(c, "%s(): recovering %s", __func__, buf.buf);
 		printbuf_exit(&buf);
 
-		BUG_ON(bch2_bkey_validate(c, bkey_i_to_s_c(&tmp.k), BKEY_TYPE_btree, 0));
+		BUG_ON(bch2_bkey_validate(c, bkey_i_to_s_c(&tmp.k),
+					  (struct bkey_validate_context) {
+						.from	= BKEY_VALIDATE_btree_node,
+						.level	= level + 1,
+						.btree	= btree,
+					  }));
 
 		ret = bch2_journal_key_insert(c, btree, level + 1, &tmp.k);
 		if (ret)

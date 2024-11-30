@@ -619,8 +619,7 @@ bch2_trans_commit_write_locked(struct btree_trans *trans, unsigned flags,
 	unsigned u64s = 0;
 	int ret = 0;
 
-	bch2_trans_verify_not_unlocked(trans);
-	bch2_trans_verify_not_in_restart(trans);
+	bch2_trans_verify_not_unlocked_or_in_restart(trans);
 
 	if (race_fault()) {
 		trace_and_count(c, trans_restart_fault_inject, trans, trace_ip);
@@ -727,7 +726,12 @@ bch2_trans_commit_write_locked(struct btree_trans *trans, unsigned flags,
 			invalid_flags |= BCH_VALIDATE_write|BCH_VALIDATE_commit;
 
 		ret = bch2_bkey_validate(c, bkey_i_to_s_c(i->k),
-					 i->bkey_type, invalid_flags);
+					 (struct bkey_validate_context) {
+						.from	= BKEY_VALIDATE_commit,
+						.level	= i->level,
+						.btree	= i->btree_id,
+						.flags	= invalid_flags,
+					 });
 		if (unlikely(ret)){
 			bch2_trans_inconsistent(trans, "invalid bkey on insert from %s -> %ps\n",
 						trans->fn, (void *) i->ip_allocated);
@@ -971,24 +975,6 @@ int bch2_trans_commit_error(struct btree_trans *trans, unsigned flags,
 	return ret;
 }
 
-static noinline int
-bch2_trans_commit_get_rw_cold(struct btree_trans *trans, unsigned flags)
-{
-	struct bch_fs *c = trans->c;
-	int ret;
-
-	if (likely(!(flags & BCH_TRANS_COMMIT_lazy_rw)) ||
-	    test_bit(BCH_FS_started, &c->flags))
-		return -BCH_ERR_erofs_trans_commit;
-
-	ret = drop_locks_do(trans, bch2_fs_read_write_early(c));
-	if (ret)
-		return ret;
-
-	bch2_write_ref_get(c, BCH_WRITE_REF_trans);
-	return 0;
-}
-
 /*
  * This is for updates done in the early part of fsck - btree_gc - before we've
  * gone RW. we only add the new key to the list of keys for journal replay to
@@ -998,6 +984,8 @@ static noinline int
 do_bch2_trans_commit_to_journal_replay(struct btree_trans *trans)
 {
 	struct bch_fs *c = trans->c;
+
+	BUG_ON(current != c->recovery_task);
 
 	trans_for_each_update(trans, i) {
 		int ret = bch2_journal_key_insert(c, i->btree_id, i->level, i->k);
@@ -1024,8 +1012,7 @@ int __bch2_trans_commit(struct btree_trans *trans, unsigned flags)
 	struct bch_fs *c = trans->c;
 	int ret = 0;
 
-	bch2_trans_verify_not_unlocked(trans);
-	bch2_trans_verify_not_in_restart(trans);
+	bch2_trans_verify_not_unlocked_or_in_restart(trans);
 
 	if (!trans->nr_updates &&
 	    !trans->journal_entries_u64s)
@@ -1035,16 +1022,13 @@ int __bch2_trans_commit(struct btree_trans *trans, unsigned flags)
 	if (ret)
 		goto out_reset;
 
-	if (unlikely(!test_bit(BCH_FS_may_go_rw, &c->flags))) {
-		ret = do_bch2_trans_commit_to_journal_replay(trans);
-		goto out_reset;
-	}
-
 	if (!(flags & BCH_TRANS_COMMIT_no_check_rw) &&
 	    unlikely(!bch2_write_ref_tryget(c, BCH_WRITE_REF_trans))) {
-		ret = bch2_trans_commit_get_rw_cold(trans, flags);
-		if (ret)
-			goto out_reset;
+		if (unlikely(!test_bit(BCH_FS_may_go_rw, &c->flags)))
+			ret = do_bch2_trans_commit_to_journal_replay(trans);
+		else
+			ret = -BCH_ERR_erofs_trans_commit;
+		goto out_reset;
 	}
 
 	EBUG_ON(test_bit(BCH_FS_clean_shutdown, &c->flags));
@@ -1089,8 +1073,7 @@ int __bch2_trans_commit(struct btree_trans *trans, unsigned flags)
 	}
 retry:
 	errored_at = NULL;
-	bch2_trans_verify_not_unlocked(trans);
-	bch2_trans_verify_not_in_restart(trans);
+	bch2_trans_verify_not_unlocked_or_in_restart(trans);
 	if (likely(!(flags & BCH_TRANS_COMMIT_no_journal_res)))
 		memset(&trans->journal_res, 0, sizeof(trans->journal_res));
 	memset(&trans->fs_usage_delta, 0, sizeof(trans->fs_usage_delta));

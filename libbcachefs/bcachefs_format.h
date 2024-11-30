@@ -463,7 +463,8 @@ struct bch_backpointer {
 	__u8			btree_id;
 	__u8			level;
 	__u8			data_type;
-	__u64			bucket_offset:40;
+	__u8			bucket_gen;
+	__u32			pad;
 	__u32			bucket_len;
 	struct bpos		pos;
 } __packed __aligned(8);
@@ -677,7 +678,9 @@ struct bch_sb_field_ext {
 	x(disk_accounting_v3,		BCH_VERSION(1, 10))		\
 	x(disk_accounting_inum,		BCH_VERSION(1, 11))		\
 	x(rebalance_work_acct_fix,	BCH_VERSION(1, 12))		\
-	x(inode_has_child_snapshots,	BCH_VERSION(1, 13))
+	x(inode_has_child_snapshots,	BCH_VERSION(1, 13))		\
+	x(backpointer_bucket_gen,	BCH_VERSION(1, 14))		\
+	x(disk_accounting_big_endian,	BCH_VERSION(1, 15))
 
 enum bcachefs_metadata_version {
 	bcachefs_metadata_version_min = 9,
@@ -1030,7 +1033,7 @@ static inline _Bool bch2_csum_type_is_encryption(enum bch_csum_type type)
 	x(crc64,		2)	\
 	x(xxhash,		3)
 
-enum bch_csum_opts {
+enum bch_csum_opt {
 #define x(t, n) BCH_CSUM_OPT_##t = n,
 	BCH_CSUM_OPTS()
 #undef x

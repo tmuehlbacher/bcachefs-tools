@@ -27,6 +27,12 @@ const char * const bch2_recovery_passes[] = {
 	NULL
 };
 
+/* Fake recovery pass, so that scan_for_btree_nodes isn't 0: */
+static int bch2_recovery_pass_empty(struct bch_fs *c)
+{
+	return 0;
+}
+
 static int bch2_set_may_go_rw(struct bch_fs *c)
 {
 	struct journal_keys *keys = &c->journal_keys;
@@ -40,7 +46,7 @@ static int bch2_set_may_go_rw(struct bch_fs *c)
 
 	set_bit(BCH_FS_may_go_rw, &c->flags);
 
-	if (keys->nr || c->opts.fsck || !c->sb.clean || c->opts.recovery_passes)
+	if (keys->nr || !c->opts.read_only || c->opts.fsck || !c->sb.clean || c->opts.recovery_passes)
 		return bch2_fs_read_write_early(c);
 	return 0;
 }
@@ -235,14 +241,7 @@ int bch2_run_online_recovery_passes(struct bch_fs *c)
 			continue;
 
 		ret = bch2_run_recovery_pass(c, i);
-
-		if (c->curr_recovery_pass < i) {
-			/*
-			 * bch2_run_explicit_recovery_pass() was called: we
-			 * can't always catch -BCH_ERR_restart_recovery because
-			 * it may have been called from another thread (btree
-			 * node read completion)
-			 */
+		if (bch2_err_matches(ret, BCH_ERR_restart_recovery)) {
 			i = c->curr_recovery_pass;
 			continue;
 		}
@@ -258,6 +257,12 @@ int bch2_run_online_recovery_passes(struct bch_fs *c)
 int bch2_run_recovery_passes(struct bch_fs *c)
 {
 	int ret = 0;
+
+	/*
+	 * We can't allow set_may_go_rw to be excluded; that would cause us to
+	 * use the journal replay keys for updates where it's not expected.
+	 */
+	c->opts.recovery_passes_exclude &= ~BCH_RECOVERY_PASS_set_may_go_rw;
 
 	while (c->curr_recovery_pass < ARRAY_SIZE(recovery_pass_fns)) {
 		spin_lock_irq(&c->recovery_pass_lock);

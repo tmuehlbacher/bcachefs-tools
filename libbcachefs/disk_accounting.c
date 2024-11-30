@@ -127,14 +127,15 @@ static inline bool is_zero(char *start, char *end)
 #define field_end(p, member)	(((void *) (&p.member)) + sizeof(p.member))
 
 int bch2_accounting_validate(struct bch_fs *c, struct bkey_s_c k,
-			     enum bch_validate_flags flags)
+			     struct bkey_validate_context from)
 {
 	struct disk_accounting_pos acc_k;
 	bpos_to_disk_accounting_pos(&acc_k, k.k->p);
 	void *end = &acc_k + 1;
 	int ret = 0;
 
-	bkey_fsck_err_on(bversion_zero(k.k->bversion),
+	bkey_fsck_err_on((from.flags & BCH_VALIDATE_commit) &&
+			 bversion_zero(k.k->bversion),
 			 c, accounting_key_version_0,
 			 "accounting key with version=0");
 
@@ -700,11 +701,38 @@ int bch2_accounting_read(struct bch_fs *c)
 	struct btree_trans *trans = bch2_trans_get(c);
 	struct printbuf buf = PRINTBUF;
 
-	int ret = for_each_btree_key(trans, iter,
-				BTREE_ID_accounting, POS_MIN,
+	/*
+	 * We might run more than once if we rewind to start topology repair or
+	 * btree node scan - and those might cause us to get different results,
+	 * so we can't just skip if we've already run.
+	 *
+	 * Instead, zero out any accounting we have:
+	 */
+	percpu_down_write(&c->mark_lock);
+	darray_for_each(acc->k, e)
+		percpu_memset(e->v[0], 0, sizeof(u64) * e->nr_counters);
+	for_each_member_device(c, ca)
+		percpu_memset(ca->usage, 0, sizeof(*ca->usage));
+	percpu_memset(c->usage, 0, sizeof(*c->usage));
+	percpu_up_write(&c->mark_lock);
+
+	struct btree_iter iter;
+	bch2_trans_iter_init(trans, &iter, BTREE_ID_accounting, POS_MIN,
+			     BTREE_ITER_prefetch|BTREE_ITER_all_snapshots);
+	iter.flags &= ~BTREE_ITER_with_journal;
+	int ret = for_each_btree_key_continue(trans, iter,
 				BTREE_ITER_prefetch|BTREE_ITER_all_snapshots, k, ({
-			struct bkey u;
-			struct bkey_s_c k = bch2_btree_path_peek_slot_exact(btree_iter_path(trans, &iter), &u);
+			if (k.k->type != KEY_TYPE_accounting)
+				continue;
+
+			struct disk_accounting_pos acc_k;
+			bpos_to_disk_accounting_pos(&acc_k, k.k->p);
+			if (!bch2_accounting_is_mem(acc_k)) {
+				struct disk_accounting_pos next = { .type = acc_k.type + 1 };
+				bch2_btree_iter_set_pos(&iter, disk_accounting_pos_to_bpos(&next));
+				continue;
+			}
+
 			accounting_read_key(trans, k);
 		}));
 	if (ret)
@@ -716,6 +744,11 @@ int bch2_accounting_read(struct bch_fs *c)
 
 	darray_for_each(*keys, i) {
 		if (i->k->k.type == KEY_TYPE_accounting) {
+			struct disk_accounting_pos acc_k;
+			bpos_to_disk_accounting_pos(&acc_k, i->k->k.p);
+			if (!bch2_accounting_is_mem(acc_k))
+				continue;
+
 			struct bkey_s_c k = bkey_i_to_s_c(i->k);
 			unsigned idx = eytzinger0_find(acc->k.data, acc->k.nr,
 						sizeof(acc->k.data[0]),
@@ -805,7 +838,7 @@ int bch2_accounting_read(struct bch_fs *c)
 			break;
 		case BCH_DISK_ACCOUNTING_dev_data_type:
 			rcu_read_lock();
-			struct bch_dev *ca = bch2_dev_rcu(c, k.dev_data_type.dev);
+			struct bch_dev *ca = bch2_dev_rcu_noerror(c, k.dev_data_type.dev);
 			if (ca) {
 				struct bch_dev_usage_type __percpu *d = &ca->usage->d[k.dev_data_type.data_type];
 				percpu_u64_set(&d->buckets,	v[0]);
@@ -911,7 +944,7 @@ void bch2_verify_accounting_clean(struct bch_fs *c)
 				break;
 			case BCH_DISK_ACCOUNTING_dev_data_type: {
 				rcu_read_lock();
-				struct bch_dev *ca = bch2_dev_rcu(c, acc_k.dev_data_type.dev);
+				struct bch_dev *ca = bch2_dev_rcu_noerror(c, acc_k.dev_data_type.dev);
 				if (!ca) {
 					rcu_read_unlock();
 					continue;

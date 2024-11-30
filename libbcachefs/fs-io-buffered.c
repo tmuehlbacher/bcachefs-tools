@@ -164,7 +164,8 @@ static void bchfs_read(struct btree_trans *trans,
 			     BTREE_ITER_slots);
 	while (1) {
 		struct bkey_s_c k;
-		unsigned bytes, sectors, offset_into_extent;
+		unsigned bytes, sectors;
+		s64 offset_into_extent;
 		enum btree_id data_btree = BTREE_ID_extents;
 
 		bch2_trans_begin(trans);
@@ -197,7 +198,7 @@ static void bchfs_read(struct btree_trans *trans,
 
 		k = bkey_i_to_s_c(sk.k);
 
-		sectors = min(sectors, k.k->size - offset_into_extent);
+		sectors = min_t(unsigned, sectors, k.k->size - offset_into_extent);
 
 		if (readpages_iter) {
 			ret = readpage_bio_extend(trans, readpages_iter, &rbio->bio, sectors,
@@ -230,10 +231,12 @@ err:
 	bch2_trans_iter_exit(trans, &iter);
 
 	if (ret) {
-		bch_err_inum_offset_ratelimited(c,
-				iter.pos.inode,
-				iter.pos.offset << 9,
-				"read error %i from btree lookup", ret);
+		struct printbuf buf = PRINTBUF;
+		bch2_inum_offset_err_msg_trans(trans, &buf, inum, iter.pos.offset << 9);
+		prt_printf(&buf, "read error %i from btree lookup", ret);
+		bch_err_ratelimited(c, "%s", buf.buf);
+		printbuf_exit(&buf);
+
 		rbio->bio.bi_status = BLK_STS_IOERR;
 		bio_endio(&rbio->bio);
 	}
@@ -686,7 +689,7 @@ int bch2_write_begin(struct file *file, struct address_space *mapping,
 	folio = __filemap_get_folio(mapping, pos >> PAGE_SHIFT,
 				    FGP_WRITEBEGIN | fgf_set_order(len),
 				    mapping_gfp_mask(mapping));
-	if (IS_ERR_OR_NULL(folio))
+	if (IS_ERR(folio))
 		goto err_unlock;
 
 	offset = pos - folio_pos(folio);

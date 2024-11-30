@@ -17,6 +17,8 @@
 #include "sb-clean.h"
 #include "trace.h"
 
+#include <linux/string_choices.h>
+
 void bch2_journal_pos_from_member_info_set(struct bch_fs *c)
 {
 	lockdep_assert_held(&c->sb_lock);
@@ -325,11 +327,11 @@ static void journal_entry_err_msg(struct printbuf *out,
 static int journal_validate_key(struct bch_fs *c,
 				struct jset *jset,
 				struct jset_entry *entry,
-				unsigned level, enum btree_id btree_id,
 				struct bkey_i *k,
-				unsigned version, int big_endian,
-				enum bch_validate_flags flags)
+				struct bkey_validate_context from,
+				unsigned version, int big_endian)
 {
+	enum bch_validate_flags flags = from.flags;
 	int write = flags & BCH_VALIDATE_write;
 	void *next = vstruct_next(entry);
 	int ret = 0;
@@ -364,11 +366,10 @@ static int journal_validate_key(struct bch_fs *c,
 	}
 
 	if (!write)
-		bch2_bkey_compat(level, btree_id, version, big_endian,
+		bch2_bkey_compat(from.level, from.btree, version, big_endian,
 				 write, NULL, bkey_to_packed(k));
 
-	ret = bch2_bkey_validate(c, bkey_i_to_s_c(k),
-				 __btree_node_type(level, btree_id), write);
+	ret = bch2_bkey_validate(c, bkey_i_to_s_c(k), from);
 	if (ret == -BCH_ERR_fsck_delete_bkey) {
 		le16_add_cpu(&entry->u64s, -((u16) k->k.u64s));
 		memmove(k, bkey_next(k), next - (void *) bkey_next(k));
@@ -379,7 +380,7 @@ static int journal_validate_key(struct bch_fs *c,
 		goto fsck_err;
 
 	if (write)
-		bch2_bkey_compat(level, btree_id, version, big_endian,
+		bch2_bkey_compat(from.level, from.btree, version, big_endian,
 				 write, NULL, bkey_to_packed(k));
 fsck_err:
 	return ret;
@@ -392,13 +393,15 @@ static int journal_entry_btree_keys_validate(struct bch_fs *c,
 				enum bch_validate_flags flags)
 {
 	struct bkey_i *k = entry->start;
+	struct bkey_validate_context from = {
+		.from	= BKEY_VALIDATE_journal,
+		.level	= entry->level,
+		.btree	= entry->btree_id,
+		.flags	= flags|BCH_VALIDATE_journal,
+	};
 
 	while (k != vstruct_last(entry)) {
-		int ret = journal_validate_key(c, jset, entry,
-					       entry->level,
-					       entry->btree_id,
-					       k, version, big_endian,
-					       flags|BCH_VALIDATE_journal);
+		int ret = journal_validate_key(c, jset, entry, k, from, version, big_endian);
 		if (ret == FSCK_DELETED_KEY)
 			continue;
 		else if (ret)
@@ -453,8 +456,14 @@ static int journal_entry_btree_root_validate(struct bch_fs *c,
 		return 0;
 	}
 
-	ret = journal_validate_key(c, jset, entry, 1, entry->btree_id, k,
-				   version, big_endian, flags);
+	struct bkey_validate_context from = {
+		.from	= BKEY_VALIDATE_journal,
+		.level	= entry->level + 1,
+		.btree	= entry->btree_id,
+		.root	= true,
+		.flags	= flags,
+	};
+	ret = journal_validate_key(c, jset, entry, k, from, version, big_endian);
 	if (ret == FSCK_DELETED_KEY)
 		ret = 0;
 fsck_err:
@@ -666,7 +675,7 @@ static void journal_entry_clock_to_text(struct printbuf *out, struct bch_fs *c,
 	struct jset_entry_clock *clock =
 		container_of(entry, struct jset_entry_clock, entry);
 
-	prt_printf(out, "%s=%llu", clock->rw ? "write" : "read", le64_to_cpu(clock->time));
+	prt_printf(out, "%s=%llu", str_write_read(clock->rw), le64_to_cpu(clock->time));
 }
 
 static int journal_entry_dev_usage_validate(struct bch_fs *c,
@@ -708,6 +717,9 @@ static void journal_entry_dev_usage_to_text(struct printbuf *out, struct bch_fs 
 	struct jset_entry_dev_usage *u =
 		container_of(entry, struct jset_entry_dev_usage, entry);
 	unsigned i, nr_types = jset_entry_dev_usage_nr_types(u);
+
+	if (vstruct_bytes(entry) < sizeof(*u))
+		return;
 
 	prt_printf(out, "dev=%u", le32_to_cpu(u->dev));
 
@@ -1012,6 +1024,8 @@ reread:
 			nr_bvecs = buf_pages(buf->data, sectors_read << 9);
 
 			bio = bio_kmalloc(nr_bvecs, GFP_KERNEL);
+			if (!bio)
+				return -BCH_ERR_ENOMEM_journal_read_bucket;
 			bio_init(bio, ca->disk_sb.bdev, bio->bi_inline_vecs, nr_bvecs, REQ_OP_READ);
 
 			bio->bi_iter.bi_sector = offset;

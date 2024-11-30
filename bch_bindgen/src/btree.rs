@@ -81,9 +81,9 @@ impl<'t> BtreeIter<'t> {
         }
     }
 
-    pub fn peek_upto<'i>(&'i mut self, end: c::bpos) -> Result<Option<BkeySC<'i>>, bch_errcode> {
+    pub fn peek_max<'i>(&'i mut self, end: c::bpos) -> Result<Option<BkeySC<'i>>, bch_errcode> {
         unsafe {
-            let k = c::bch2_btree_iter_peek_upto(&mut self.raw, end);
+            let k = c::bch2_btree_iter_peek_max(&mut self.raw, end);
             errptr_to_result_c(k.k).map(|_| {
                 if !k.k.is_null() {
                     Some(BkeySC {
@@ -99,7 +99,7 @@ impl<'t> BtreeIter<'t> {
     }
 
     pub fn peek(&mut self) -> Result<Option<BkeySC>, bch_errcode> {
-        self.peek_upto(SPOS_MAX)
+        self.peek_max(SPOS_MAX)
     }
 
     pub fn peek_and_restart(&mut self) -> Result<Option<BkeySC>, bch_errcode> {
