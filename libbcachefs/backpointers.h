@@ -140,45 +140,29 @@ static inline enum bch_data_type bch2_bkey_ptr_data_type(struct bkey_s_c k,
 	}
 }
 
-static inline void __bch2_extent_ptr_to_bp(struct bch_fs *c, struct bch_dev *ca,
+static inline void bch2_extent_ptr_to_bp(struct bch_fs *c,
 			   enum btree_id btree_id, unsigned level,
 			   struct bkey_s_c k, struct extent_ptr_decoded p,
 			   const union bch_extent_entry *entry,
-			   struct bpos *bucket, struct bkey_i_backpointer *bp,
-			   u64 sectors)
+			   struct bkey_i_backpointer *bp)
 {
-	u32 bucket_offset;
-	*bucket = PTR_BUCKET_POS_OFFSET(ca, &p.ptr, &bucket_offset);
-
-	u64 bp_bucket_offset = ((u64) bucket_offset << MAX_EXTENT_COMPRESS_RATIO_SHIFT) + p.crc.offset;
-
 	bkey_backpointer_init(&bp->k_i);
-	bp->k.p = bucket_pos_to_bp(ca, *bucket, bp_bucket_offset);
+	bp->k.p = POS(p.ptr.dev, ((u64) p.ptr.offset << MAX_EXTENT_COMPRESS_RATIO_SHIFT) + p.crc.offset);
 	bp->v	= (struct bch_backpointer) {
 		.btree_id	= btree_id,
 		.level		= level,
 		.data_type	= bch2_bkey_ptr_data_type(k, p, entry),
 		.bucket_gen	= p.ptr.gen,
-		.bucket_len	= sectors,
+		.bucket_len	= ptr_disk_sectors(level ? btree_sectors(c) : k.k->size, p),
 		.pos		= k.k->p,
 	};
 }
 
-static inline void bch2_extent_ptr_to_bp(struct bch_fs *c, struct bch_dev *ca,
-			   enum btree_id btree_id, unsigned level,
-			   struct bkey_s_c k, struct extent_ptr_decoded p,
-			   const union bch_extent_entry *entry,
-			   struct bpos *bucket_pos, struct bkey_i_backpointer *bp)
-{
-	u64 sectors = ptr_disk_sectors(level ? btree_sectors(c) : k.k->size, p);
-
-	__bch2_extent_ptr_to_bp(c, ca, btree_id, level, k, p, entry, bucket_pos, bp, sectors);
-}
-
+struct bkey_buf;
 struct bkey_s_c bch2_backpointer_get_key(struct btree_trans *, struct bkey_s_c_backpointer,
-					 struct btree_iter *, unsigned);
+					 struct btree_iter *, unsigned, struct bkey_buf *);
 struct btree *bch2_backpointer_get_node(struct btree_trans *, struct bkey_s_c_backpointer,
-					struct btree_iter *);
+					struct btree_iter *, struct bkey_buf *);
 
 int bch2_check_btree_backpointers(struct bch_fs *);
 int bch2_check_extents_to_backpointers(struct bch_fs *);

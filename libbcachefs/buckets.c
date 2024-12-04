@@ -574,8 +574,10 @@ static int bch2_trigger_pointer(struct btree_trans *trans,
 	struct printbuf buf = PRINTBUF;
 	int ret = 0;
 
-	u64 abs_sectors = ptr_disk_sectors(level ? btree_sectors(c) : k.k->size, p);
-	*sectors = insert ? abs_sectors : -abs_sectors;
+	struct bkey_i_backpointer bp;
+	bch2_extent_ptr_to_bp(c, btree_id, level, k, p, entry, &bp);
+
+	*sectors = insert ? bp.v.bucket_len : -(s64) bp.v.bucket_len;
 
 	struct bch_dev *ca = bch2_dev_tryget(c, p.ptr.dev);
 	if (unlikely(!ca)) {
@@ -584,9 +586,7 @@ static int bch2_trigger_pointer(struct btree_trans *trans,
 		goto err;
 	}
 
-	struct bpos bucket;
-	struct bkey_i_backpointer bp;
-	__bch2_extent_ptr_to_bp(trans->c, ca, btree_id, level, k, p, entry, &bucket, &bp, abs_sectors);
+	struct bpos bucket = PTR_BUCKET_POS(ca, &p.ptr);
 
 	if (flags & BTREE_TRIGGER_transactional) {
 		struct bkey_i_alloc_v4 *a = bch2_trans_start_alloc_update(trans, bucket, 0);

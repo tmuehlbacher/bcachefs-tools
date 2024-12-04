@@ -557,6 +557,8 @@ struct bch_dev {
 	unsigned long		*buckets_nouse;
 	struct rw_semaphore	bucket_lock;
 
+	unsigned long		*bucket_backpointer_mismatches;
+
 	struct bch_dev_usage __percpu	*usage;
 
 	/* Allocator: */
@@ -759,6 +761,8 @@ struct bch_fs {
 		__uuid_t	user_uuid;
 
 		u16		version;
+		u16		version_incompat;
+		u16		version_incompat_allowed;
 		u16		version_min;
 		u16		version_upgrade_complete;
 
