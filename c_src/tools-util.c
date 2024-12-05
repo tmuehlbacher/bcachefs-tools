@@ -734,9 +734,16 @@ unsigned version_parse(char *buf)
 
 	unsigned major, minor;
 
-	if (kstrtouint(major_str, 10, &major) ||
-	    kstrtouint(minor_str, 10, &minor))
-		die("invalid version");
+	if (!minor_str) {
+		major = 0;
+		if (kstrtouint(major_str, 10, &minor))
+			die("invalid version %s", buf);
+	} else {
+
+		if (kstrtouint(major_str, 10, &major) ||
+		    kstrtouint(minor_str, 10, &minor))
+			die("invalid version %s", buf);
+	}
 
 	return BCH_VERSION(major, minor);
 }
