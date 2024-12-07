@@ -324,6 +324,14 @@ static int __bch2_accounting_mem_insert(struct bch_fs *c, struct bkey_s_c_accoun
 
 	eytzinger0_sort(acc->k.data, acc->k.nr, sizeof(acc->k.data[0]),
 			accounting_pos_cmp, NULL);
+
+	if (trace_accounting_mem_insert_enabled()) {
+		struct printbuf buf = PRINTBUF;
+
+		bch2_accounting_to_text(&buf, c, a.s_c);
+		trace_accounting_mem_insert(c, buf.buf);
+		printbuf_exit(&buf);
+	}
 	return 0;
 err:
 	free_percpu(n.v[1]);
@@ -722,11 +730,18 @@ int bch2_accounting_read(struct bch_fs *c)
 	iter.flags &= ~BTREE_ITER_with_journal;
 	int ret = for_each_btree_key_continue(trans, iter,
 				BTREE_ITER_prefetch|BTREE_ITER_all_snapshots, k, ({
+			struct bkey u;
+			struct bkey_s_c k = bch2_btree_path_peek_slot_exact(btree_iter_path(trans, &iter), &u);
+
 			if (k.k->type != KEY_TYPE_accounting)
 				continue;
 
 			struct disk_accounting_pos acc_k;
 			bpos_to_disk_accounting_pos(&acc_k, k.k->p);
+
+			if (acc_k.type >= BCH_DISK_ACCOUNTING_TYPE_NR)
+				break;
+
 			if (!bch2_accounting_is_mem(acc_k)) {
 				struct disk_accounting_pos next = { .type = acc_k.type + 1 };
 				bch2_btree_iter_set_pos(&iter, disk_accounting_pos_to_bpos(&next));
@@ -746,6 +761,7 @@ int bch2_accounting_read(struct bch_fs *c)
 		if (i->k->k.type == KEY_TYPE_accounting) {
 			struct disk_accounting_pos acc_k;
 			bpos_to_disk_accounting_pos(&acc_k, i->k->k.p);
+
 			if (!bch2_accounting_is_mem(acc_k))
 				continue;
 
@@ -782,15 +798,16 @@ int bch2_accounting_read(struct bch_fs *c)
 	keys->gap = keys->nr = dst - keys->data;
 
 	percpu_down_write(&c->mark_lock);
-	unsigned i = 0;
-	while (i < acc->k.nr) {
-		unsigned idx = inorder_to_eytzinger0(i, acc->k.nr);
 
+	darray_for_each_reverse(acc->k, i) {
 		struct disk_accounting_pos acc_k;
-		bpos_to_disk_accounting_pos(&acc_k, acc->k.data[idx].pos);
+		bpos_to_disk_accounting_pos(&acc_k, i->pos);
 
 		u64 v[BCH_ACCOUNTING_MAX_COUNTERS];
-		bch2_accounting_mem_read_counters(acc, idx, v, ARRAY_SIZE(v), false);
+		memset(v, 0, sizeof(v));
+
+		for (unsigned j = 0; j < i->nr_counters; j++)
+			v[j] = percpu_u64_get(i->v[0] + j);
 
 		/*
 		 * If the entry counters are zeroed, it should be treated as
@@ -799,25 +816,24 @@ int bch2_accounting_read(struct bch_fs *c)
 		 * Remove it, so that if it's re-added it gets re-marked in the
 		 * superblock:
 		 */
-		ret = bch2_is_zero(v, sizeof(v[0]) * acc->k.data[idx].nr_counters)
+		ret = bch2_is_zero(v, sizeof(v[0]) * i->nr_counters)
 			? -BCH_ERR_remove_disk_accounting_entry
-			: bch2_disk_accounting_validate_late(trans, acc_k,
-							v, acc->k.data[idx].nr_counters);
+			: bch2_disk_accounting_validate_late(trans, acc_k, v, i->nr_counters);
 
 		if (ret == -BCH_ERR_remove_disk_accounting_entry) {
-			free_percpu(acc->k.data[idx].v[0]);
-			free_percpu(acc->k.data[idx].v[1]);
-			darray_remove_item(&acc->k, &acc->k.data[idx]);
-			eytzinger0_sort(acc->k.data, acc->k.nr, sizeof(acc->k.data[0]),
-					accounting_pos_cmp, NULL);
+			free_percpu(i->v[0]);
+			free_percpu(i->v[1]);
+			darray_remove_item(&acc->k, i);
 			ret = 0;
 			continue;
 		}
 
 		if (ret)
 			goto fsck_err;
-		i++;
 	}
+
+	eytzinger0_sort(acc->k.data, acc->k.nr, sizeof(acc->k.data[0]),
+			accounting_pos_cmp, NULL);
 
 	preempt_disable();
 	struct bch_fs_usage_base *usage = this_cpu_ptr(c->usage);

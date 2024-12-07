@@ -807,10 +807,11 @@ int bch2_journal_flush(struct journal *j)
 }
 
 /*
- * bch2_journal_noflush_seq - tell the journal not to issue any flushes before
+ * bch2_journal_noflush_seq - ask the journal not to issue any flushes in the
+ * range [start, end)
  * @seq
  */
-bool bch2_journal_noflush_seq(struct journal *j, u64 seq)
+bool bch2_journal_noflush_seq(struct journal *j, u64 start, u64 end)
 {
 	struct bch_fs *c = container_of(j, struct bch_fs, journal);
 	u64 unwritten_seq;
@@ -819,15 +820,15 @@ bool bch2_journal_noflush_seq(struct journal *j, u64 seq)
 	if (!(c->sb.features & (1ULL << BCH_FEATURE_journal_no_flush)))
 		return false;
 
-	if (seq <= c->journal.flushed_seq_ondisk)
+	if (c->journal.flushed_seq_ondisk >= start)
 		return false;
 
 	spin_lock(&j->lock);
-	if (seq <= c->journal.flushed_seq_ondisk)
+	if (c->journal.flushed_seq_ondisk >= start)
 		goto out;
 
 	for (unwritten_seq = journal_last_unwritten_seq(j);
-	     unwritten_seq < seq;
+	     unwritten_seq < end;
 	     unwritten_seq++) {
 		struct journal_buf *buf = journal_seq_to_buf(j, unwritten_seq);
 
@@ -1564,6 +1565,9 @@ void __bch2_journal_debug_to_text(struct printbuf *out, struct journal *j)
 	printbuf_indent_sub(out, 2);
 
 	for_each_member_device_rcu(c, ca, &c->rw_devs[BCH_DATA_journal]) {
+		if (!ca->mi.durability)
+			continue;
+
 		struct journal_device *ja = &ca->journal;
 
 		if (!test_bit(ca->dev_idx, c->rw_devs[BCH_DATA_journal].d))
@@ -1573,6 +1577,7 @@ void __bch2_journal_debug_to_text(struct printbuf *out, struct journal *j)
 			continue;
 
 		prt_printf(out, "dev %u:\n",			ca->dev_idx);
+		prt_printf(out, "durability %u:\n",		ca->mi.durability);
 		printbuf_indent_add(out, 2);
 		prt_printf(out, "nr\t%u\n",			ja->nr);
 		prt_printf(out, "bucket size\t%u\n",		ca->mi.bucket_size);
@@ -1583,6 +1588,8 @@ void __bch2_journal_debug_to_text(struct printbuf *out, struct journal *j)
 		prt_printf(out, "cur_idx\t%u (seq %llu)\n",	ja->cur_idx,		ja->bucket_seq[ja->cur_idx]);
 		printbuf_indent_sub(out, 2);
 	}
+
+	prt_printf(out, "replicas want %u need %u\n", c->opts.metadata_replicas, c->opts.metadata_replicas_required);
 
 	rcu_read_unlock();
 

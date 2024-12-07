@@ -1048,6 +1048,7 @@ struct bch_fs {
 	 * for signaling to the toplevel code which pass we want to run now.
 	 */
 	enum bch_recovery_pass	curr_recovery_pass;
+	enum bch_recovery_pass	next_recovery_pass;
 	/* bitmask of recovery passes that we actually ran */
 	u64			recovery_passes_complete;
 	/* never rewinds version of curr_recovery_pass */
@@ -1062,9 +1063,6 @@ struct bch_fs {
 	struct btree		*verify_data;
 	struct btree_node	*verify_ondisk;
 	struct mutex		verify_lock;
-
-	u64			*unused_inode_hints;
-	unsigned		inode_shard_bits;
 
 	/*
 	 * A btree node on disk could have too many bsets for an iterator to fit

@@ -200,35 +200,40 @@ static inline unsigned open_buckets_reserved(enum bch_watermark watermark)
 	}
 }
 
+static inline bool may_alloc_bucket(struct bch_fs *c,
+				    struct bpos bucket,
+				    struct bucket_alloc_state *s)
+{
+	if (bch2_bucket_is_open(c, bucket.inode, bucket.offset)) {
+		s->skipped_open++;
+		return false;
+	}
+
+	if (bch2_bucket_needs_journal_commit(&c->buckets_waiting_for_journal,
+			c->journal.flushed_seq_ondisk, bucket.inode, bucket.offset)) {
+		s->skipped_need_journal_commit++;
+		return false;
+	}
+
+	if (bch2_bucket_nocow_is_locked(&c->nocow_locks, bucket)) {
+		s->skipped_nocow++;
+		return false;
+	}
+
+	return true;
+}
+
 static struct open_bucket *__try_alloc_bucket(struct bch_fs *c, struct bch_dev *ca,
 					      u64 bucket, u8 gen,
 					      enum bch_watermark watermark,
 					      struct bucket_alloc_state *s,
 					      struct closure *cl)
 {
-	struct open_bucket *ob;
-
 	if (unlikely(is_superblock_bucket(c, ca, bucket)))
 		return NULL;
 
 	if (unlikely(ca->buckets_nouse && test_bit(bucket, ca->buckets_nouse))) {
 		s->skipped_nouse++;
-		return NULL;
-	}
-
-	if (bch2_bucket_is_open(c, ca->dev_idx, bucket)) {
-		s->skipped_open++;
-		return NULL;
-	}
-
-	if (bch2_bucket_needs_journal_commit(&c->buckets_waiting_for_journal,
-			c->journal.flushed_seq_ondisk, ca->dev_idx, bucket)) {
-		s->skipped_need_journal_commit++;
-		return NULL;
-	}
-
-	if (bch2_bucket_nocow_is_locked(&c->nocow_locks, POS(ca->dev_idx, bucket))) {
-		s->skipped_nocow++;
 		return NULL;
 	}
 
@@ -250,10 +255,9 @@ static struct open_bucket *__try_alloc_bucket(struct bch_fs *c, struct bch_dev *
 		return NULL;
 	}
 
-	ob = bch2_open_bucket_alloc(c);
+	struct open_bucket *ob = bch2_open_bucket_alloc(c);
 
 	spin_lock(&ob->lock);
-
 	ob->valid	= true;
 	ob->sectors_free = ca->mi.bucket_size;
 	ob->dev		= ca->dev_idx;
@@ -279,8 +283,11 @@ static struct open_bucket *try_alloc_bucket(struct btree_trans *trans, struct bc
 {
 	struct bch_fs *c = trans->c;
 	u64 b = freespace_iter->pos.offset & ~(~0ULL << 56);
-	u8 gen;
 
+	if (!may_alloc_bucket(c, POS(ca->dev_idx, b), s))
+		return NULL;
+
+	u8 gen;
 	int ret = bch2_check_discard_freespace_key(trans, freespace_iter, &gen, true);
 	if (ret < 0)
 		return ERR_PTR(ret);
@@ -300,6 +307,7 @@ bch2_bucket_alloc_early(struct btree_trans *trans,
 			struct bucket_alloc_state *s,
 			struct closure *cl)
 {
+	struct bch_fs *c = trans->c;
 	struct btree_iter iter, citer;
 	struct bkey_s_c k, ck;
 	struct open_bucket *ob = NULL;
@@ -359,7 +367,10 @@ again:
 
 		s->buckets_seen++;
 
-		ob = __try_alloc_bucket(trans->c, ca, k.k->p.offset, a->gen, watermark, s, cl);
+		ob = may_alloc_bucket(c, k.k->p, s)
+			? __try_alloc_bucket(c, ca, k.k->p.offset, a->gen,
+					     watermark, s, cl)
+			: NULL;
 next:
 		bch2_set_btree_iter_dontneed(&citer);
 		bch2_trans_iter_exit(trans, &citer);
@@ -626,9 +637,9 @@ struct dev_alloc_list bch2_dev_alloc_list(struct bch_fs *c,
 	unsigned i;
 
 	for_each_set_bit(i, devs->d, BCH_SB_MEMBERS_MAX)
-		ret.devs[ret.nr++] = i;
+		ret.data[ret.nr++] = i;
 
-	bubble_sort(ret.devs, ret.nr, dev_stripe_cmp);
+	bubble_sort(ret.data, ret.nr, dev_stripe_cmp);
 	return ret;
 }
 
@@ -700,18 +711,13 @@ int bch2_bucket_alloc_set_trans(struct btree_trans *trans,
 		      struct closure *cl)
 {
 	struct bch_fs *c = trans->c;
-	struct dev_alloc_list devs_sorted =
-		bch2_dev_alloc_list(c, stripe, devs_may_alloc);
 	int ret = -BCH_ERR_insufficient_devices;
 
 	BUG_ON(*nr_effective >= nr_replicas);
 
-	for (unsigned i = 0; i < devs_sorted.nr; i++) {
-		struct bch_dev_usage usage;
-		struct open_bucket *ob;
-
-		unsigned dev = devs_sorted.devs[i];
-		struct bch_dev *ca = bch2_dev_tryget_noerror(c, dev);
+	struct dev_alloc_list devs_sorted = bch2_dev_alloc_list(c, stripe, devs_may_alloc);
+	darray_for_each(devs_sorted, i) {
+		struct bch_dev *ca = bch2_dev_tryget_noerror(c, *i);
 		if (!ca)
 			continue;
 
@@ -720,8 +726,9 @@ int bch2_bucket_alloc_set_trans(struct btree_trans *trans,
 			continue;
 		}
 
-		ob = bch2_bucket_alloc_trans(trans, ca, watermark, data_type,
-					     cl, flags & BCH_WRITE_ALLOC_NOWAIT, &usage);
+		struct bch_dev_usage usage;
+		struct open_bucket *ob = bch2_bucket_alloc_trans(trans, ca, watermark, data_type,
+						     cl, flags & BCH_WRITE_ALLOC_NOWAIT, &usage);
 		if (!IS_ERR(ob))
 			bch2_dev_stripe_increment_inlined(ca, stripe, &usage);
 		bch2_dev_put(ca);
@@ -765,10 +772,6 @@ static int bucket_alloc_from_stripe(struct btree_trans *trans,
 			 struct closure *cl)
 {
 	struct bch_fs *c = trans->c;
-	struct dev_alloc_list devs_sorted;
-	struct ec_stripe_head *h;
-	struct open_bucket *ob;
-	unsigned i, ec_idx;
 	int ret = 0;
 
 	if (nr_replicas < 2)
@@ -777,34 +780,32 @@ static int bucket_alloc_from_stripe(struct btree_trans *trans,
 	if (ec_open_bucket(c, ptrs))
 		return 0;
 
-	h = bch2_ec_stripe_head_get(trans, target, 0, nr_replicas - 1, watermark, cl);
+	struct ec_stripe_head *h =
+		bch2_ec_stripe_head_get(trans, target, 0, nr_replicas - 1, watermark, cl);
 	if (IS_ERR(h))
 		return PTR_ERR(h);
 	if (!h)
 		return 0;
 
-	devs_sorted = bch2_dev_alloc_list(c, &wp->stripe, devs_may_alloc);
-
-	for (i = 0; i < devs_sorted.nr; i++)
-		for (ec_idx = 0; ec_idx < h->s->nr_data; ec_idx++) {
+	struct dev_alloc_list devs_sorted = bch2_dev_alloc_list(c, &wp->stripe, devs_may_alloc);
+	darray_for_each(devs_sorted, i)
+		for (unsigned ec_idx = 0; ec_idx < h->s->nr_data; ec_idx++) {
 			if (!h->s->blocks[ec_idx])
 				continue;
 
-			ob = c->open_buckets + h->s->blocks[ec_idx];
-			if (ob->dev == devs_sorted.devs[i] &&
-			    !test_and_set_bit(ec_idx, h->s->blocks_allocated))
-				goto got_bucket;
-		}
-	goto out_put_head;
-got_bucket:
-	ob->ec_idx	= ec_idx;
-	ob->ec		= h->s;
-	ec_stripe_new_get(h->s, STRIPE_REF_io);
+			struct open_bucket *ob = c->open_buckets + h->s->blocks[ec_idx];
+			if (ob->dev == *i && !test_and_set_bit(ec_idx, h->s->blocks_allocated)) {
+				ob->ec_idx	= ec_idx;
+				ob->ec		= h->s;
+				ec_stripe_new_get(h->s, STRIPE_REF_io);
 
-	ret = add_new_bucket(c, ptrs, devs_may_alloc,
-			     nr_replicas, nr_effective,
-			     have_cache, ob);
-out_put_head:
+				ret = add_new_bucket(c, ptrs, devs_may_alloc,
+						     nr_replicas, nr_effective,
+						     have_cache, ob);
+				goto out;
+			}
+		}
+out:
 	bch2_ec_stripe_head_put(c, h);
 	return ret;
 }

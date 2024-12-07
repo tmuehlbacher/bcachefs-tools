@@ -432,7 +432,10 @@ static int bch2_sb_validate(struct bch_sb_handle *disk_sb,
 		bch2_version_to_text(out, BCH_SB_VERSION_INCOMPAT(sb));
 		prt_str(out, " > incompat_allowed ");
 		bch2_version_to_text(out, BCH_SB_VERSION_INCOMPAT_ALLOWED(sb));
-		return -BCH_ERR_invalid_sb_version;
+		if (flags & BCH_VALIDATE_write)
+			return -BCH_ERR_invalid_sb_version;
+		else
+			SET_BCH_SB_VERSION_INCOMPAT_ALLOWED(sb, BCH_SB_VERSION_INCOMPAT(sb));
 	}
 
 	if (!flags) {
@@ -456,6 +459,11 @@ static int bch2_sb_validate(struct bch_sb_handle *disk_sb,
 		if (le16_to_cpu(sb->version) <= bcachefs_metadata_version_disk_accounting_v2)
 			SET_BCH_SB_PROMOTE_WHOLE_EXTENTS(sb, true);
 	}
+
+#ifdef __KERNEL__
+	if (!BCH_SB_SHARD_INUMS_NBITS(sb))
+		SET_BCH_SB_SHARD_INUMS_NBITS(sb, ilog2(roundup_pow_of_two(num_online_cpus())));
+#endif
 
 	for (opt_id = 0; opt_id < bch2_opts_nr; opt_id++) {
 		const struct bch_option *opt = bch2_opt_table + opt_id;

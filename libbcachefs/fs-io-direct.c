@@ -226,7 +226,6 @@ struct dio_write {
 	struct mm_struct		*mm;
 	const struct iovec		*iov;
 	unsigned			loop:1,
-					have_mm_ref:1,
 					extending:1,
 					sync:1,
 					flush:1;
@@ -391,9 +390,6 @@ static __always_inline long bch2_dio_write_done(struct dio_write *dio)
 
 	kfree(dio->iov);
 
-	if (dio->have_mm_ref)
-		mmdrop(dio->mm);
-
 	ret = dio->op.error ?: ((long) dio->written << 9);
 	bio_put(&dio->op.wbio.bio);
 
@@ -533,24 +529,9 @@ static __always_inline long bch2_dio_write_loop(struct dio_write *dio)
 
 		if (unlikely(dio->iter.count) &&
 		    !dio->sync &&
-		    !dio->loop) {
-			/*
-			 * Rest of write will be submitted asynchronously -
-			 * unless copying the iov fails:
-			 */
-			if (likely(!bch2_dio_write_copy_iov(dio))) {
-				/*
-				 * aio guarantees that mm_struct outlives the
-				 * request, but io_uring does not
-				 */
-				if (dio->mm) {
-					mmgrab(dio->mm);
-					dio->have_mm_ref = true;
-				}
-			} else {
-				dio->sync = sync = true;
-			}
-		}
+		    !dio->loop &&
+		    bch2_dio_write_copy_iov(dio))
+			dio->sync = sync = true;
 
 		dio->loop = true;
 		closure_call(&dio->op.cl, bch2_write, NULL, NULL);
@@ -578,25 +559,15 @@ err:
 
 static noinline __cold void bch2_dio_write_continue(struct dio_write *dio)
 {
-	struct mm_struct *mm = dio->have_mm_ref ? dio->mm: NULL;
+	struct mm_struct *mm = dio->mm;
 
 	bio_reset(&dio->op.wbio.bio, NULL, REQ_OP_WRITE);
 
-	if (mm) {
-		if (unlikely(!mmget_not_zero(mm))) {
-			/* process exited */
-			dio->op.error = -ESRCH;
-			bch2_dio_write_done(dio);
-			return;
-		}
-
+	if (mm)
 		kthread_use_mm(mm);
-	}
 	bch2_dio_write_loop(dio);
-	if (mm) {
+	if (mm)
 		kthread_unuse_mm(mm);
-		mmput(mm);
-	}
 }
 
 static void bch2_dio_write_loop_async(struct bch_write_op *op)
@@ -670,7 +641,6 @@ ssize_t bch2_direct_write(struct kiocb *req, struct iov_iter *iter)
 	dio->mm			= current->mm;
 	dio->iov		= NULL;
 	dio->loop		= false;
-	dio->have_mm_ref	= false;
 	dio->extending		= extending;
 	dio->sync		= is_sync_kiocb(req) || extending;
 	dio->flush		= iocb_is_dsync(req) && !c->opts.journal_flush_disabled;
