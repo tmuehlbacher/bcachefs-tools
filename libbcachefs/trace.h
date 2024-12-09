@@ -1338,6 +1338,12 @@ TRACE_EVENT(trans_restart_key_cache_key_realloced,
 		  __entry->new_u64s)
 );
 
+DEFINE_EVENT(transaction_event,	trans_restart_write_buffer_flush,
+	TP_PROTO(struct btree_trans *trans,
+		 unsigned long caller_ip),
+	TP_ARGS(trans, caller_ip)
+);
+
 TRACE_EVENT(path_downgrade,
 	TP_PROTO(struct btree_trans *trans,
 		 unsigned long caller_ip,
@@ -1374,10 +1380,21 @@ TRACE_EVENT(path_downgrade,
 		  __entry->pos_snapshot)
 );
 
-DEFINE_EVENT(transaction_event,	trans_restart_write_buffer_flush,
-	TP_PROTO(struct btree_trans *trans,
-		 unsigned long caller_ip),
-	TP_ARGS(trans, caller_ip)
+TRACE_EVENT(key_cache_fill,
+	TP_PROTO(struct btree_trans *trans, const char *key),
+	TP_ARGS(trans, key),
+
+	TP_STRUCT__entry(
+		__array(char,		trans_fn, 32	)
+		__string(key,		key			)
+	),
+
+	TP_fast_assign(
+		strscpy(__entry->trans_fn, trans->fn, sizeof(__entry->trans_fn));
+		__assign_str(key);
+	),
+
+	TP_printk("%s %s", __entry->trans_fn, __get_str(key))
 );
 
 TRACE_EVENT(write_buffer_flush,
@@ -1434,6 +1451,24 @@ TRACE_EVENT(write_buffer_flush_slowpath,
 	),
 
 	TP_printk("%zu/%zu", __entry->slowpath, __entry->total)
+);
+
+TRACE_EVENT(write_buffer_maybe_flush,
+	TP_PROTO(struct btree_trans *trans, unsigned long caller_ip, const char *key),
+	TP_ARGS(trans, caller_ip, key),
+
+	TP_STRUCT__entry(
+		__array(char,			trans_fn, 32	)
+		__field(unsigned long,		caller_ip	)
+		__string(key,			key		)
+	),
+
+	TP_fast_assign(
+		strscpy(__entry->trans_fn, trans->fn, sizeof(__entry->trans_fn));
+		__assign_str(key);
+	),
+
+	TP_printk("%s %pS %s", __entry->trans_fn, (void *) __entry->caller_ip, __get_str(key))
 );
 
 DEFINE_EVENT(fs_str, rebalance_extent,

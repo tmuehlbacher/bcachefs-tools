@@ -79,6 +79,8 @@ static inline void accounting_key_init(struct bkey_i *k, struct disk_accounting_
 	memcpy_u64s_small(acc->v.d, d, nr);
 }
 
+static int bch2_accounting_update_sb_one(struct bch_fs *, struct bpos);
+
 int bch2_disk_accounting_mod(struct btree_trans *trans,
 			     struct disk_accounting_pos *k,
 			     s64 *d, unsigned nr, bool gc)
@@ -96,9 +98,16 @@ int bch2_disk_accounting_mod(struct btree_trans *trans,
 
 	accounting_key_init(&k_i.k, k, d, nr);
 
-	return likely(!gc)
-		? bch2_trans_update_buffered(trans, BTREE_ID_accounting, &k_i.k)
-		: bch2_accounting_mem_add(trans, bkey_i_to_s_c_accounting(&k_i.k), true);
+	if (unlikely(gc)) {
+		int ret = bch2_accounting_mem_add(trans, bkey_i_to_s_c_accounting(&k_i.k), true);
+		if (ret == -BCH_ERR_btree_insert_need_mark_replicas)
+			ret = drop_locks_do(trans,
+				bch2_accounting_update_sb_one(trans->c, disk_accounting_pos_to_bpos(k))) ?:
+				bch2_accounting_mem_add(trans, bkey_i_to_s_c_accounting(&k_i.k), true);
+		return ret;
+	} else {
+		return bch2_trans_update_buffered(trans, BTREE_ID_accounting, &k_i.k);
+	}
 }
 
 int bch2_mod_dev_cached_sectors(struct btree_trans *trans,
@@ -469,32 +478,6 @@ int bch2_fs_accounting_read(struct bch_fs *c, darray_char *out_buf, unsigned acc
 	if (ret)
 		darray_exit(out_buf);
 	return ret;
-}
-
-void bch2_fs_accounting_to_text(struct printbuf *out, struct bch_fs *c)
-{
-	struct bch_accounting_mem *acc = &c->accounting;
-
-	percpu_down_read(&c->mark_lock);
-	out->atomic++;
-
-	eytzinger0_for_each(i, acc->k.nr) {
-		struct disk_accounting_pos acc_k;
-		bpos_to_disk_accounting_pos(&acc_k, acc->k.data[i].pos);
-
-		bch2_accounting_key_to_text(out, &acc_k);
-
-		u64 v[BCH_ACCOUNTING_MAX_COUNTERS];
-		bch2_accounting_mem_read_counters(acc, i, v, ARRAY_SIZE(v), false);
-
-		prt_str(out, ":");
-		for (unsigned j = 0; j < acc->k.data[i].nr_counters; j++)
-			prt_printf(out, " %llu", v[j]);
-		prt_newline(out);
-	}
-
-	--out->atomic;
-	percpu_up_read(&c->mark_lock);
 }
 
 static void bch2_accounting_free_counters(struct bch_accounting_mem *acc, bool gc)
@@ -931,10 +914,13 @@ void bch2_verify_accounting_clean(struct bch_fs *c)
 			bpos_to_disk_accounting_pos(&acc_k, k.k->p);
 
 			if (acc_k.type >= BCH_DISK_ACCOUNTING_TYPE_NR)
-				continue;
+				break;
 
-			if (acc_k.type == BCH_DISK_ACCOUNTING_inum)
+			if (!bch2_accounting_is_mem(acc_k)) {
+				struct disk_accounting_pos next = { .type = acc_k.type + 1 };
+				bch2_btree_iter_set_pos(&iter, disk_accounting_pos_to_bpos(&next));
 				continue;
+			}
 
 			bch2_accounting_mem_read(c, k.k->p, v, nr);
 

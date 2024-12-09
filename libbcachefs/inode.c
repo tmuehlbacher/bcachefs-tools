@@ -48,10 +48,10 @@ static int inode_decode_field(const u8 *in, const u8 *end,
 	u8 *p;
 
 	if (in >= end)
-		return -1;
+		return -BCH_ERR_inode_unpack_error;
 
 	if (!*in)
-		return -1;
+		return -BCH_ERR_inode_unpack_error;
 
 	/*
 	 * position of highest set bit indicates number of bytes:
@@ -61,7 +61,7 @@ static int inode_decode_field(const u8 *in, const u8 *end,
 	bytes	= byte_table[shift - 1];
 
 	if (in + bytes > end)
-		return -1;
+		return -BCH_ERR_inode_unpack_error;
 
 	p = (u8 *) be + 16 - bytes;
 	memcpy(p, in, bytes);
@@ -177,7 +177,7 @@ static noinline int bch2_inode_unpack_v1(struct bkey_s_c_inode inode,
 		return ret;						\
 									\
 	if (field_bits > sizeof(unpacked->_name) * 8)			\
-		return -1;						\
+		return -BCH_ERR_inode_unpack_error;			\
 									\
 	unpacked->_name = field[1];					\
 	in += ret;
@@ -218,7 +218,7 @@ static int bch2_inode_unpack_v2(struct bch_inode_unpacked *unpacked,
 									\
 	unpacked->_name = v[0];						\
 	if (v[1] || v[0] != unpacked->_name)				\
-		return -1;						\
+		return -BCH_ERR_inode_unpack_error;			\
 	fieldnr++;
 
 	BCH_INODE_FIELDS_v2()
@@ -269,7 +269,7 @@ static int bch2_inode_unpack_v3(struct bkey_s_c k,
 									\
 	unpacked->_name = v[0];						\
 	if (v[1] || v[0] != unpacked->_name)				\
-		return -1;						\
+		return -BCH_ERR_inode_unpack_error;			\
 	fieldnr++;
 
 	BCH_INODE_FIELDS_v3()
@@ -886,7 +886,7 @@ bch2_inode_alloc_cursor_get(struct btree_trans *trans, u64 cpu, u64 *min, u64 *m
 {
 	struct bch_fs *c = trans->c;
 
-	u64 cursor_idx = c->opts.shard_inode_numbers ? cpu : 0;
+	u64 cursor_idx = c->opts.inodes_32bit ? 0 : cpu + 1;
 
 	cursor_idx &= ~(~0ULL << c->opts.shard_inode_numbers_bits);
 
@@ -907,19 +907,16 @@ bch2_inode_alloc_cursor_get(struct btree_trans *trans, u64 cpu, u64 *min, u64 *m
 	if (ret)
 		goto err;
 
-	cursor->v.bits = c->opts.shard_inode_numbers_bits;
-
-	unsigned bits = (c->opts.inodes_32bit ? 31 : 63);
-	if (c->opts.shard_inode_numbers) {
-		bits -= cursor->v.bits;
-
-		*min = (cpu << bits);
-		*max = (cpu << bits) | ~(ULLONG_MAX << bits);
-
-		*min = max_t(u64, *min, BLOCKDEV_INODE_MAX);
-	} else {
+	if (c->opts.inodes_32bit) {
 		*min = BLOCKDEV_INODE_MAX;
-		*max = ~(ULLONG_MAX << bits);
+		*max = INT_MAX;
+	} else {
+		cursor->v.bits = c->opts.shard_inode_numbers_bits;
+
+		unsigned bits = 63 - c->opts.shard_inode_numbers_bits;
+
+		*min = max(cpu << bits, (u64) INT_MAX + 1);
+		*max = (cpu << bits) | ~(ULLONG_MAX << bits);
 	}
 
 	if (le64_to_cpu(cursor->v.idx)  < *min)

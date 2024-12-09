@@ -102,7 +102,8 @@ struct bch_inode_generation {
 	x(bi_subvol,			32)	\
 	x(bi_parent_subvol,		32)	\
 	x(bi_nocow,			8)	\
-	x(bi_depth,			32)
+	x(bi_depth,			32)	\
+	x(bi_inodes_32bit,		8)
 
 /* subset of BCH_INODE_FIELDS */
 #define BCH_INODE_OPTS()			\
@@ -115,7 +116,8 @@ struct bch_inode_generation {
 	x(foreground_target,		16)	\
 	x(background_target,		16)	\
 	x(erasure_code,			16)	\
-	x(nocow,			8)
+	x(nocow,			8)	\
+	x(inodes_32bit,			8)
 
 enum inode_opt_id {
 #define x(name, ...)				\

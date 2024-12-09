@@ -933,8 +933,6 @@ int bch2_trigger_alloc(struct btree_trans *trans,
 	if ((flags & BTREE_TRIGGER_atomic) && (flags & BTREE_TRIGGER_insert)) {
 		u64 transaction_seq = trans->journal_res.seq;
 		BUG_ON(!transaction_seq);
-		BUG_ON(transaction_seq < new_a->journal_seq_nonempty);
-		BUG_ON(transaction_seq < new_a->journal_seq_empty);
 
 		if (log_fsck_err_on(transaction_seq && new_a->journal_seq_nonempty > transaction_seq,
 				    trans, alloc_key_journal_seq_in_future,

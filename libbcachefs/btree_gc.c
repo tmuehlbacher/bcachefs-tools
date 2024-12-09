@@ -733,16 +733,8 @@ static int bch2_gc_btrees(struct bch_fs *c)
 			continue;
 
 		ret = bch2_gc_btree(trans, btree, true);
-
-		if (mustfix_fsck_err_on(bch2_err_matches(ret, EIO),
-					trans, btree_node_read_error,
-			       "btree node read error for %s",
-			       (printbuf_reset(&buf),
-				bch2_btree_id_to_text(&buf, btree),
-				buf.buf)))
-			ret = bch2_btree_lost_data(c, btree);
 	}
-fsck_err:
+
 	printbuf_exit(&buf);
 	bch2_trans_put(trans);
 	bch_err_fn(c, ret);
@@ -811,7 +803,6 @@ static int bch2_alloc_write_key(struct btree_trans *trans,
 	old = bch2_alloc_to_v4(k, &old_convert);
 	gc = new = *old;
 
-	percpu_down_read(&c->mark_lock);
 	__bucket_m_to_alloc(&gc, *gc_bucket(ca, iter->pos.offset));
 
 	old_gc = gc;
@@ -822,7 +813,6 @@ static int bch2_alloc_write_key(struct btree_trans *trans,
 		gc.data_type = old->data_type;
 		gc.dirty_sectors = old->dirty_sectors;
 	}
-	percpu_up_read(&c->mark_lock);
 
 	/*
 	 * gc.data_type doesn't yet include need_discard & need_gc_gen states -
@@ -840,11 +830,9 @@ static int bch2_alloc_write_key(struct btree_trans *trans,
 		 * safe w.r.t. transaction restarts, so fixup the gc_bucket so
 		 * we don't run it twice:
 		 */
-		percpu_down_read(&c->mark_lock);
 		struct bucket *gc_m = gc_bucket(ca, iter->pos.offset);
 		gc_m->data_type = gc.data_type;
 		gc_m->dirty_sectors = gc.dirty_sectors;
-		percpu_up_read(&c->mark_lock);
 	}
 
 	if (fsck_err_on(new.data_type != gc.data_type,
@@ -1088,7 +1076,6 @@ static int gc_btree_gens_key(struct btree_trans *trans,
 	if (unlikely(test_bit(BCH_FS_going_ro, &c->flags)))
 		return -EROFS;
 
-	percpu_down_read(&c->mark_lock);
 	rcu_read_lock();
 	bkey_for_each_ptr(ptrs, ptr) {
 		struct bch_dev *ca = bch2_dev_rcu(c, ptr->dev);
@@ -1097,7 +1084,6 @@ static int gc_btree_gens_key(struct btree_trans *trans,
 
 		if (dev_ptr_stale(ca, ptr) > 16) {
 			rcu_read_unlock();
-			percpu_up_read(&c->mark_lock);
 			goto update;
 		}
 	}
@@ -1112,7 +1098,6 @@ static int gc_btree_gens_key(struct btree_trans *trans,
 			*gen = ptr->gen;
 	}
 	rcu_read_unlock();
-	percpu_up_read(&c->mark_lock);
 	return 0;
 update:
 	u = bch2_bkey_make_mut(trans, iter, &k, 0);
@@ -1141,7 +1126,6 @@ static int bch2_alloc_write_oldest_gen(struct btree_trans *trans, struct bch_dev
 		return ret;
 
 	a_mut->v.oldest_gen = ca->oldest_gen[iter->pos.offset];
-	alloc_data_type_set(&a_mut->v, a_mut->v.data_type);
 
 	return bch2_trans_update(trans, iter, &a_mut->k_i, 0);
 }
@@ -1254,9 +1238,16 @@ void bch2_gc_gens_async(struct bch_fs *c)
 		bch2_write_ref_put(c, BCH_WRITE_REF_gc_gens);
 }
 
-void bch2_fs_gc_init(struct bch_fs *c)
+void bch2_fs_btree_gc_exit(struct bch_fs *c)
+{
+}
+
+int bch2_fs_btree_gc_init(struct bch_fs *c)
 {
 	seqcount_init(&c->gc_pos_lock);
-
 	INIT_WORK(&c->gc_gens_work, bch2_gc_gens_work);
+
+	init_rwsem(&c->gc_lock);
+	mutex_init(&c->gc_gens_lock);
+	return 0;
 }

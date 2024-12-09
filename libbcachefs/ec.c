@@ -305,13 +305,12 @@ static int mark_stripe_bucket(struct btree_trans *trans,
 	}
 
 	if (flags & BTREE_TRIGGER_gc) {
-		percpu_down_read(&c->mark_lock);
 		struct bucket *g = gc_bucket(ca, bucket.offset);
 		if (bch2_fs_inconsistent_on(!g, c, "reference to invalid bucket on device %u\n  %s",
 					    ptr->dev,
 					    (bch2_bkey_val_to_text(&buf, c, s.s_c), buf.buf))) {
 			ret = -BCH_ERR_mark_stripe;
-			goto err_unlock;
+			goto err;
 		}
 
 		bucket_lock(g);
@@ -319,8 +318,7 @@ static int mark_stripe_bucket(struct btree_trans *trans,
 		ret = __mark_stripe_bucket(trans, ca, s, ptr_idx, deleting, bucket, &new, flags);
 		alloc_to_bucket(g, new);
 		bucket_unlock(g);
-err_unlock:
-		percpu_up_read(&c->mark_lock);
+
 		if (!ret)
 			ret = bch2_alloc_key_to_dev_counters(trans, ca, &old, &new, flags);
 	}
@@ -1058,6 +1056,11 @@ static inline void ec_stripes_heap_swap(void *l, void *r, void *h)
 	ec_stripes_heap_set_backpointer(_h, j);
 }
 
+static const struct min_heap_callbacks callbacks = {
+	.less = ec_stripes_heap_cmp,
+	.swp = ec_stripes_heap_swap,
+};
+
 static void heap_verify_backpointer(struct bch_fs *c, size_t idx)
 {
 	ec_stripes_heap *h = &c->ec_stripes_heap;
@@ -1070,11 +1073,6 @@ static void heap_verify_backpointer(struct bch_fs *c, size_t idx)
 void bch2_stripes_heap_del(struct bch_fs *c,
 			   struct stripe *m, size_t idx)
 {
-	const struct min_heap_callbacks callbacks = {
-		.less = ec_stripes_heap_cmp,
-		.swp = ec_stripes_heap_swap,
-	};
-
 	mutex_lock(&c->ec_stripes_heap_lock);
 	heap_verify_backpointer(c, idx);
 
@@ -1085,11 +1083,6 @@ void bch2_stripes_heap_del(struct bch_fs *c,
 void bch2_stripes_heap_insert(struct bch_fs *c,
 			      struct stripe *m, size_t idx)
 {
-	const struct min_heap_callbacks callbacks = {
-		.less = ec_stripes_heap_cmp,
-		.swp = ec_stripes_heap_swap,
-	};
-
 	mutex_lock(&c->ec_stripes_heap_lock);
 	BUG_ON(min_heap_full(&c->ec_stripes_heap));
 
@@ -1108,10 +1101,6 @@ void bch2_stripes_heap_insert(struct bch_fs *c,
 void bch2_stripes_heap_update(struct bch_fs *c,
 			      struct stripe *m, size_t idx)
 {
-	const struct min_heap_callbacks callbacks = {
-		.less = ec_stripes_heap_cmp,
-		.swp = ec_stripes_heap_swap,
-	};
 	ec_stripes_heap *h = &c->ec_stripes_heap;
 	bool do_deletes;
 	size_t i;

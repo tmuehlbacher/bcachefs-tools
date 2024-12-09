@@ -1356,6 +1356,9 @@ err:
 	if (bch2_err_matches(ret, BCH_ERR_transaction_restart))
 		goto retry;
 
+	bch2_trans_put(trans);
+	darray_exit(&buckets);
+
 	if (ret) {
 		struct printbuf buf = PRINTBUF;
 		bch2_write_op_error(&buf, op);
@@ -1365,9 +1368,6 @@ err:
 		op->error = ret;
 		op->flags |= BCH_WRITE_SUBMITTED;
 	}
-
-	bch2_trans_put(trans);
-	darray_exit(&buckets);
 
 	/* fallback to cow write path? */
 	if (!(op->flags & BCH_WRITE_SUBMITTED)) {

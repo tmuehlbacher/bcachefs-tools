@@ -152,7 +152,7 @@ static inline void found_btree_node_swap(void *_l, void *_r, void *arg)
 	swap(*l, *r);
 }
 
-const struct min_heap_callbacks found_btree_node_heap_cbs = {
+static const struct min_heap_callbacks found_btree_node_heap_cbs = {
 	.less = found_btree_node_cmp_pos_less,
 	.swp = found_btree_node_swap,
 };

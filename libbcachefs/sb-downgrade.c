@@ -83,7 +83,6 @@
 	  BIT_ULL(BCH_RECOVERY_PASS_check_inodes),		\
 	  BCH_FSCK_ERR_inode_has_child_snapshots_wrong)		\
 	x(backpointer_bucket_gen,				\
-	  BIT_ULL(BCH_RECOVERY_PASS_check_backpointers_to_extents)|\
 	  BIT_ULL(BCH_RECOVERY_PASS_check_extents_to_backpointers),\
 	  BCH_FSCK_ERR_backpointer_to_missing_ptr,		\
 	  BCH_FSCK_ERR_ptr_to_missing_backpointer)		\

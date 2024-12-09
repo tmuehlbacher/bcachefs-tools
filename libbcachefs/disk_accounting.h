@@ -138,7 +138,8 @@ static inline int bch2_accounting_mem_mod_locked(struct btree_trans *trans,
 	bpos_to_disk_accounting_pos(&acc_k, a.k->p);
 	bool gc = mode == BCH_ACCOUNTING_gc;
 
-	EBUG_ON(gc && !acc->gc_running);
+	if (gc && !acc->gc_running)
+		return 0;
 
 	if (!bch2_accounting_is_mem(acc_k))
 		return 0;
@@ -255,7 +256,6 @@ static inline void bch2_accounting_trans_commit_revert(struct btree_trans *trans
 
 int bch2_fs_replicas_usage_read(struct bch_fs *, darray_char *);
 int bch2_fs_accounting_read(struct bch_fs *, darray_char *, unsigned);
-void bch2_fs_accounting_to_text(struct printbuf *, struct bch_fs *);
 
 int bch2_gc_accounting_start(struct bch_fs *);
 int bch2_gc_accounting_done(struct bch_fs *);

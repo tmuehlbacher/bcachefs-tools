@@ -203,7 +203,6 @@ read_attribute(disk_groups);
 
 read_attribute(has_data);
 read_attribute(alloc_debug);
-read_attribute(accounting);
 read_attribute(usage_base);
 
 #define x(t, n, ...) read_attribute(t);
@@ -397,9 +396,6 @@ SHOW(bch2_fs)
 	if (attr == &sysfs_alloc_debug)
 		bch2_fs_alloc_debug_to_text(out, c);
 
-	if (attr == &sysfs_accounting)
-		bch2_fs_accounting_to_text(out, c);
-
 	if (attr == &sysfs_usage_base)
 		bch2_fs_usage_base_to_text(out, c);
 
@@ -509,15 +505,22 @@ SHOW(bch2_fs_counters)
 
 	printbuf_tabstop_push(out, 32);
 
-	#define x(t, ...) \
+	#define x(t, n, f, ...) \
 		if (attr == &sysfs_##t) {					\
 			counter             = percpu_u64_get(&c->counters[BCH_COUNTER_##t]);\
 			counter_since_mount = counter - c->counters_on_mount[BCH_COUNTER_##t];\
+			if (f & TYPE_SECTORS) {					\
+				counter <<= 9;					\
+				counter_since_mount <<= 9;			\
+			}							\
+										\
 			prt_printf(out, "since mount:\t");			\
+			(f & TYPE_COUNTER) ? prt_u64(out, counter_since_mount) :\
 			prt_human_readable_u64(out, counter_since_mount);	\
 			prt_newline(out);					\
 										\
 			prt_printf(out, "since filesystem creation:\t");	\
+			(f & TYPE_COUNTER) ? prt_u64(out, counter) :		\
 			prt_human_readable_u64(out, counter);			\
 			prt_newline(out);					\
 		}
@@ -595,7 +598,6 @@ struct attribute *bch2_fs_internal_files[] = {
 
 	&sysfs_disk_groups,
 	&sysfs_alloc_debug,
-	&sysfs_accounting,
 	&sysfs_usage_base,
 	NULL
 };

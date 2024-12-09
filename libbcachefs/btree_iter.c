@@ -699,6 +699,19 @@ void bch2_trans_node_add(struct btree_trans *trans,
 	bch2_trans_revalidate_updates_in_node(trans, b);
 }
 
+void bch2_trans_node_drop(struct btree_trans *trans,
+			  struct btree *b)
+{
+	struct btree_path *path;
+	unsigned i, level = b->c.level;
+
+	trans_for_each_path(trans, path, i)
+		if (path->l[level].b == b) {
+			btree_node_unlock(trans, path, level);
+			path->l[level].b = ERR_PTR(-BCH_ERR_no_btree_node_init);
+		}
+}
+
 /*
  * A btree node has been modified in such a way as to invalidate iterators - fix
  * them:
@@ -1854,7 +1867,7 @@ struct bkey_s_c bch2_btree_path_peek_slot(struct btree_path *path, struct bkey *
 			!bkey_eq(path->pos, ck->key.pos));
 
 		*u = ck->k->k;
-		k = bkey_i_to_s_c(ck->k);
+		k = (struct bkey_s_c) { u, &ck->k->v };
 	}
 
 	return k;
@@ -2144,21 +2157,18 @@ struct bkey_s_c btree_trans_peek_slot_journal(struct btree_trans *trans,
 }
 
 static noinline
-struct bkey_s_c btree_trans_peek_journal(struct btree_trans *trans,
-					 struct btree_iter *iter,
-					 struct bkey_s_c k)
+void btree_trans_peek_journal(struct btree_trans *trans,
+			      struct btree_iter *iter,
+			      struct bkey_s_c *k)
 {
 	struct btree_path *path = btree_iter_path(trans, iter);
 	struct bkey_i *next_journal =
 		bch2_btree_journal_peek(trans, iter,
-				k.k ? k.k->p : path_l(path)->b->key.k.p);
-
+				k->k ? k->k->p : path_l(path)->b->key.k.p);
 	if (next_journal) {
 		iter->k = next_journal->k;
-		k = bkey_i_to_s_c(next_journal);
+		*k = bkey_i_to_s_c(next_journal);
 	}
-
-	return k;
 }
 
 static struct bkey_i *bch2_btree_journal_peek_prev(struct btree_trans *trans,
@@ -2175,21 +2185,19 @@ static struct bkey_i *bch2_btree_journal_peek_prev(struct btree_trans *trans,
 }
 
 static noinline
-struct bkey_s_c btree_trans_peek_prev_journal(struct btree_trans *trans,
-					 struct btree_iter *iter,
-					 struct bkey_s_c k)
+void btree_trans_peek_prev_journal(struct btree_trans *trans,
+				   struct btree_iter *iter,
+				   struct bkey_s_c *k)
 {
 	struct btree_path *path = btree_iter_path(trans, iter);
 	struct bkey_i *next_journal =
 		bch2_btree_journal_peek_prev(trans, iter,
-				k.k ? k.k->p : path_l(path)->b->key.k.p);
+				k->k ? k->k->p : path_l(path)->b->key.k.p);
 
 	if (next_journal) {
 		iter->k = next_journal->k;
-		k = bkey_i_to_s_c(next_journal);
+		*k = bkey_i_to_s_c(next_journal);
 	}
-
-	return k;
 }
 
 /*
@@ -2234,10 +2242,15 @@ struct bkey_s_c btree_trans_peek_key_cache(struct btree_iter *iter, struct bpos 
 	btree_path_set_should_be_locked(trans, trans->paths + iter->key_cache_path);
 
 	k = bch2_btree_path_peek_slot(trans->paths + iter->key_cache_path, &u);
-	if (k.k && !bkey_err(k)) {
-		iter->k = u;
-		k.k = &iter->k;
-	}
+	if (!k.k)
+		return k;
+
+	if ((iter->flags & BTREE_ITER_all_snapshots) &&
+	    !bpos_eq(pos, k.k->p))
+		return bkey_s_c_null;
+
+	iter->k = u;
+	k.k = &iter->k;
 	return k;
 }
 
@@ -2260,7 +2273,7 @@ static struct bkey_s_c __bch2_btree_iter_peek(struct btree_iter *iter, struct bp
 			/* ensure that iter->k is consistent with iter->pos: */
 			bch2_btree_iter_set_pos(iter, iter->pos);
 			k = bkey_s_c_err(ret);
-			goto out;
+			break;
 		}
 
 		struct btree_path *path = btree_iter_path(trans, iter);
@@ -2270,7 +2283,7 @@ static struct bkey_s_c __bch2_btree_iter_peek(struct btree_iter *iter, struct bp
 			/* No btree nodes at requested level: */
 			bch2_btree_iter_set_pos(iter, SPOS_MAX);
 			k = bkey_s_c_null;
-			goto out;
+			break;
 		}
 
 		btree_path_set_should_be_locked(trans, path);
@@ -2281,15 +2294,14 @@ static struct bkey_s_c __bch2_btree_iter_peek(struct btree_iter *iter, struct bp
 		    k.k &&
 		    (k2 = btree_trans_peek_key_cache(iter, k.k->p)).k) {
 			k = k2;
-			ret = bkey_err(k);
-			if (ret) {
+			if (bkey_err(k)) {
 				bch2_btree_iter_set_pos(iter, iter->pos);
-				goto out;
+				break;
 			}
 		}
 
 		if (unlikely(iter->flags & BTREE_ITER_with_journal))
-			k = btree_trans_peek_journal(trans, iter, k);
+			btree_trans_peek_journal(trans, iter, &k);
 
 		if (unlikely((iter->flags & BTREE_ITER_with_updates) &&
 			     trans->nr_updates))
@@ -2318,12 +2330,11 @@ static struct bkey_s_c __bch2_btree_iter_peek(struct btree_iter *iter, struct bp
 			/* End of btree: */
 			bch2_btree_iter_set_pos(iter, SPOS_MAX);
 			k = bkey_s_c_null;
-			goto out;
+			break;
 		}
 	}
-out:
-	bch2_btree_iter_verify(iter);
 
+	bch2_btree_iter_verify(iter);
 	return k;
 }
 
@@ -2424,7 +2435,8 @@ struct bkey_s_c bch2_btree_iter_peek_max(struct btree_iter *iter, struct bpos en
 				continue;
 			}
 
-			if (bkey_whiteout(k.k)) {
+			if (bkey_whiteout(k.k) &&
+			    !(iter->flags & BTREE_ITER_key_cache_fill)) {
 				search_key = bkey_successor(iter, k.k->p);
 				continue;
 			}
@@ -2547,7 +2559,7 @@ static struct bkey_s_c __bch2_btree_iter_peek_prev(struct btree_iter *iter, stru
 		}
 
 		if (unlikely(iter->flags & BTREE_ITER_with_journal))
-			k = btree_trans_peek_prev_journal(trans, iter, k);
+			btree_trans_peek_prev_journal(trans, iter, &k);
 
 		if (unlikely((iter->flags & BTREE_ITER_with_updates) &&
 			     trans->nr_updates))
@@ -2784,6 +2796,11 @@ struct bkey_s_c bch2_btree_iter_peek_slot(struct btree_iter *iter)
 		k = bch2_btree_path_peek_slot(trans->paths + iter->path, &iter->k);
 		if (unlikely(!k.k))
 			goto out_no_locked;
+
+		if (unlikely(k.k->type == KEY_TYPE_whiteout &&
+			     (iter->flags & BTREE_ITER_filter_snapshots) &&
+			     !(iter->flags & BTREE_ITER_key_cache_fill)))
+			iter->k.type = KEY_TYPE_deleted;
 	} else {
 		struct bpos next;
 		struct bpos end = iter->pos;
@@ -3028,7 +3045,7 @@ void bch2_trans_iter_init_outlined(struct btree_trans *trans,
 			  unsigned flags)
 {
 	bch2_trans_iter_init_common(trans, iter, btree_id, pos, 0, 0,
-			       bch2_btree_iter_flags(trans, btree_id, flags),
+			       bch2_btree_iter_flags(trans, btree_id, 0, flags),
 			       _RET_IP_);
 }
 
@@ -3044,8 +3061,11 @@ void bch2_trans_node_iter_init(struct btree_trans *trans,
 	flags |= BTREE_ITER_snapshot_field;
 	flags |= BTREE_ITER_all_snapshots;
 
+	if (!depth && btree_id_cached(trans->c, btree_id))
+		flags |= BTREE_ITER_with_key_cache;
+
 	bch2_trans_iter_init_common(trans, iter, btree_id, pos, locks_want, depth,
-			       __bch2_btree_iter_flags(trans, btree_id, flags),
+			       bch2_btree_iter_flags(trans, btree_id, depth, flags),
 			       _RET_IP_);
 
 	iter->min_depth	= depth;
