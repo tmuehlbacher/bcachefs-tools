@@ -72,6 +72,7 @@ int cmd_set_option(int argc, char *argv[])
 			if (kstrtoint(optarg, 10, &dev_idx))
 				die("error parsing %s", optarg);
 			darray_push(&dev_idxs, dev_idx);
+			break;
 		}
 		case 'h':
 			set_option_usage();
