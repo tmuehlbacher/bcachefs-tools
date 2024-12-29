@@ -188,12 +188,12 @@ static inline i_type a_type##_read_acquire(const a_type##_t *v)		\
 									\
 static inline void a_type##_set(a_type##_t *v, i_type i)		\
 {									\
-	return __ATOMIC_SET(&v->counter, i);				\
+	__ATOMIC_SET(&v->counter, i);					\
 }									\
 									\
 static inline void a_type##_set_release(a_type##_t *v, i_type i)	\
 {									\
-	return __ATOMIC_SET_RELEASE(&v->counter, i);			\
+	__ATOMIC_SET_RELEASE(&v->counter, i);				\
 }									\
 									\
 static inline i_type a_type##_add_return(i_type i, a_type##_t *v)	\
