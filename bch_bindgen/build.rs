@@ -63,7 +63,6 @@ fn main() {
         .allowlist_function("printbuf.*")
         .blocklist_type("rhash_lock_head")
         .blocklist_type("srcu_struct")
-        .blocklist_type("bch_ioctl_data.*")
         .allowlist_var("BCH_.*")
         .allowlist_var("KEY_SPEC_.*")
         .allowlist_var("Fix753_.*")

@@ -444,7 +444,7 @@ retry:
 	ret = __bch2_read_extent(trans, rbio, bvec_iter,
 				 rbio->read_pos,
 				 rbio->data_btree,
-				 k, 0, failed, flags);
+				 k, 0, failed, flags, -1);
 	if (ret == READ_RETRY)
 		goto retry;
 	if (ret)
@@ -499,6 +499,7 @@ static void bch2_rbio_error(struct bch_read_bio *rbio, int retry,
 			    blk_status_t error)
 {
 	rbio->retry = retry;
+	rbio->saw_error = true;
 
 	if (rbio->flags & BCH_READ_IN_RETRY)
 		return;
@@ -740,7 +741,7 @@ static void __bch2_read_endio(struct work_struct *work)
 			bio_copy_data_iter(dst, &dst_iter, src, &src_iter);
 		}
 	}
-
+nodecode:
 	if (rbio->promote) {
 		/*
 		 * Re encrypt data we decrypted, so it's consistent with
@@ -753,7 +754,7 @@ static void __bch2_read_endio(struct work_struct *work)
 		promote_start(rbio->promote, rbio);
 		rbio->promote = NULL;
 	}
-nodecode:
+
 	if (likely(!(rbio->flags & BCH_READ_IN_RETRY))) {
 		rbio = bch2_rbio_free(rbio);
 		bch2_rbio_done(rbio);
@@ -878,7 +879,7 @@ int __bch2_read_extent(struct btree_trans *trans, struct bch_read_bio *orig,
 		       struct bvec_iter iter, struct bpos read_pos,
 		       enum btree_id data_btree, struct bkey_s_c k,
 		       unsigned offset_into_extent,
-		       struct bch_io_failures *failed, unsigned flags)
+		       struct bch_io_failures *failed, unsigned flags, int dev)
 {
 	struct bch_fs *c = trans->c;
 	struct extent_ptr_decoded pick;
@@ -887,6 +888,8 @@ int __bch2_read_extent(struct btree_trans *trans, struct bch_read_bio *orig,
 	bool bounce = false, read_full = false, narrow_crcs = false;
 	struct bpos data_pos = bkey_start_pos(k.k);
 	int pick_ret;
+
+	//BUG_ON(failed && failed->nr);
 
 	if (bkey_extent_is_inline_data(k.k)) {
 		unsigned bytes = min_t(unsigned, iter.bi_size,
@@ -900,7 +903,7 @@ int __bch2_read_extent(struct btree_trans *trans, struct bch_read_bio *orig,
 		goto out_read_done;
 	}
 retry_pick:
-	pick_ret = bch2_bkey_pick_read_device(c, k, failed, &pick);
+	pick_ret = bch2_bkey_pick_read_device(c, k, failed, &pick, dev);
 
 	/* hole or reservation - just zero fill: */
 	if (!pick_ret)
@@ -952,7 +955,30 @@ retry_pick:
 	 */
 	bch2_trans_unlock(trans);
 
-	if (flags & BCH_READ_NODECODE) {
+	if (!(flags & BCH_READ_NODECODE)) {
+		if (!(flags & BCH_READ_LAST_FRAGMENT) ||
+		    bio_flagged(&orig->bio, BIO_CHAIN))
+			flags |= BCH_READ_MUST_CLONE;
+
+		narrow_crcs = !(flags & BCH_READ_IN_RETRY) &&
+			bch2_can_narrow_extent_crcs(k, pick.crc);
+
+		if (narrow_crcs && (flags & BCH_READ_USER_MAPPED))
+			flags |= BCH_READ_MUST_BOUNCE;
+
+		EBUG_ON(offset_into_extent + bvec_iter_sectors(iter) > k.k->size);
+
+		if (crc_is_compressed(pick.crc) ||
+		    (pick.crc.csum_type != BCH_CSUM_none &&
+		     (bvec_iter_sectors(iter) != pick.crc.uncompressed_size ||
+		      (bch2_csum_type_is_encryption(pick.crc.csum_type) &&
+		       (flags & BCH_READ_USER_MAPPED)) ||
+		      (flags & BCH_READ_MUST_BOUNCE)))) {
+			read_full = true;
+			bounce = true;
+		}
+	} else {
+		read_full = true;
 		/*
 		 * can happen if we retry, and the extent we were going to read
 		 * has been merged in the meantime:
@@ -964,32 +990,10 @@ retry_pick:
 		}
 
 		iter.bi_size	= pick.crc.compressed_size << 9;
-		goto get_bio;
 	}
 
-	if (!(flags & BCH_READ_LAST_FRAGMENT) ||
-	    bio_flagged(&orig->bio, BIO_CHAIN))
-		flags |= BCH_READ_MUST_CLONE;
-
-	narrow_crcs = !(flags & BCH_READ_IN_RETRY) &&
-		bch2_can_narrow_extent_crcs(k, pick.crc);
-
-	if (narrow_crcs && (flags & BCH_READ_USER_MAPPED))
-		flags |= BCH_READ_MUST_BOUNCE;
-
-	EBUG_ON(offset_into_extent + bvec_iter_sectors(iter) > k.k->size);
-
-	if (crc_is_compressed(pick.crc) ||
-	    (pick.crc.csum_type != BCH_CSUM_none &&
-	     (bvec_iter_sectors(iter) != pick.crc.uncompressed_size ||
-	      (bch2_csum_type_is_encryption(pick.crc.csum_type) &&
-	       (flags & BCH_READ_USER_MAPPED)) ||
-	      (flags & BCH_READ_MUST_BOUNCE)))) {
-		read_full = true;
-		bounce = true;
-	}
-
-	if (orig->opts.promote_target)// || failed)
+	if ((orig->opts.promote_target && !(flags & BCH_READ_NODECODE)) ||
+	    (failed && failed->nr))
 		promote = promote_alloc(trans, iter, k, &pick, orig->opts, flags,
 					&rbio, &bounce, &read_full, failed);
 
@@ -1010,7 +1014,7 @@ retry_pick:
 		pick.crc.offset			= 0;
 		pick.crc.live_size		= bvec_iter_sectors(iter);
 	}
-get_bio:
+
 	if (rbio) {
 		/*
 		 * promote already allocated bounce rbio:
@@ -1261,7 +1265,7 @@ void __bch2_read(struct bch_fs *c, struct bch_read_bio *rbio,
 
 		ret = __bch2_read_extent(trans, rbio, bvec_iter, iter.pos,
 					 data_btree, k,
-					 offset_into_extent, failed, flags);
+					 offset_into_extent, failed, flags, -1);
 		if (ret)
 			goto err;
 
