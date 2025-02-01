@@ -15,6 +15,7 @@ int cmd_reset_counters(int argc, char *argv[]);
 int cmd_set_option(int argc, char *argv[]);
 
 int cmd_fs_usage(int argc, char *argv[]);
+int cmd_fs_top(int argc, char *argv[]);
 
 int device_usage(void);
 int cmd_device_add(int argc, char *argv[]);

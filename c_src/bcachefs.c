@@ -52,6 +52,7 @@ void bcachefs_usage(void)
 #endif
 	     "Commands for managing a running filesystem:\n"
 	     "  fs usage                 Show disk usage\n"
+	     "  fs top                   Show runtime performance information\n"
 	     "\n"
 	     "Commands for managing devices within a running filesystem:\n"
 	     "  device add               Add a new device to an existing filesystem\n"
@@ -119,6 +120,8 @@ int fs_cmds(int argc, char *argv[])
 	}
 	if (!strcmp(cmd, "usage"))
 		return cmd_fs_usage(argc, argv);
+	if (!strcmp(cmd, "top"))
+		return cmd_fs_top(argc, argv);
 
 	return 0;
 }
