@@ -237,6 +237,17 @@ static void accounting_sort(darray_accounting_p *sorted,
 	sort(sorted->data, sorted->nr, sizeof(sorted->data[0]), accounting_p_cmp, NULL);
 }
 
+static void accounting_swab_if_old(struct bch_ioctl_query_accounting *in)
+{
+	u64 kernel_version = read_file_u64(AT_FDCWD, "/sys/module/bcachefs/parameters/version");
+
+	if (kernel_version < bcachefs_metadata_version_disk_accounting_big_endian)
+		for (struct bkey_i_accounting *a = in->accounting;
+		     a < (struct bkey_i_accounting *) ((u64 *) in->accounting + in->accounting_u64s);
+		     a = bkey_i_to_accounting(bkey_next(&a->k_i)))
+			bch2_bpos_swab(&a->k.p);
+}
+
 static int fs_usage_v1_to_text(struct printbuf *out,
 			       struct bchfs_handle fs,
 			       dev_names dev_names)
@@ -250,6 +261,8 @@ static int fs_usage_v1_to_text(struct printbuf *out,
 			BIT(BCH_DISK_ACCOUNTING_rebalance_work));
 	if (!a)
 		return -1;
+
+	accounting_swab_if_old(a);
 
 	darray_accounting_p a_sorted = {};
 
