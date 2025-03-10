@@ -207,6 +207,7 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 	sb.sb->magic		= BCHFS_MAGIC;
 	sb.sb->user_uuid	= opts.uuid;
 	sb.sb->nr_devices	= nr_devs;
+	SET_BCH_SB_VERSION_INCOMPAT_ALLOWED(sb.sb, opts.version);
 
 	if (opts.version == bcachefs_metadata_version_current)
 		sb.sb->features[0] |= cpu_to_le64(BCH_SB_FEATURES_ALL);
