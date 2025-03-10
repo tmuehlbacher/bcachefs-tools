@@ -28,6 +28,13 @@
 #include "trace.h"
 #include "util.h"
 
+static const char * const bch2_extent_flags_strs[] = {
+#define x(n, v)	[BCH_EXTENT_FLAG_##n] = #n,
+	BCH_EXTENT_FLAGS()
+#undef x
+	NULL,
+};
+
 static unsigned bch2_crc_field_size_max[] = {
 	[BCH_EXTENT_ENTRY_crc32] = CRC32_SIZE_MAX,
 	[BCH_EXTENT_ENTRY_crc64] = CRC64_SIZE_MAX,
@@ -51,7 +58,8 @@ struct bch_dev_io_failures *bch2_dev_io_failures(struct bch_io_failures *f,
 }
 
 void bch2_mark_io_failure(struct bch_io_failures *failed,
-			  struct extent_ptr_decoded *p)
+			  struct extent_ptr_decoded *p,
+			  bool csum_error)
 {
 	struct bch_dev_io_failures *f = bch2_dev_io_failures(failed, p->ptr.dev);
 
@@ -59,23 +67,26 @@ void bch2_mark_io_failure(struct bch_io_failures *failed,
 		BUG_ON(failed->nr >= ARRAY_SIZE(failed->devs));
 
 		f = &failed->devs[failed->nr++];
-		f->dev		= p->ptr.dev;
-		f->idx		= p->idx;
-		f->nr_failed	= 1;
-		f->nr_retries	= 0;
-	} else if (p->idx != f->idx) {
-		f->idx		= p->idx;
-		f->nr_failed	= 1;
-		f->nr_retries	= 0;
-	} else {
-		f->nr_failed++;
+		memset(f, 0, sizeof(*f));
+		f->dev = p->ptr.dev;
 	}
+
+	if (p->do_ec_reconstruct)
+		f->failed_ec = true;
+	else if (!csum_error)
+		f->failed_io = true;
+	else
+		f->failed_csum_nr++;
 }
 
-static inline u64 dev_latency(struct bch_fs *c, unsigned dev)
+static inline u64 dev_latency(struct bch_dev *ca)
 {
-	struct bch_dev *ca = bch2_dev_rcu(c, dev);
 	return ca ? atomic64_read(&ca->cur_latency[READ]) : S64_MAX;
+}
+
+static inline int dev_failed(struct bch_dev *ca)
+{
+	return !ca || ca->mi.state == BCH_MEMBER_STATE_failed;
 }
 
 /*
@@ -85,9 +96,18 @@ static inline bool ptr_better(struct bch_fs *c,
 			      const struct extent_ptr_decoded p1,
 			      const struct extent_ptr_decoded p2)
 {
-	if (likely(!p1.idx && !p2.idx)) {
-		u64 l1 = dev_latency(c, p1.ptr.dev);
-		u64 l2 = dev_latency(c, p2.ptr.dev);
+	if (likely(!p1.do_ec_reconstruct &&
+		   !p2.do_ec_reconstruct)) {
+		struct bch_dev *ca1 = bch2_dev_rcu(c, p1.ptr.dev);
+		struct bch_dev *ca2 = bch2_dev_rcu(c, p2.ptr.dev);
+
+		int failed_delta = dev_failed(ca1) - dev_failed(ca2);
+
+		if (failed_delta)
+			return failed_delta < 0;
+
+		u64 l1 = dev_latency(ca1);
+		u64 l2 = dev_latency(ca2);
 
 		/*
 		 * Square the latencies, to bias more in favor of the faster
@@ -103,9 +123,9 @@ static inline bool ptr_better(struct bch_fs *c,
 	}
 
 	if (bch2_force_reconstruct_read)
-		return p1.idx > p2.idx;
+		return p1.do_ec_reconstruct > p2.do_ec_reconstruct;
 
-	return p1.idx < p2.idx;
+	return p1.do_ec_reconstruct < p2.do_ec_reconstruct;
 }
 
 /*
@@ -114,19 +134,24 @@ static inline bool ptr_better(struct bch_fs *c,
  * other devices, it will still pick a pointer from avoid.
  */
 int bch2_bkey_pick_read_device(struct bch_fs *c, struct bkey_s_c k,
-			      struct bch_io_failures *failed,
-			      struct extent_ptr_decoded *pick,
-			      int dev)
+			       struct bch_io_failures *failed,
+			       struct extent_ptr_decoded *pick,
+			       int dev)
 {
 	struct bkey_ptrs_c ptrs = bch2_bkey_ptrs_c(k);
 	const union bch_extent_entry *entry;
 	struct extent_ptr_decoded p;
 	struct bch_dev_io_failures *f;
+	unsigned csum_retry = 0;
+	bool have_csum_retries = false;
 	int ret = 0;
 
 	if (k.k->type == KEY_TYPE_error)
 		return -BCH_ERR_key_type_error;
 
+	if (bch2_bkey_extent_ptrs_flags(ptrs) & BCH_EXTENT_FLAG_poisoned)
+		return -BCH_ERR_extent_poisened;
+again:
 	rcu_read_lock();
 	bkey_for_each_ptr_decode(k.k, ptrs, p, entry) {
 		/*
@@ -154,20 +179,28 @@ int bch2_bkey_pick_read_device(struct bch_fs *c, struct bkey_s_c k,
 		if (p.ptr.cached && (!ca || dev_ptr_stale_rcu(ca, &p.ptr)))
 			continue;
 
-		f = failed ? bch2_dev_io_failures(failed, p.ptr.dev) : NULL;
-		if (f)
-			p.idx = f->nr_failed < f->nr_retries
-				? f->idx
-				: f->idx + 1;
+		if (unlikely(failed) &&
+		    (f = bch2_dev_io_failures(failed, p.ptr.dev))) {
+			have_csum_retries |= !f->failed_io && f->failed_csum_nr < BCH_MAX_CSUM_RETRIES;
 
-		if (!p.idx && (!ca || !bch2_dev_is_readable(ca)))
-			p.idx++;
+			if (p.has_ec &&
+			    !f->failed_ec &&
+			    (f->failed_io || f->failed_csum_nr))
+				p.do_ec_reconstruct = true;
+			else if (f->failed_io ||
+				 f->failed_csum_nr > csum_retry)
+				continue;
+		}
 
-		if (!p.idx && p.has_ec && bch2_force_reconstruct_read)
-			p.idx++;
+		if (!ca || !bch2_dev_is_online(ca)) {
+			if (p.has_ec)
+				p.do_ec_reconstruct = true;
+			else
+				continue;
+		}
 
-		if (p.idx > (unsigned) p.has_ec)
-			continue;
+		if (p.has_ec && bch2_force_reconstruct_read)
+			p.do_ec_reconstruct = true;
 
 		if (ret > 0 && !ptr_better(c, p, *pick))
 			continue;
@@ -176,6 +209,13 @@ int bch2_bkey_pick_read_device(struct bch_fs *c, struct bkey_s_c k,
 		ret = 1;
 	}
 	rcu_read_unlock();
+
+	if (unlikely(ret == -BCH_ERR_no_device_to_read_from &&
+		     have_csum_retries &&
+		     csum_retry < BCH_MAX_CSUM_RETRIES)) {
+		csum_retry++;
+		goto again;
+	}
 
 	return ret;
 }
@@ -1002,7 +1042,7 @@ static bool want_cached_ptr(struct bch_fs *c, struct bch_io_opts *opts,
 
 	struct bch_dev *ca = bch2_dev_rcu_noerror(c, ptr->dev);
 
-	return ca && bch2_dev_is_readable(ca) && !dev_ptr_stale_rcu(ca, ptr);
+	return ca && bch2_dev_is_healthy(ca) && !dev_ptr_stale_rcu(ca, ptr);
 }
 
 void bch2_extent_ptr_set_cached(struct bch_fs *c,
@@ -1225,6 +1265,10 @@ void bch2_bkey_ptrs_to_text(struct printbuf *out, struct bch_fs *c,
 			bch2_extent_rebalance_to_text(out, c, &entry->rebalance);
 			break;
 
+		case BCH_EXTENT_ENTRY_flags:
+			prt_bitflags(out, bch2_extent_flags_strs, entry->flags.flags);
+			break;
+
 		default:
 			prt_printf(out, "(invalid extent entry %.16llx)", *((u64 *) entry));
 			return;
@@ -1386,6 +1430,11 @@ int bch2_bkey_ptrs_validate(struct bch_fs *c, struct bkey_s_c k,
 #endif
 			break;
 		}
+		case BCH_EXTENT_ENTRY_flags:
+			bkey_fsck_err_on(entry != ptrs.start,
+					 c, extent_flags_not_at_start,
+					 "extent flags entry not at start");
+			break;
 		}
 	}
 
@@ -1452,6 +1501,28 @@ void bch2_ptr_swab(struct bkey_s k)
 	}
 }
 
+int bch2_bkey_extent_flags_set(struct bch_fs *c, struct bkey_i *k, u64 flags)
+{
+	int ret = bch2_request_incompat_feature(c, bcachefs_metadata_version_extent_flags);
+	if (ret)
+		return ret;
+
+	struct bkey_ptrs ptrs = bch2_bkey_ptrs(bkey_i_to_s(k));
+
+	if (ptrs.start != ptrs.end &&
+	    extent_entry_type(ptrs.start) == BCH_EXTENT_ENTRY_flags) {
+		ptrs.start->flags.flags = flags;
+	} else {
+		struct bch_extent_flags f = {
+			.type	= BIT(BCH_EXTENT_ENTRY_flags),
+			.flags	= flags,
+		};
+		__extent_entry_insert(k, ptrs.start, (union bch_extent_entry *) &f);
+	}
+
+	return 0;
+}
+
 /* Generic extent code: */
 
 int bch2_cut_front_s(struct bpos where, struct bkey_s k)
@@ -1497,8 +1568,8 @@ int bch2_cut_front_s(struct bpos where, struct bkey_s k)
 				entry->crc128.offset += sub;
 				break;
 			case BCH_EXTENT_ENTRY_stripe_ptr:
-				break;
 			case BCH_EXTENT_ENTRY_rebalance:
+			case BCH_EXTENT_ENTRY_flags:
 				break;
 			}
 

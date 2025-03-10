@@ -125,8 +125,8 @@ static void move_write(struct moving_io *io)
 				     &ctxt->stats->sectors_error_corrected);
 	}
 
-	if (unlikely(io->write.rbio.bio.bi_status ||
-		     io->write.rbio.hole ||
+	if (unlikely(io->write.rbio.ret ||
+		     io->write.rbio.bio.bi_status ||
 		     io->write.data_opts.scrub)) {
 		move_free(io);
 		return;
@@ -816,7 +816,7 @@ static int __bch2_move_data_phys(struct moving_context *ctxt,
 		if (!bp.v->level)
 			ret = bch2_move_extent(ctxt, bucket_in_flight, &iter, k, io_opts, data_opts);
 		else if (!data_opts.scrub)
-			ret = bch2_btree_node_rewrite_key(trans, bp.v->btree_id, bp.v->level, k.k->p, 0);
+			ret = bch2_btree_node_rewrite_pos(trans, bp.v->btree_id, bp.v->level, k.k->p, 0);
 		else
 			ret = bch2_btree_node_scrub(trans, bp.v->btree_id, bp.v->level, k, data_opts.read_dev);
 
