@@ -21,19 +21,18 @@ struct bch_extent_crc_unpacked {
 
 struct extent_ptr_decoded {
 	bool				has_ec;
-	unsigned			do_ec_reconstruct;
+	bool				do_ec_reconstruct;
+	u8				crc_retry_nr;
 	struct bch_extent_crc_unpacked	crc;
 	struct bch_extent_ptr		ptr;
 	struct bch_extent_stripe_ptr	ec;
 };
 
-#define BCH_MAX_CSUM_RETRIES		3
-
 struct bch_io_failures {
 	u8			nr;
 	struct bch_dev_io_failures {
 		u8		dev;
-		unsigned	failed_csum_nr:4,
+		unsigned	failed_csum_nr:6,
 				failed_io:1,
 				failed_ec:1;
 	}			devs[BCH_REPLICAS_MAX + 1];

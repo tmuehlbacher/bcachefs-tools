@@ -231,6 +231,7 @@
 	x(BCH_ERR_invalid_sb,		invalid_sb_csum)			\
 	x(BCH_ERR_invalid_sb,		invalid_sb_block_size)			\
 	x(BCH_ERR_invalid_sb,		invalid_sb_uuid)			\
+	x(BCH_ERR_invalid_sb,		invalid_sb_offset)			\
 	x(BCH_ERR_invalid_sb,		invalid_sb_too_many_members)		\
 	x(BCH_ERR_invalid_sb,		invalid_sb_dev_idx)			\
 	x(BCH_ERR_invalid_sb,		invalid_sb_time_precision)		\
@@ -273,21 +274,25 @@
 	x(EIO,				stripe_reconstruct)			\
 	x(EIO,				key_type_error)				\
 	x(EIO,				extent_poisened)			\
-	x(EIO,				no_device_to_read_from)			\
 	x(EIO,				missing_indirect_extent)		\
 	x(EIO,				invalidate_stripe_to_dev)		\
 	x(EIO,				no_encryption_key)			\
 	x(EIO,				insufficient_journal_devices)		\
 	x(EIO,				device_offline)				\
 	x(EIO,				EIO_fault_injected)			\
+	x(EIO,				ec_block_read)				\
+	x(EIO,				ec_block_write)				\
 	x(EIO,				data_read)				\
+	x(BCH_ERR_data_read,		no_device_to_read_from)			\
+	x(BCH_ERR_data_read,		data_read_io_err)			\
+	x(BCH_ERR_data_read,		data_read_csum_err)			\
 	x(BCH_ERR_data_read,		data_read_retry)			\
 	x(BCH_ERR_data_read_retry,	data_read_retry_avoid)			\
-	x(BCH_ERR_data_read_retry_avoid,data_read_device_offline)		\
-	x(BCH_ERR_data_read_retry_avoid,data_read_io_err)			\
-	x(BCH_ERR_data_read_retry_avoid,data_read_ec_reconstruct_err)		\
-	x(BCH_ERR_data_read_retry_avoid,data_read_csum_err)			\
-	x(BCH_ERR_data_read_retry,	data_read_csum_err_maybe_userspace)	\
+	x(BCH_ERR_data_read_retry_avoid,data_read_retry_device_offline)		\
+	x(BCH_ERR_data_read_retry_avoid,data_read_retry_io_err)			\
+	x(BCH_ERR_data_read_retry_avoid,data_read_retry_ec_reconstruct_err)	\
+	x(BCH_ERR_data_read_retry_avoid,data_read_retry_csum_err)		\
+	x(BCH_ERR_data_read_retry,	data_read_retry_csum_err_maybe_userspace)\
 	x(BCH_ERR_data_read,		data_read_decompress_err)		\
 	x(BCH_ERR_data_read,		data_read_decrypt_err)			\
 	x(BCH_ERR_data_read,		data_read_ptr_stale_race)		\

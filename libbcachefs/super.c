@@ -75,9 +75,6 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Kent Overstreet <kent.overstreet@gmail.com>");
 MODULE_DESCRIPTION("bcachefs filesystem");
-MODULE_SOFTDEP("pre: crc32c");
-MODULE_SOFTDEP("pre: crc64");
-MODULE_SOFTDEP("pre: sha256");
 MODULE_SOFTDEP("pre: chacha20");
 MODULE_SOFTDEP("pre: poly1305");
 MODULE_SOFTDEP("pre: xxhash");
@@ -1838,7 +1835,11 @@ int bch2_dev_add(struct bch_fs *c, const char *path)
 		goto err_late;
 
 	up_write(&c->state_lock);
-	return 0;
+out:
+	printbuf_exit(&label);
+	printbuf_exit(&errbuf);
+	bch_err_fn(c, ret);
+	return ret;
 
 err_unlock:
 	mutex_unlock(&c->sb_lock);
@@ -1847,10 +1848,7 @@ err:
 	if (ca)
 		bch2_dev_free(ca);
 	bch2_free_super(&sb);
-	printbuf_exit(&label);
-	printbuf_exit(&errbuf);
-	bch_err_fn(c, ret);
-	return ret;
+	goto out;
 err_late:
 	up_write(&c->state_lock);
 	ca = NULL;

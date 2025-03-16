@@ -34,6 +34,12 @@
 #include <linux/random.h>
 #include <linux/sched/mm.h>
 
+#ifdef CONFIG_BCACHEFS_DEBUG
+static unsigned bch2_write_corrupt_ratio;
+module_param_named(write_corrupt_ratio, bch2_write_corrupt_ratio, uint, 0644);
+MODULE_PARM_DESC(write_corrupt_ratio, "");
+#endif
+
 #ifndef CONFIG_BCACHEFS_NO_LATENCY_ACCT
 
 static inline void bch2_congested_acct(struct bch_dev *ca, u64 io_latency,
@@ -1005,6 +1011,15 @@ static int bch2_write_extent(struct bch_write_op *op, struct write_point *wp,
 		bounce = true;
 	}
 
+#ifdef CONFIG_BCACHEFS_DEBUG
+	unsigned write_corrupt_ratio = READ_ONCE(bch2_write_corrupt_ratio);
+	if (!bounce && write_corrupt_ratio) {
+		dst = bch2_write_bio_alloc(c, wp, src,
+					   &page_alloc_failed,
+					   ec_buf);
+		bounce = true;
+	}
+#endif
 	saved_iter = dst->bi_iter;
 
 	do {
@@ -1113,6 +1128,14 @@ static int bch2_write_extent(struct bch_write_op *op, struct write_point *wp,
 		}
 
 		init_append_extent(op, wp, version, crc);
+
+#ifdef CONFIG_BCACHEFS_DEBUG
+		if (write_corrupt_ratio) {
+			swap(dst->bi_iter.bi_size, dst_len);
+			bch2_maybe_corrupt_bio(dst, write_corrupt_ratio);
+			swap(dst->bi_iter.bi_size, dst_len);
+		}
+#endif
 
 		if (dst != src)
 			bio_advance(dst, dst_len);
@@ -1394,6 +1417,7 @@ retry:
 		bio->bi_private	= &op->cl;
 		bio->bi_opf |= REQ_OP_WRITE;
 		closure_get(&op->cl);
+
 		bch2_submit_wbio_replicas(to_wbio(bio), c, BCH_DATA_user,
 					  op->insert_keys.top, true);
 
@@ -1718,20 +1742,26 @@ static const char * const bch2_write_flags[] = {
 
 void bch2_write_op_to_text(struct printbuf *out, struct bch_write_op *op)
 {
-	prt_str(out, "pos: ");
+	if (!out->nr_tabstops)
+		printbuf_tabstop_push(out, 32);
+
+	prt_printf(out, "pos:\t");
 	bch2_bpos_to_text(out, op->pos);
 	prt_newline(out);
 	printbuf_indent_add(out, 2);
 
-	prt_str(out, "started: ");
+	prt_printf(out, "started:\t");
 	bch2_pr_time_units(out, local_clock() - op->start_time);
 	prt_newline(out);
 
-	prt_str(out, "flags: ");
+	prt_printf(out, "flags:\t");
 	prt_bitflags(out, bch2_write_flags, op->flags);
 	prt_newline(out);
 
-	prt_printf(out, "ref: %u\n", closure_nr_remaining(&op->cl));
+	prt_printf(out, "nr_replicas:\t%u\n", op->nr_replicas);
+	prt_printf(out, "nr_replicas_required:\t%u\n", op->nr_replicas_required);
+
+	prt_printf(out, "ref:\t%u\n", closure_nr_remaining(&op->cl));
 
 	printbuf_indent_sub(out, 2);
 }

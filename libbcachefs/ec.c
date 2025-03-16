@@ -380,19 +380,6 @@ static int mark_stripe_buckets(struct btree_trans *trans,
 	return 0;
 }
 
-static inline void stripe_to_mem(struct stripe *m, const struct bch_stripe *s)
-{
-	m->sectors	= le16_to_cpu(s->sectors);
-	m->algorithm	= s->algorithm;
-	m->nr_blocks	= s->nr_blocks;
-	m->nr_redundant	= s->nr_redundant;
-	m->disk_label	= s->disk_label;
-	m->blocks_nonempty = 0;
-
-	for (unsigned i = 0; i < s->nr_blocks; i++)
-		m->blocks_nonempty += !!stripe_blockcount_get(s, i);
-}
-
 int bch2_trigger_stripe(struct btree_trans *trans,
 			enum btree_id btree, unsigned level,
 			struct bkey_s_c old, struct bkey_s _new,
@@ -1320,6 +1307,7 @@ static void ec_stripe_create(struct ec_stripe_new *s)
 	if (s->err) {
 		if (!bch2_err_matches(s->err, EROFS))
 			bch_err(c, "error creating stripe: error writing data buckets");
+		ret = s->err;
 		goto err;
 	}
 
@@ -1328,6 +1316,7 @@ static void ec_stripe_create(struct ec_stripe_new *s)
 
 		if (ec_do_recov(c, &s->existing_stripe)) {
 			bch_err(c, "error creating stripe: error reading existing stripe");
+			ret = -BCH_ERR_ec_block_read;
 			goto err;
 		}
 
@@ -1353,6 +1342,7 @@ static void ec_stripe_create(struct ec_stripe_new *s)
 
 	if (ec_nr_failed(&s->new_stripe)) {
 		bch_err(c, "error creating stripe: error writing redundancy buckets");
+		ret = -BCH_ERR_ec_block_write;
 		goto err;
 	}
 

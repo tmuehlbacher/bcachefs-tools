@@ -148,6 +148,7 @@ write_attribute(trigger_btree_key_cache_shrink);
 write_attribute(trigger_freelist_wakeup);
 write_attribute(trigger_btree_updates);
 read_attribute(gc_gens_pos);
+write_attribute(read_fua_test);
 
 read_attribute(uuid);
 read_attribute(minor);
@@ -395,6 +396,71 @@ SHOW(bch2_fs)
 	return 0;
 }
 
+static int read_fua_test(struct bch_fs *c)
+{
+	int ret = 0;
+	unsigned bs = 4096;
+	struct bio *bio;
+	void *buf;
+
+	struct bch_dev *ca = bch2_dev_get_ioref(c, 0, READ);
+	if (!ca)
+		return -EINVAL;
+
+	bio = bio_kmalloc(1, GFP_KERNEL);
+	if (!bio) {
+		ret = -ENOMEM;
+		goto err;
+	}
+
+	buf = kmalloc(bs, GFP_KERNEL);
+	if (!buf)
+		goto err;
+
+	u64 start = ktime_get_ns();
+	for (unsigned i = 0; i < 1000; i++) {
+		bio_init(bio, ca->disk_sb.bdev, bio->bi_inline_vecs, 1, READ);
+		bch2_bio_map(bio, buf, bs);
+		ret = submit_bio_wait(bio);
+		if (ret)
+			goto err;
+	}
+	u64 ns_nofua = ktime_get_ns() - start;
+
+	start = ktime_get_ns();
+	for (unsigned i = 0; i < 1000; i++) {
+		bio_init(bio, ca->disk_sb.bdev, bio->bi_inline_vecs, 1, REQ_FUA|READ);
+		bch2_bio_map(bio, buf, bs);
+		ret = submit_bio_wait(bio);
+		if (ret)
+			goto err;
+	}
+	u64 ns_fua = ktime_get_ns() - start;
+
+	u64 dev_size = ca->mi.nbuckets * bucket_bytes(ca);
+
+	start = ktime_get_ns();
+	for (unsigned i = 0; i < 1000; i++) {
+		bio_init(bio, ca->disk_sb.bdev, bio->bi_inline_vecs, 1, READ);
+		bio->bi_iter.bi_sector = (get_random_u64_below(dev_size) & ~((u64) bs - 1)) >> 9;
+		bch2_bio_map(bio, buf, bs);
+		ret = submit_bio_wait(bio);
+		if (ret)
+			goto err;
+	}
+	u64 ns_rand = ktime_get_ns() - start;
+
+	pr_info("ns  nofua %llu", ns_nofua);
+	pr_info("ns    fua %llu", ns_fua);
+	pr_info("ns random %llu", ns_rand);
+err:
+	kfree(buf);
+	kfree(bio);
+	percpu_ref_put(&ca->io_ref);
+	bch_err_fn(c, ret);
+	return ret;
+}
+
 STORE(bch2_fs)
 {
 	struct bch_fs *c = container_of(kobj, struct bch_fs, kobj);
@@ -450,6 +516,9 @@ STORE(bch2_fs)
 
 	if (attr == &sysfs_trigger_freelist_wakeup)
 		closure_wake_up(&c->freelist_wait);
+
+	if (attr == &sysfs_read_fua_test)
+		read_fua_test(c);
 
 #ifdef CONFIG_BCACHEFS_TESTS
 	if (attr == &sysfs_perf_test) {
@@ -580,6 +649,7 @@ struct attribute *bch2_fs_internal_files[] = {
 	&sysfs_trigger_btree_key_cache_shrink,
 	&sysfs_trigger_freelist_wakeup,
 	&sysfs_trigger_btree_updates,
+	&sysfs_read_fua_test,
 
 	&sysfs_gc_gens_pos,
 

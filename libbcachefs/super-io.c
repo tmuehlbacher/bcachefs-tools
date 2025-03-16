@@ -365,10 +365,9 @@ static int bch2_sb_compatible(struct bch_sb *sb, struct printbuf *out)
 	return 0;
 }
 
-static int bch2_sb_validate(struct bch_sb_handle *disk_sb,
-			    enum bch_validate_flags flags, struct printbuf *out)
+int bch2_sb_validate(struct bch_sb *sb, u64 read_offset,
+		     enum bch_validate_flags flags, struct printbuf *out)
 {
-	struct bch_sb *sb = disk_sb->sb;
 	struct bch_sb_field_members_v1 *mi;
 	enum bch_opt_id opt_id;
 	int ret;
@@ -377,15 +376,27 @@ static int bch2_sb_validate(struct bch_sb_handle *disk_sb,
 	if (ret)
 		return ret;
 
-	if (sb->features[1] ||
-	    (le64_to_cpu(sb->features[0]) & (~0ULL << BCH_FEATURE_NR))) {
-		prt_printf(out, "Filesystem has incompatible features");
+	u64 incompat = le64_to_cpu(sb->features[0]) & (~0ULL << BCH_FEATURE_NR);
+	unsigned incompat_bit = 0;
+	if (incompat)
+		incompat_bit = __ffs64(incompat);
+	else if (sb->features[1])
+		incompat_bit = 64 + __ffs64(le64_to_cpu(sb->features[1]));
+
+	if (incompat_bit) {
+		prt_printf(out, "Filesystem has incompatible feature bit %u, highest supported %s (%u)",
+			   incompat_bit,
+			   bch2_sb_features[BCH_FEATURE_NR - 1],
+			   BCH_FEATURE_NR - 1);
 		return -BCH_ERR_invalid_sb_features;
 	}
 
 	if (BCH_VERSION_MAJOR(le16_to_cpu(sb->version)) > BCH_VERSION_MAJOR(bcachefs_metadata_version_current) ||
 	    BCH_SB_VERSION_INCOMPAT(sb) > bcachefs_metadata_version_current) {
-		prt_printf(out, "Filesystem has incompatible version");
+		prt_str(out, "Filesystem has incompatible version ");
+		bch2_version_to_text(out, le16_to_cpu(sb->version));
+		prt_str(out, ", current version ");
+		bch2_version_to_text(out, bcachefs_metadata_version_current);
 		return -BCH_ERR_invalid_sb_features;
 	}
 
@@ -397,6 +408,13 @@ static int bch2_sb_validate(struct bch_sb_handle *disk_sb,
 	if (bch2_is_zero(sb->uuid.b, sizeof(sb->uuid))) {
 		prt_printf(out, "Bad internal UUID (got zeroes)");
 		return -BCH_ERR_invalid_sb_uuid;
+	}
+
+	if (!(flags & BCH_VALIDATE_write) &&
+	    le64_to_cpu(sb->offset) != read_offset) {
+		prt_printf(out, "Bad sb offset (got %llu, read from %llu)",
+			   le64_to_cpu(sb->offset), read_offset);
+		return -BCH_ERR_invalid_sb_offset;
 	}
 
 	if (!sb->nr_devices ||
@@ -457,6 +475,10 @@ static int bch2_sb_validate(struct bch_sb_handle *disk_sb,
 
 		if (!BCH_SB_WRITE_ERROR_TIMEOUT(sb))
 			SET_BCH_SB_WRITE_ERROR_TIMEOUT(sb, 30);
+
+		if (le16_to_cpu(sb->version) <= bcachefs_metadata_version_extent_flags &&
+		    !BCH_SB_CSUM_ERR_RETRY_NR(sb))
+			SET_BCH_SB_CSUM_ERR_RETRY_NR(sb, 3);
 	}
 
 #ifdef __KERNEL__
@@ -874,7 +896,7 @@ got_super:
 
 	sb->have_layout = true;
 
-	ret = bch2_sb_validate(sb, 0, &err);
+	ret = bch2_sb_validate(sb->sb, offset, 0, &err);
 	if (ret) {
 		bch2_print_opts(opts, KERN_ERR "bcachefs (%s): error validating superblock: %s\n",
 				path, err.buf);
@@ -1031,7 +1053,7 @@ int bch2_write_super(struct bch_fs *c)
 	darray_for_each(online_devices, ca) {
 		printbuf_reset(&err);
 
-		ret = bch2_sb_validate(&(*ca)->disk_sb, BCH_VALIDATE_write, &err);
+		ret = bch2_sb_validate((*ca)->disk_sb.sb, 0, BCH_VALIDATE_write, &err);
 		if (ret) {
 			bch2_fs_inconsistent(c, "sb invalid before write: %s", err.buf);
 			goto out;

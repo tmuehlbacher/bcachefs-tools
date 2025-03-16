@@ -117,6 +117,9 @@ static int readpage_bio_extend(struct btree_trans *trans,
 
 			unsigned order = ilog2(rounddown_pow_of_two(sectors_remaining) / PAGE_SECTORS);
 
+			/* ensure proper alignment */
+			order = min(order, __ffs(folio_offset|BIT(31)));
+
 			folio = xa_load(&iter->mapping->i_pages, folio_offset);
 			if (folio && !xa_is_value(folio))
 				break;
