@@ -79,6 +79,9 @@ static inline struct dev_opts dev_opts_default()
 	};
 }
 
+void bch2_sb_layout_init(struct bch_sb_layout *,
+			 unsigned, unsigned, u64, u64);
+
 u64 bch2_pick_bucket_size(struct bch_opts, struct dev_opts *);
 void bch2_check_bucket_size(struct bch_opts, struct dev_opts *);
 

@@ -31,10 +31,10 @@
 
 #define NSEC_PER_SEC	1000000000L
 
-static void init_layout(struct bch_sb_layout *l,
-			unsigned block_size,
-			unsigned sb_size,
-			u64 sb_start, u64 sb_end)
+void bch2_sb_layout_init(struct bch_sb_layout *l,
+			 unsigned block_size,
+			 unsigned sb_size,
+			 u64 sb_start, u64 sb_end)
 {
 	u64 sb_pos = sb_start;
 	unsigned i;
@@ -307,9 +307,9 @@ struct bch_sb *bch2_format(struct bch_opt_strs	fs_opt_strs,
 			i->sb_end	= size_sectors;
 		}
 
-		init_layout(&sb.sb->layout, fs_opts.block_size,
-			    opts.superblock_size,
-			    i->sb_offset, i->sb_end);
+		bch2_sb_layout_init(&sb.sb->layout, fs_opts.block_size,
+				    opts.superblock_size,
+				    i->sb_offset, i->sb_end);
 
 		/*
 		 * Also create a backup superblock at the end of the disk:

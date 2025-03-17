@@ -33,6 +33,7 @@ void bcachefs_usage(void)
 	     "Superblock commands:\n"
 	     "  format                   Format a new filesystem\n"
 	     "  show-super               Dump superblock information to stdout\n"
+	     "  recover-super            Attempt to recover overwritten superblock from backups\n"
 	     "  set-fs-option            Set a filesystem option\n"
 	     "  reset-counters           Reset all counters on an unmounted device\n"
 	     "\n"
