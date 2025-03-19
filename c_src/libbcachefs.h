@@ -28,6 +28,9 @@ struct {
 };
 
 void bch2_opt_strs_free(struct bch_opt_strs *);
+
+const struct bch_option *bch2_cmdline_opt_parse(int argc, char *argv[],
+						unsigned opt_types);
 struct bch_opt_strs bch2_cmdline_opts_get(int *, char *[], unsigned);
 struct bch_opts bch2_parse_opts(struct bch_opt_strs);
 void bch2_opts_usage(unsigned);
@@ -58,25 +61,20 @@ struct dev_opts {
 	struct file	*file;
 	struct block_device *bdev;
 	char		*path;
-	u64		size;		/* bytes*/
-	u64		bucket_size;	/* bytes */
-	const char	*label;
-	unsigned	data_allowed;
-	unsigned	durability;
-	bool		discard;
-
-	u64		nbuckets;
 
 	u64		sb_offset;
 	u64		sb_end;
+
+	u64		nbuckets;
+
+	const char	*label; /* make this a bch_opt */
+
+	struct bch_opts	opts;
 };
 
 static inline struct dev_opts dev_opts_default()
 {
-	return (struct dev_opts) {
-		.data_allowed		= ~0U << 2,
-		.durability		= 1,
-	};
+	return (struct dev_opts) { .opts = bch2_opts_empty() };
 }
 
 void bch2_sb_layout_init(struct bch_sb_layout *,

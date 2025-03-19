@@ -128,13 +128,13 @@ enum fsck_err_opts {
 	  OPT_FS|OPT_FORMAT|						\
 	  OPT_HUMAN_READABLE|OPT_MUST_BE_POW_2|OPT_SB_FIELD_SECTORS,	\
 	  OPT_UINT(512, 1U << 16),					\
-	  BCH_SB_BLOCK_SIZE,		8,				\
+	  BCH_SB_BLOCK_SIZE,		4 << 10,			\
 	  "size",	NULL)						\
 	x(btree_node_size,		u32,				\
 	  OPT_FS|OPT_FORMAT|						\
 	  OPT_HUMAN_READABLE|OPT_MUST_BE_POW_2|OPT_SB_FIELD_SECTORS,	\
 	  OPT_UINT(512, 1U << 20),					\
-	  BCH_SB_BTREE_NODE_SIZE,	512,				\
+	  BCH_SB_BTREE_NODE_SIZE,	256 << 10,			\
 	  "size",	"Btree node size, default 256k")		\
 	x(errors,			u8,				\
 	  OPT_FS|OPT_FORMAT|OPT_MOUNT|OPT_RUNTIME,			\

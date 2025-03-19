@@ -159,9 +159,9 @@ static void find_superblock_space(ranges extents,
 {
 	darray_for_each(extents, i) {
 		u64 start = round_up(max(256ULL << 10, i->start),
-				     dev->bucket_size << 9);
+				     dev->opts.bucket_size << 9);
 		u64 end = round_down(i->end,
-				     dev->bucket_size << 9);
+				     dev->opts.bucket_size << 9);
 
 		/* Need space for two superblocks: */
 		if (start + (opts.superblock_size << 9) * 2 <= end) {
@@ -225,9 +225,9 @@ static int migrate_fs(const char		*fs_path,
 	printf("Creating new filesystem on %s in space reserved at %s\n",
 	       dev.path, file_path);
 
-	dev.size	= get_size(dev.bdev->bd_fd);
-	dev.bucket_size = bch2_pick_bucket_size(fs_opts, &dev);
-	dev.nbuckets	= dev.size / dev.bucket_size;
+	dev.opts.fs_size	= get_size(dev.bdev->bd_fd);
+	dev.opts.bucket_size	= bch2_pick_bucket_size(fs_opts, &dev);
+	dev.nbuckets		= dev.opts.fs_size / dev.opts.bucket_size;
 
 	bch2_check_bucket_size(fs_opts, &dev);
 
