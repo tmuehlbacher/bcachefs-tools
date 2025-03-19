@@ -227,7 +227,10 @@ int cmd_fsck(int argc, char *argv[])
 				  "apynfo:rRkKvh",
 				  longopts, NULL)) != -1)
 		switch (opt) {
-		case 'a': /* outdated alias for -p */
+		case 'a':
+			/* "automatic" run, called by the system, for us to do checks as needed.
+			 *  we don't need checks here: */
+			exit(EXIT_SUCCESS);
 		case 'p':
 		case 'y':
 			append_opt(&opts_str, "fix_errors=yes");
