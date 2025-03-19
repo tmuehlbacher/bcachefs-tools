@@ -69,6 +69,11 @@ static inline u32 get_random_u32_below(u32 ceil)
 	}
 }
 
+static inline u32 __get_random_u32_below(u32 ceil)
+{
+	return get_random_u32_below(ceil);
+}
+
 static inline u64 get_random_u64_below(u64 ceil)
 {
 	if (ceil <= 1)
