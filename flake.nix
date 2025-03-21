@@ -253,6 +253,22 @@
             }
           );
 
+          # cargo clippy with the current minimum supported rust version
+          # according to Cargo.toml
+          checks.msrv =
+            let
+              rustVersion = cargoToml.package.rust-version;
+              common = pkgs.callPackage mkCommon { inherit crane rustVersion; };
+            in
+            common.craneLib.cargoClippy (
+              common.args
+              // {
+                pname = "msrv";
+                inherit (common) cargoArtifacts;
+                cargoClippyExtraArgs = "--all-targets --all-features -- --deny warnings";
+              }
+            );
+
           devShells.default = pkgs.mkShell {
             inputsFrom = [
               config.packages.default
