@@ -13,8 +13,8 @@
 
     crane.url = "github:ipetkov/crane";
 
-    fenix = {
-      url = "github:nix-community/fenix";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -30,9 +30,9 @@
       nixpkgs,
       flake-parts,
       treefmt-nix,
-      fenix,
       crane,
-      ...
+      rust-overlay,
+      flake-compat,
     }:
     let
       systems = nixpkgs.lib.filter (s: nixpkgs.lib.hasSuffix "-linux" s) nixpkgs.lib.systems.flakeExposed;
@@ -47,7 +47,6 @@
           self',
           config,
           lib,
-          pkgs,
           system,
           ...
         }:
@@ -55,6 +54,11 @@
           inherit (builtins) readFile split;
           inherit (lib.lists) findFirst;
           inherit (lib.strings) hasPrefix removePrefix substring;
+
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [ (import rust-overlay) ];
+          };
 
           cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
           rustfmtToml = builtins.fromTOML (builtins.readFile ./rustfmt.toml);
@@ -198,7 +202,7 @@
               nixfmt.enable = true;
               rustfmt.edition = rustfmtToml.edition;
               rustfmt.enable = true;
-              rustfmt.package = fenix.packages.${system}.default.rustfmt;
+              rustfmt.package = pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.rustfmt);
             };
           };
         };
