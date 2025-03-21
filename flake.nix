@@ -82,7 +82,6 @@
               stdenv,
 
               # run time
-              attr,
               keyutils,
               libaio,
               libsodium,
@@ -133,7 +132,6 @@
                 ];
 
                 buildInputs = [
-                  attr
                   keyutils
                   libaio
                   libsodium
