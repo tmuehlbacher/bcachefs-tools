@@ -34,16 +34,13 @@
       crane,
       ...
     }:
+    let
+      systems = nixpkgs.lib.filter (s: nixpkgs.lib.hasSuffix "-linux" s) nixpkgs.lib.systems.flakeExposed;
+    in
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [ inputs.treefmt-nix.flakeModule ];
 
-      # can be extended, but these have proper binary cache support in nixpkgs
-      # as of writing.
-      systems = [
-        "aarch64-linux"
-        "x86_64-linux"
-        "i686-linux"
-      ];
+      inherit systems;
 
       perSystem =
         {
