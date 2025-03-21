@@ -269,6 +269,8 @@
               }
             );
 
+          checks."32-bit" = config.packages."${cargoToml.package.name}-i686-linux";
+
           devShells.default = pkgs.mkShell {
             inputsFrom = [
               config.packages.default
